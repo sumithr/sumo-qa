@@ -506,8 +506,8 @@ def test_filter_terms_strip_only_quote_chars():
     """
     from sumo_qa.knowledge_loaders import _classification_filter_terms
 
-    assert _classification_filter_terms("X, Xray_change") == {"x", "xray_change"}
-    assert _classification_filter_terms("`X`") == {"x"}
+    assert _classification_filter_terms("X, Xray_change") == {"X", "Xray_change"}
+    assert _classification_filter_terms("`X`") == {"X"}
 
 
 def test_metadata_terms_strip_only_quote_chars_and_split():
@@ -521,11 +521,11 @@ def test_metadata_terms_strip_only_quote_chars_and_split():
     from sumo_qa.knowledge_loaders import _metadata_terms
 
     assert _metadata_terms(["X", "Xray_change, api_contract_change"]) == {
-        "x",
-        "xray_change",
+        "X",
+        "Xray_change",
         "api_contract_change",
     }
-    assert _metadata_terms(("`X`",)) == {"x"}
+    assert _metadata_terms(("`X`",)) == {"X"}
 
 
 def test_load_rules_resolves_aliases_for_multiple_terms_in_one_call(tmp_path, monkeypatch):
@@ -792,15 +792,35 @@ def test_split_classification_terms_strips_quotes_and_keeps_order():
 def test_split_classification_terms_strips_only_quote_chars():
     from sumo_qa.knowledge_loaders import split_classification_terms
 
-    assert split_classification_terms("XaX,X") == ["xax", "x"]
+    assert split_classification_terms("XaX,X") == ["XaX", "X"]
 
 
-def test_metadata_terms_parses_every_container_and_skips_none():
+def test_metadata_terms_parses_every_container_and_keeps_case():
     from sumo_qa.knowledge_loaders import _metadata_terms
 
-    assert _metadata_terms({"A_Change"}) == {"a_change"}
-    assert _metadata_terms(["B_change", None]) == {"b_change"}
+    assert _metadata_terms({"A_Change"}) == {"A_Change"}
+    assert _metadata_terms(["B_change", None]) == {"B_change", "None"}
+    assert _metadata_terms("c_change d_change") == {"c_change", "d_change"}
     assert _metadata_terms(None) == set()
+
+
+@pytest.mark.parametrize(
+    "value", [{"api_contract_change": True}, {"api_contract_change": ["security_change"]}]
+)
+def test_metadata_terms_declares_no_ids_for_a_mapping(value):
+    from sumo_qa.knowledge_loaders import _metadata_terms
+
+    assert _metadata_terms(value) == set()
+
+
+def test_split_classification_terms_keeps_case():
+    from sumo_qa.knowledge_loaders import _classification_filter_terms, split_classification_terms
+
+    assert split_classification_terms("Business_Logic_Change, api_change") == [
+        "Business_Logic_Change",
+        "api_change",
+    ]
+    assert _classification_filter_terms("Business_Logic_Change") == {"Business_Logic_Change"}
 
 
 def test_find_catalogue_entry_matches_id_or_padded_heading_case_insensitively():
@@ -813,90 +833,34 @@ def test_find_catalogue_entry_matches_id_or_padded_heading_case_insensitively():
     assert find_catalogue_entry(entries, "missing") is None
 
 
-def test_standards_packs_declare_ids_from_either_key_and_none_when_unparseable(
-    tmp_path, monkeypatch
-):
-    from sumo_qa.knowledge_loaders import read_standards_packs, sumo_qa_load_standards
-
-    (tmp_path / "a.yaml").write_text("applies_to_classifications: [A_Change]\n", "utf-8")
-    (tmp_path / "b.yml").write_text("classifications: b_change\n", "utf-8")
-    (tmp_path / "c.yaml").write_text("applies_to_classifications: [unclosed\n", "utf-8")
-    (tmp_path / "d.yaml").write_text("- a_change\n", "utf-8")
-    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
-    packs = read_standards_packs()
-    assert [(name, ids) for name, _, ids in packs] == [
-        ("a.yaml", {"a_change"}),
-        ("b.yml", {"b_change"}),
-        ("c.yaml", set()),
-        ("d.yaml", set()),
-    ]
-    assert sumo_qa_load_standards(classification="A_CHANGE").startswith("# a.yaml\n\n")
-    assert "# b.yml" in sumo_qa_load_standards(classification="b_change")
-    assert sumo_qa_load_standards(classification="a_change, B_change") == (
-        "# a.yaml\n\napplies_to_classifications: [A_Change]\n\n\n---\n\n"
-        "# b.yml\n\nclassifications: b_change\n"
-    )
-
-
-def test_rule_classification_ids_cover_keys_and_aliases_of_present_targets():
-    from sumo_qa.knowledge_loaders import rule_classification_ids
-
-    assert rule_classification_ids(None) == set()
-    assert rule_classification_ids({"UI_Only_Change": {}, "ui_only_change": {}}) == {
-        "ui_only_change",
-        "frontend_change",
-    }
-    assert rule_classification_ids({"caching_change": {}}) == {
-        "caching_change",
-        "performance_change",
-    }
-
-
-def test_rules_filter_matches_mixed_case_keys_and_ids(tmp_path, monkeypatch):
-    import yaml
-
-    from sumo_qa.knowledge_loaders import sumo_qa_load_rules
+def test_filters_stay_case_sensitive(tmp_path, monkeypatch):
+    from sumo_qa.knowledge_loaders import sumo_qa_load_rules, sumo_qa_load_standards
 
     rules = tmp_path / "rules.yaml"
-    rules.write_text("Business_Logic_Change:\n  must_consider: [x]\n", "utf-8")
+    rules.write_text("business_logic_change:\n  must_consider: [x]\n", "utf-8")
+    (tmp_path / "packs").mkdir()
+    (tmp_path / "packs" / "p.yaml").write_text(
+        "applies_to_classifications: [api_change]\n", "utf-8"
+    )
     monkeypatch.setenv("QA_RULES_PATH", str(rules))
-    out = yaml.safe_load(sumo_qa_load_rules(classification="business_LOGIC_change"))
-    assert out == {"Business_Logic_Change": {"must_consider": ["x"]}}
-    rules.write_text(
-        "business_logic_change: {must_consider: [b]}\nui_only_change: {must_consider: [u]}\n",
-        "utf-8",
-    )
-    both = yaml.safe_load(
-        sumo_qa_load_rules(classification="Frontend_Change, business_logic_change")
-    )
-    assert both == {
-        "business_logic_change": {"must_consider": ["b"]},
-        "frontend_change": {"must_consider": ["u"]},
-    }
-    rules.write_text("Business_Logic_Change:\n  must_consider: [x]\n", "utf-8")
-    assert sumo_qa_load_rules() == rules.read_text("utf-8")
-    rules.write_text("- not a mapping\n", "utf-8")
-    assert sumo_qa_load_rules(classification="anything") == "- not a mapping\n"
-
-
-def test_rules_and_standards_readers_decode_as_utf8(tmp_path, monkeypatch):
-    from pathlib import Path
-
-    from sumo_qa.knowledge_loaders import read_rules, read_standards_packs
-
-    (tmp_path / "p.yaml").write_text("classifications: x\n", "utf-8")
-    rules = tmp_path / "rules.yaml"
-    rules.write_text("x: {}\n", "utf-8")
     monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    assert sumo_qa_load_rules(classification="Business_Logic_Change") == "{}\n"
+    assert sumo_qa_load_standards(classification="API_Change") == ""
+    assert sumo_qa_load_standards(classification="api_change").startswith("# p.yaml")
+
+
+def test_unfiltered_loaders_return_raw_text_without_parsing(tmp_path, monkeypatch):
+    """A date YAML cannot construct makes ``yaml.safe_load`` raise ValueError;
+    the unfiltered loaders never parse, so they still return the file."""
+    from sumo_qa.knowledge_loaders import sumo_qa_load_rules, sumo_qa_load_standards
+
+    rules = tmp_path / "rules.yaml"
+    rules_text = "business_logic_change:\n  reviewed: 2026-02-30\n"
+    rules.write_text(rules_text, "utf-8")
+    pack_text = "applies_to_classifications: [api_change]\ndate: 2026-13-01\n"
+    (tmp_path / "packs").mkdir()
+    (tmp_path / "packs" / "p.yaml").write_text(pack_text, "utf-8")
     monkeypatch.setenv("QA_RULES_PATH", str(rules))
-    seen: list[object] = []
-    original = Path.read_text
-
-    def spy(self, *args, **kwargs):
-        seen.append(kwargs.get("encoding", "MISSING"))
-        return original(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", spy)
-    read_rules()
-    read_standards_packs()
-    assert len(seen) >= 2 and set(seen) == {"utf-8"}
+    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    assert sumo_qa_load_rules() == rules_text
+    assert sumo_qa_load_standards() == f"# p.yaml\n\n{pack_text}"

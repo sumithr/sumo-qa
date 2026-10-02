@@ -346,3 +346,26 @@ def test_compact_bootstrap_injects_the_absolute_router_path(tmp_path, host_env):
     ctx = _extract_additional_context(json.loads(proc.stdout))
     assert f"{root.resolve()}/skills/using-sumo-qa/SKILL.md" in ctx
     assert "${PLUGIN_ROOT}" not in ctx
+
+
+@_BASH
+def test_compact_bootstrap_injects_the_cygpath_windows_form_when_available(tmp_path):
+    """Under Git Bash / MSYS the hook hands the host the `cygpath -m` form of
+    the plugin root (C:/Users/...), JSON-escaped like any other path."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for name, body in (
+        ("uvx", "#!/bin/sh\necho 0.5.0\n"),
+        ("cygpath", '#!/bin/sh\n[ "$1" = -m ] && printf \'C:/Users/plug "in" & co%s\' "$2"\n'),
+    ):
+        stub = bindir / name
+        stub.write_text(body)
+        stub.chmod(0o755)
+    env = {"HOME": os.environ["HOME"], "PATH": f"{bindir}:/usr/bin:/bin"}
+    proc = subprocess.run(
+        ["bash", str(HOOK_SCRIPT)], env=env, capture_output=True, text=True, timeout=10
+    )
+    assert proc.returncode == 0, proc.stderr
+    ctx = _extract_additional_context(json.loads(proc.stdout))
+    assert f'C:/Users/plug "in" & co{ROOT}/skills/using-sumo-qa/SKILL.md' in ctx
+    assert f"`{ROOT}/skills" not in ctx

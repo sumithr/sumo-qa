@@ -177,14 +177,114 @@ def test_unreadable_classification_catalogue_returns_envelope_not_raise(monkeypa
     assert "unreadable" in out["error"]
 
 
-def test_mixed_case_classification_gets_the_same_rules_from_loader_and_bundle():
-    """The single loaders and the bundle parse ids through one shared parser,
-    so a mixed-case id selects the same rules and standards everywhere."""
+def test_mixed_case_id_selects_what_the_loaders_select_for_its_canonical_spelling():
+    """The single loaders match case-sensitively, as they always have; the
+    bundle maps a mixed-case id to its canonical spelling first."""
     out = _bundle(classification="Business_Logic_Change")
-    loader_rules = sumo_qa_load_rules(classification="Business_Logic_Change")
-    assert loader_rules.strip() != "{}"
-    assert out["rules"] == loader_rules
-    assert out["standards"] == sumo_qa_load_standards(classification="Business_Logic_Change")
+    assert sumo_qa_load_rules(classification="Business_Logic_Change").strip() == "{}"
+    assert out["rules"] == sumo_qa_load_rules(classification="business_logic_change")
+    assert out["rules"].strip() != "{}"
+    assert out["standards"] == sumo_qa_load_standards(classification="business_logic_change")
+
+
+def _rules_file(monkeypatch, tmp_path, body: str) -> None:
+    rules = tmp_path / "change_rules.yaml"
+    rules.write_text(body, encoding="utf-8")
+    monkeypatch.setenv("QA_RULES_PATH", str(rules))
+
+
+def test_a_mixed_case_rules_key_wins_over_its_alias_without_a_duplicate(monkeypatch, tmp_path):
+    _rules_file(
+        monkeypatch,
+        tmp_path,
+        "Frontend_Change:\n  must_consider: [own]\nui_only_change:\n  must_consider: [alias]\n",
+    )
+    out = _bundle(classification="frontend_change")
+    assert out["classification"] == ["frontend_change"]
+    assert out["rules"] == "Frontend_Change:\n  must_consider:\n  - own\n"
+    assert out["rules"] == sumo_qa_load_rules(classification="Frontend_Change")
+
+
+def test_an_alias_resolves_to_a_target_key_spelt_in_another_case(monkeypatch, tmp_path):
+    _rules_file(monkeypatch, tmp_path, "UI_Only_Change:\n  must_consider: [ui]\n")
+    out = _bundle(classification="frontend_change")
+    assert "error" not in out, out
+    assert out["rules"] == "UI_Only_Change:\n  must_consider:\n  - ui\n"
+    assert out["rules"] == sumo_qa_load_rules(classification="UI_Only_Change")
+    assert _bundle(classification="ui_only_change")["rules"] == out["rules"]
+
+
+def test_an_alias_with_an_exact_target_stays_the_alias_spelling(monkeypatch, tmp_path):
+    _rules_file(monkeypatch, tmp_path, "ui_only_change:\n  must_consider: [ui]\n")
+    out = _bundle(classification="Frontend_Change")
+    assert out["rules"] == "frontend_change:\n  must_consider:\n  - ui\n"
+    assert out["rules"] == sumo_qa_load_rules(classification="frontend_change")
+
+
+def test_an_alias_without_any_target_key_is_unknown(monkeypatch, tmp_path):
+    _rules_file(monkeypatch, tmp_path, "other_change:\n  must_consider: [x]\n")
+    out = _bundle(classification="caching_change")
+    assert "caching_change" in out["error"]
+    assert "other_change" in out["available_classifications"]
+    assert _bundle(classification="performance_change")["rules"] == "{}\n"
+
+
+def test_standards_ids_resolve_to_every_declared_spelling(monkeypatch, tmp_path):
+    packs = tmp_path / "packs"
+    packs.mkdir()
+    (packs / "a.yaml").write_text("applies_to_classifications: [Pack_Change]\n", "utf-8")
+    (packs / "b.yml").write_text("classifications: pack_change\n", "utf-8")
+    (packs / "c.yaml").write_text("classifications: other_change\n", "utf-8")
+    (packs / "d.yaml").write_text("classifications: [unclosed\n", "utf-8")
+    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    out = _bundle(classification="PACK_CHANGE")
+    assert out["classification"] == ["Pack_Change"]
+    assert out["standards"] == sumo_qa_load_standards(classification="Pack_Change,pack_change")
+    assert "# a.yaml" in out["standards"] and "# b.yml" in out["standards"]
+    assert "# c.yaml" not in out["standards"] and "# d.yaml" not in out["standards"]
+
+
+@pytest.mark.parametrize(
+    ("source", "body"),
+    [
+        ("rules", "business_logic_change:\n  reviewed: 2026-02-30\n"),
+        ("standards", "classifications: [business_logic_change]\ndate: 2026-13-01\n"),
+        ("standards", "- business_logic_change\n"),
+        ("rules", "b: " + "[" * 5000 + "]" * 5000 + "\n"),
+    ],
+)
+def test_a_source_the_loaders_cannot_parse_returns_an_envelope(monkeypatch, tmp_path, source, body):
+    if source == "rules":
+        _rules_file(monkeypatch, tmp_path, body)
+    else:
+        (tmp_path / "packs").mkdir()
+        (tmp_path / "packs" / "p.yaml").write_text(body, "utf-8")
+        monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    out = _bundle(classification="business_logic_change")
+    assert "unreadable" in out["error"]
+
+
+def test_module_ids_are_matched_exactly_as_in_module_mode(monkeypatch):
+    records = sm._skill_records()
+    review = records[REVIEW]
+    review["modules"] = [dict(m, id=m["id"].title()) for m in review["modules"]]
+    monkeypatch.setattr(sm, "_skill_records", lambda: records)
+    upper = review["modules"][0]["id"]
+    assert upper != upper.lower()
+    single = sm.load_skill_context(REVIEW, "module", module=upper)
+    bundled = _bundle(modules=upper)
+    assert bundled["modules"] == [
+        {"id": upper, "path": review["modules"][0]["path"], "content": single["content"]}
+    ]
+    lower = upper.lower()
+    for mode_out in (_bundle(modules=lower), sm.load_skill_context(REVIEW, "module", module=lower)):
+        assert mode_out["error"] == f"Unknown module {lower!r} for skill {REVIEW!r}."
+
+
+def test_unknown_module_error_echoes_the_id_as_sent():
+    out = _bundle(modules="Runtime-Scope")
+    assert out["error"] == f"Unknown module 'Runtime-Scope' for skill {REVIEW!r}."
+    assert out == sm.load_skill_context(REVIEW, "module", module="Runtime-Scope")
 
 
 def test_malformed_rules_file_does_not_accept_a_misspelt_id(monkeypatch, tmp_path):

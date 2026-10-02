@@ -6,7 +6,7 @@ Measures, with the repository's canonical estimator
 
 * **bootstrap**: the SessionStart ``additionalContext`` the real hook emits on
   a healthy Claude Code session (compact path), plus the full-router fallback
-  for reference;
+  for reference, with the plugin root replaced by a fixed stand-in path;
 * **tools/list**: the compact JSON of every advertised MCP tool;
 * **root skills**: every ``skills/*/SKILL.md``;
 * **workflows**: the MCP tool results a routed skill loads, through the real
@@ -58,8 +58,14 @@ def resent_tokens(sizes: list[int]) -> int:
     return sum(size * (len(sizes) - i) for i, size in enumerate(sizes))
 
 
+# The compact bootstrap names the router by absolute path; measuring it with a
+# fixed stand-in keeps the count independent of where the repo is cloned.
+STAND_IN_ROOT = "/path/to/sumo-qa"
+
+
 def measure_bootstrap(repo: Path, mode: str) -> str:
-    """Run the real SessionStart hook as Claude Code would, with uvx on PATH."""
+    """Run the real SessionStart hook as Claude Code would, with uvx on PATH,
+    and return its context with the plugin root replaced by ``STAND_IN_ROOT``."""
     bash = shutil.which("bash")
     if bash is None:  # pragma: no cover - the audit runs where bash exists
         raise RuntimeError("bash is required to run hooks/session-start")
@@ -81,7 +87,8 @@ def measure_bootstrap(repo: Path, mode: str) -> str:
             check=True,
             timeout=30,
         ).stdout
-    return json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    return context.replace(str(repo), STAND_IN_ROOT)
 
 
 def _text(result: Any) -> str:

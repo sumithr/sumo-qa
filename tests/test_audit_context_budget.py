@@ -50,6 +50,18 @@ def test_resent_tokens_counts_each_result_on_every_later_turn():
     assert audit_mod.resent_tokens([1, 2, 3]) == 1 + 3 + 6
 
 
+def test_bootstrap_measurement_does_not_depend_on_the_clone_path(tmp_path):
+    measured = []
+    for clone in (tmp_path / "a", tmp_path / "a-much-longer-clone-directory-name"):
+        shutil.copytree(REPO / "hooks", clone / "hooks")
+        skill = clone / "skills" / "using-sumo-qa"
+        skill.mkdir(parents=True)
+        shutil.copy(REPO / "skills" / "using-sumo-qa" / "SKILL.md", skill / "SKILL.md")
+        measured.append(audit_mod.measure_bootstrap(clone, "compact"))
+    assert measured[0] == measured[1]
+    assert f"{audit_mod.STAND_IN_ROOT}/skills/using-sumo-qa/SKILL.md" in measured[0]
+
+
 def test_shipped_budgets_pass_and_report_every_area(capsys):
     assert audit_mod.main([]) == 0
     out = capsys.readouterr().out

@@ -45,10 +45,16 @@ if [ "$bootstrap_mode" = "compact" ]; then
     bootstrap_content=$(cat "${PLUGIN_ROOT}/hooks/compact-bootstrap.md" 2>&1 || echo "Error reading sumo-qa compact bootstrap")
     # Literal placeholder in, absolute path out; escape_for_json escapes it
     # below. patsub_replacement (bash 5.2+) would expand `&` in the path.
+    # Under Git Bash / MSYS on Windows the POSIX path (/c/Users/...) is not one
+    # a Windows host can open, so cygpath converts it to C:/Users/... form.
+    injected_root="$PLUGIN_ROOT"
+    if command -v cygpath >/dev/null 2>&1; then
+        injected_root="$(cygpath -m "$PLUGIN_ROOT" 2>/dev/null || printf '%s' "$PLUGIN_ROOT")"
+    fi
     shopt -u patsub_replacement 2>/dev/null || true
     # shellcheck disable=SC2016 # the literal placeholder text, not an expansion
     placeholder='${PLUGIN_ROOT}'
-    bootstrap_content=${bootstrap_content//"$placeholder"/$PLUGIN_ROOT}
+    bootstrap_content=${bootstrap_content//"$placeholder"/$injected_root}
 else
     using_sumo_qa_content=$(cat "${PLUGIN_ROOT}/skills/using-sumo-qa/SKILL.md" 2>&1 || echo "Error reading using-sumo-qa skill")
     bootstrap_content=$(printf '%s\n\n%s\n\n%s' \

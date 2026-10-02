@@ -30,15 +30,18 @@ import re
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from sumo_qa.knowledge_loaders import (
-    filter_rules,
-    filter_standards,
+    _RULE_CLASSIFICATION_ALIASES,
+    _metadata_terms,
+    _rules_path,
+    _standards_dir,
     find_catalogue_entry,
     list_catalogue_entries,
-    read_rules,
-    read_standards_packs,
-    rule_classification_ids,
     split_classification_terms,
+    sumo_qa_load_rules,
+    sumo_qa_load_standards,
 )
 from sumo_qa.skill_prompts import _parse_frontmatter, _response_token_cap, _skills_dir
 
@@ -572,35 +575,106 @@ def _served(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
-def _resolve_classifications(requested: list[str], known: set[str]) -> dict[str, Any]:
-    """Resolve requested classification ids to ``{"ids": [...], "entries": {...}}``
-    or an error envelope.
+Spellings = dict[str, list[str]]
 
-    An id is accepted when the classifications catalogue names it (matched by
-    id or heading, as ``load_catalogue_entry`` matches) or when it is in
-    *known*, the ids the rules file or a standards pack declares (such as
-    ``ui_only_change``, which only the change rules carry). ``entries`` holds
-    the catalogue text for the ids the catalogue names. Raises ``OSError``
-    when the catalogue is unreadable."""
-    catalogue = list_catalogue_entries("classifications")
+
+def _add_spelling(spellings: Spellings, spelling: str) -> None:
+    found = spellings.setdefault(spelling.lower(), [])
+    if spelling not in found:
+        found.append(spelling)
+
+
+def _classification_spellings() -> tuple[Spellings, Spellings]:
+    """The ids ``sumo_qa_load_rules`` and ``sumo_qa_load_standards`` select by,
+    each as ``{lowercased id: [spellings the loader matches exactly]}``.
+
+    Rules: every key, and each alias with no key of its own whose target is a
+    key, as the alias itself when the target matches exactly (the loader
+    resolves it) or as the target key when only its case differs. A rules file
+    that is not a YAML mapping selects nothing, as in the loader. Standards:
+    every id a parseable pack declares (the filtered loader skips a pack whose
+    YAML does not parse). Raises ``OSError`` when a source is unreadable, and
+    ``ValueError``, ``RecursionError`` or ``TypeError`` when one cannot be
+    parsed the way the filtered loaders parse it, where they would raise."""
+    rules_doc: Any
+    try:
+        rules_doc = yaml.safe_load(_rules_path().read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        rules_doc = None
+    rules: Spellings = {}
+    keys = [str(k) for k in rules_doc] if isinstance(rules_doc, dict) else []
+    for key in keys:
+        _add_spelling(rules, key)
+    for alias, targets in _RULE_CLASSIFICATION_ALIASES.items():
+        if alias in rules:
+            continue
+        if any(t in keys for t in targets):
+            rules[alias] = [alias]
+            continue
+        target = next((t for t in targets if t in rules), None)
+        if target is not None:
+            rules[alias] = rules[target]
+
+    standards: Spellings = {}
+    root = _standards_dir()
+    for path in sorted(list(root.glob("*.yaml")) + list(root.glob("*.yml"))):
+        try:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            continue
+        if not isinstance(doc, dict):
+            raise TypeError(f"standards pack {path.name} is not a mapping")
+        declared = doc.get("applies_to_classifications") or doc.get("classifications")
+        for term in sorted(_metadata_terms(declared)):
+            _add_spelling(standards, term)
+    return rules, standards
+
+
+def _resolve_classifications(requested: list[str]) -> dict[str, Any]:
+    """Map each requested id (case-insensitively) to its canonical spellings.
+
+    An id is accepted when the classifications catalogue names it (by id or
+    heading, as ``load_catalogue_entry`` matches), when it is a rules key or
+    alias, or when a standards pack declares it. Returns ``ids`` (one display
+    id per term: the catalogue id, else the first rules or standards
+    spelling), ``entries`` (catalogue text by id), and the ``rules`` and
+    ``standards`` text: each single loader called with the spellings it
+    selects by. An unknown id, or a source the loaders cannot read, returns
+    an error envelope."""
+    try:
+        rules, standards = _classification_spellings()
+        catalogue = list_catalogue_entries("classifications")
+    except (OSError, ValueError, RecursionError, TypeError) as exc:
+        return _error(f"classification context unreadable: {exc}")
     ids: list[str] = []
     entries: dict[str, str] = {}
+    rule_terms: list[str] = []
+    standard_terms: list[str] = []
     unknown: list[str] = []
     for term in requested:
         entry = find_catalogue_entry(catalogue, term)
+        rule = rules.get(term.lower(), [])
+        standard = standards.get(term.lower(), [])
+        if entry is None and not rule and not standard:
+            unknown.append(term)
+            continue
         if entry is not None:
             entries[entry["id"]] = entry["text"]
-            ids.append(entry["id"])
-        elif term in known:
-            ids.append(term)
-        else:
-            unknown.append(term)
+        ids.append(entry["id"] if entry is not None else (rule or standard)[0])
+        rule_terms += rule
+        standard_terms += standard
     if unknown:
+        known = {e["id"] for e in catalogue}.union(*rules.values(), *standards.values())
         return _error(
             f"Unknown classification(s) {unknown}.",
-            {"available_classifications": sorted({e["id"] for e in catalogue} | known)},
+            {"available_classifications": sorted(known)},
         )
-    return {"ids": list(dict.fromkeys(ids)), "entries": entries}
+    return {
+        "ids": list(dict.fromkeys(ids)),
+        "entries": entries,
+        "rules": sumo_qa_load_rules(",".join(dict.fromkeys(rule_terms))),
+        "standards": sumo_qa_load_standards(",".join(dict.fromkeys(standard_terms))),
+    }
 
 
 def _bundle(
@@ -615,9 +689,11 @@ def _bundle(
     """mode='bundle': a routed skill's working context in one call.
 
     Every part is byte-identical to its separate loader (the full body, the
-    module slice, ``load_catalogue_entry``, ``sumo_qa_load_standards`` and
-    ``sumo_qa_load_rules`` with the same filter), so the bundle saves turns,
-    never content. An unknown classification or module, or an unreadable
+    module slice, ``load_catalogue_entry``, and ``sumo_qa_load_standards`` and
+    ``sumo_qa_load_rules`` called with the canonical spellings of the
+    requested ids, see ``_resolve_classifications``), so the bundle saves
+    turns, never content. Module ids are matched exactly, as in
+    mode='module'. An unknown classification or module, or an unreadable
     catalogue, standards or rules source, returns an error envelope.
 
     ``content_hash`` and ``estimated_tokens`` describe the served JSON of the
@@ -630,15 +706,9 @@ def _bundle(
         return failed
 
     requested = split_classification_terms(classification)
-    resolved: dict[str, Any] = {"ids": [], "entries": {}}
+    resolved: dict[str, Any] = {"ids": []}
     if requested:
-        try:
-            rules = read_rules()
-            packs = read_standards_packs()
-            known = rule_classification_ids(rules[1]).union(*(p[2] for p in packs))
-            resolved = _resolve_classifications(requested, known)
-        except OSError as exc:
-            return _error(f"classification context unreadable: {exc}")
+        resolved = _resolve_classifications(requested)
         if "error" in resolved:
             return resolved
     ids = resolved["ids"]
@@ -651,8 +721,8 @@ def _bundle(
     ]
     if ids:
         payload["classifications"] = "".join(resolved["entries"].get(c, "") for c in ids)
-        payload["standards"] = filter_standards(packs, set(ids))
-        payload["rules"] = filter_rules(rules, set(ids))
+        payload["standards"] = resolved["standards"]
+        payload["rules"] = resolved["rules"]
 
     text = _served(payload)
     tokens = _approx_tokens(text)
