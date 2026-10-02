@@ -294,8 +294,9 @@ names them: it may list `Agent` as `Task`) and that build's own
 `mcp__sumo-qa__*` tools (else `sandbox not proven: <tool> in the host tool
 pool`). No allowlisted host tool is required: Claude Code drops `ToolSearch`
 behind a gateway (a non-first-party `ANTHROPIC_BASE_URL`), and a smaller pool
-is still inside the sandbox. Whatever stops it, the report marks the guard
-`NOT PROVEN`.
+is still inside the sandbox. For every other stop the report marks the guard
+`NOT PROVEN`. A guard stopped only by a usage limit can still read `PASS`,
+because its pool was proven; that stop shows as the stderr line above and exit 4.
 
 What the guard proves is that no host write tool was in the pool. It does not
 prove the sumo-qa writer tools are refused: they are in the pool, not
