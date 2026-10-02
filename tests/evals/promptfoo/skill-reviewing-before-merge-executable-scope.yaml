@@ -412,6 +412,10 @@ tests:
   # #746: a markdown procedure an agent executes step by step. Its commands,
   # carried values and branches are runtime; a lint and link check is not
   # coverage for them.
+  # The pass bar follows the #746 acceptance criterion by user decision: one
+  # named risk tied to a changed command or step. Recall of all three seeded
+  # defects is a review-quality goal tracked under the review-miss work
+  # (#752), not this seed's gate.
   - description: SEED agent-executable procedure doc, where changed commands and step hand-offs are runtime, not a trivial docs change
     vars:
       review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation]
@@ -456,8 +460,9 @@ tests:
         Treats `implement-phase.md` as runtime: an agent follows it as
         instructions, so its changed commands and steps get named risks
         anchored to file:line, not the trivial-change exemption. Names at
-        least TWO of these procedure defects, each with its observable
-        failure: (a) `AUTH_SHA` set in one Bash call (line 42) is empty in
+        least ONE specific risk tied to a changed command or step, meaning at
+        least one of these seeded procedure defects with its observable
+        failure (a generic risk does not count): (a) `AUTH_SHA` set in one Bash call (line 42) is empty in
         the later calls (lines 44-46), because each call is a fresh shell, so
         the `git show` commands read `:<path>` instead of the authority
         commit; (b) `git show "$AUTH_SHA":standards/packs/*.yml` (line 46)
@@ -465,8 +470,9 @@ tests:
         line 47 blocks every run; (c) step 4 (lines 48-49) has no branch for
         a STOP payload whose `next_action.skill` is `none`, so the agent
         would read `skills/none/SKILL.md`. States that the lint and link
-        checks do not cover these, that the evidence they need is a dry run
-        of the procedure through its branches, and delivers NOT SAFE TO MERGE.
+        checks do not clear the procedure change, and delivers NOT SAFE TO
+        MERGE, or names a dry run of the procedure through its branches as
+        the missing evidence.
       anti_patterns:
         - Applies the trivial-change exemption, or marks the procedure changes COVERED BY VERIFICATION on the strength of the markdownlint, link or em-dash checks.
         - Names no risk in the procedure's commands, carried values or branches (or only prose, typo or link risks).
