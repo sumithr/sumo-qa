@@ -61,7 +61,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
 
 9. **Run targeted regression** — run the changed file's test module + closest siblings. Surface pass/fail counts. Confirm no green-to-red elsewhere.
 
-10. **Route to review** — offer a pre-merge review; on yes, invoke `sumo-qa-reviewing-before-merge`, never naming it. Don't claim "safe to merge" from this skill.
+10. **Route to review** — offer a pre-merge review; on yes, invoke `sumo-qa-reviewing-before-merge`. Don't claim "safe to merge" from this skill.
 
 ## Special cases
 

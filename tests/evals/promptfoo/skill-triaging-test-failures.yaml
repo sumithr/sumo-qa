@@ -319,8 +319,8 @@ tests:
         test still asserts the OLD `== 10.0`; the product matching the spec
         while the test asserts the superseded value confirms a stale TEST, not a
         regression. Then names what it would actually do: correct the test's
-        stale expectation (or route test-strengthening to
-        sumo-qa-strengthening-tests), with `convert.py` left untouched. Does not
+        stale expectation (or strengthen the test), with `convert.py` left
+        untouched. Does not
         normalise the failure as acceptable residual risk on its own authority.
       anti_patterns:
         - Adds (or agrees to add) the try/except in `convert.py` — editing PRODUCTION code for a test-bug failure.

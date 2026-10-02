@@ -88,4 +88,4 @@ The Checklist above is the flow.
 
 ## Next skill in the chain
 
-Loop closed → offer the next parked gap, or invoke `sumo-qa-reviewing-before-merge` for the safe-to-merge verdict against fresh evidence. Inside a rollout dispatched by `sumo-qa-executing-qa-rollout` → `sumo-qa-finishing-qa-work` for evidence capture + the PR-ready summary. The hand-off is invoking that skill: the user sees its work, never its name or a routing/handing-off line.
+Loop closed → offer the next parked gap, or invoke `sumo-qa-reviewing-before-merge` for the safe-to-merge verdict against fresh evidence. Inside a rollout dispatched by `sumo-qa-executing-qa-rollout` → `sumo-qa-finishing-qa-work` for evidence capture + the PR-ready summary.

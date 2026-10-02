@@ -857,6 +857,8 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "Chosen approach: pin the regression-first cases before refactoring.",
         "Approach restated: regression-firstish spikes are not a catalogue entry.",
         "Chosen approach: regression-first_ish spikes are not a catalogue entry.",
+        "Chosen approach: regression-first__ish spikes are not a catalogue entry.",
+        "Chosen approach: regression-first_-ish spikes are not a catalogue entry.",
     ],
 )
 def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:

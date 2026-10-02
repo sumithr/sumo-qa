@@ -92,4 +92,4 @@ User: "Pen-test our platform." Good: "No source anchor given; which flow, file, 
 
 ## Next skill in the chain
 
-If native evidence fits, invoke the relevant implementation/review skill with the concrete action. If no native sumo-qa path can cover the grounded risk, invoke `sumo-qa-suggesting-external-skill` with `entry_kind: "qa"` and the named security surface. The hand-off is invoking that skill: the user sees its work, never its name or a routing/handing-off line.
+If native evidence fits, invoke the relevant implementation/review skill with the concrete action. If no native sumo-qa path can cover the grounded risk, invoke `sumo-qa-suggesting-external-skill` with `entry_kind: "qa"` and the named security surface.
