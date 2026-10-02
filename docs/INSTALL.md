@@ -634,6 +634,8 @@ python -m sumo_qa.installer --claude-code   # only needed to create the new ~/.c
 
 The MCP server picks up `skills/*/SKILL.md` automatically on its next startup (host restart).
 
+After the installer step the skill works locally. Pushing from a clone with this repo's pre-push hook installed runs the full test suite, which fails on a skill that is not pinned in the test contracts, so a pushed skill (local or upstream) must pass the full suite. Follow every step in [DEVELOPMENT.md § Adding a new skill](DEVELOPMENT.md#adding-a-new-skill).
+
 ### Updating from upstream
 
 ```bash

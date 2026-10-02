@@ -1,10 +1,11 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Regenerate tests/fixtures/mcp_tools_list_snapshot.json from the live server.
 
-Run when a deliberate tool change (add/rename/schema-edit) lands and the
-snapshot test fails. Always inspect the diff before committing — the
-snapshot exists to make drift visible, so a 'just regen' workflow defeats
-the purpose. Include a one-line rationale in the same commit.
+Run when a deliberate tool change lands. A tool add, removal, or rename fails
+the snapshot guard until this is re-run; a schema edit only warns, but still
+regenerate so the pinned schema bodies stay current. Always inspect the diff
+before committing: the snapshot exists to make drift visible, so a 'just
+regen' workflow defeats the purpose. Include a one-line rationale in the same commit.
 
 Usage:
     uv run python scripts/regen_tools_list_snapshot.py
