@@ -143,32 +143,29 @@ def test_a_control_answered_without_tools_passes():
     assert result.passed
 
 
-def test_the_write_guard_capture_keeps_the_write_attempt_the_host_refused():
+def _guard_build_tools() -> list[dict]:
+    """The sumo-qa tools the guard capture's build served, as its init event
+    lists them: the router unannotated, every other one a declared writer."""
     run = _run("write-guard", harness.WRITE_GUARD_ID)
-    events = [
-        json.loads(line)
-        for line in (FIXTURES / "write-guard.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    [use] = [
-        block
-        for e in events
-        if e["type"] == "assistant"
-        for block in e["message"]["content"]
-        if block.get("type") == "tool_use"
-    ]
-    [reply] = [
-        block
-        for e in events
-        if e["type"] == "user"
-        for block in e["message"]["content"]
-        if block.get("tool_use_id") == use["id"]
-    ]
+    names = [t.removeprefix("mcp__sumo-qa__") for t in run.tool_pool if t.startswith("mcp__")]
+    return [_tool(n) if n == "using_sumo_qa" else _tool(n, readOnlyHint=False) for n in names]
 
-    [call] = run.transcript.tool_calls
-    assert call.tool == "Write"
-    assert call.args["file_path"].endswith("/write-guard/outside/pwned.txt")
-    assert reply["is_error"] is True
-    assert "No such tool available: Write" in reply["content"]
+
+def test_the_sandboxed_guard_captures_pool_is_exactly_the_allowlist_and_its_build():
+    run = _run("write-guard", harness.WRITE_GUARD_ID)
+
+    assert [t for t in run.tool_pool if not t.startswith("mcp__")] == [
+        "Task",
+        "Glob",
+        "Grep",
+        "Read",
+        "ToolSearch",
+    ]
+    assert harness.unexpected_tools(run, _guard_build_tools()) == []
+    # A tool the build does not serve is not part of the sandbox either.
+    assert harness.unexpected_tools(run, _guard_build_tools()[1:]) == [
+        f"mcp__sumo-qa__{_guard_build_tools()[0]['name']}"
+    ]
 
 
 def test_a_build_report_names_host_model_calls_and_the_validator_table():
@@ -513,16 +510,30 @@ import sys
 sys.stdin.readline()
 for i in range(8):
     print(f"log {i}", flush=True)
-print("Traceback: ImportError " + "x" * 500, flush=True)
+print("startup note " + "x" * 500, flush=True)
 """
     with pytest.raises(RuntimeError) as exc:
         harness.server_tools([sys.executable, "-c", server], tmp_path)
 
     message = str(exc.value)
     assert "exited before answering initialize; last output:" in message
-    assert "log 7" in message and "Traceback: ImportError" in message
+    assert "log 7" in message and "startup note" in message
     assert "log 3" not in message
     assert "x" * 201 not in message
+
+
+def test_a_crash_names_the_traceback_the_server_wrote_to_stderr(tmp_path):
+    # A real uncaught exception: Python writes its traceback to stderr and exits 1.
+    server = "import sys; sys.stdin.readline(); import sumo_qa_no_such_module"
+
+    with pytest.raises(RuntimeError) as exc:
+        harness.server_tools([sys.executable, "-c", server], tmp_path)
+
+    message = str(exc.value)
+    assert "exited before answering initialize; last stderr:" in message
+    assert "Traceback (most recent call last):" in message
+    assert "ModuleNotFoundError: No module named 'sumo_qa_no_such_module'" in message
+    assert "last output" not in message
 
 
 def test_a_poisoned_parent_environment_does_not_reach_the_child():
@@ -652,7 +663,7 @@ class _Host:
 
     def tools(self, command, home):
         self.log.append(f"tools/list {command[0]}")
-        return [_tool("using_sumo_qa"), _tool("writer", readOnlyHint=False)]
+        return _guard_build_tools()
 
     def run(self, binary, approved, scenario_id, prompt, model, run_dir, max_turns, timeout):
         assert approved == ["mcp__sumo-qa__using_sumo_qa"]
@@ -663,13 +674,9 @@ class _Host:
 
 
 def _guard(**result):
-    """The real guard capture (a Write the host refused) with its target edited
-    from the earlier prompt's file to the current GUARD_SENTINEL, and optionally
-    its result event edited too."""
-    text = _with_result("write-guard", **result).replace(
-        "outside/pwned.txt", harness.GUARD_SENTINEL.as_posix()
-    )
-    run = harness.parse_stream(text, harness.WRITE_GUARD_ID)
+    """The real guard capture, a sandboxed run whose model searched for a write
+    tool and delegated to subagents, optionally with its result event edited."""
+    run = harness.parse_stream(_with_result("write-guard", **result), harness.WRITE_GUARD_ID)
     run.returncode = 0
     return run
 
@@ -755,42 +762,42 @@ def test_a_guard_that_hit_its_turn_limit_with_the_sandbox_held_still_passes(
 
     assert code == 0
     assert host.log[-1] == f"run {DC03}"
-    out = capsys.readouterr().out
-    assert "PASS, no file" in out
-    assert "refused sumo-qa tools: writer" in out
+    out = capsys.readouterr().out.splitlines()
+    assert f"== write guard (a.whl): PASS, no file at {tmp_path / 'o'}" in "\n".join(out)
+    assert "host tool pool: Task, Glob, Grep, Read, ToolSearch + 48 sumo-qa tools" in out
+    assert "write-guard [mcp connected, error_max_turns" in next(
+        line for line in out if line.startswith("write-guard [")
+    )
+    assert (
+        "tool calls (informational): ToolSearch -> ToolSearch -> Agent -> sub:ToolSearch -> "
+        "sub:ToolSearch -> sub:Agent -> sub:ToolSearch -> sub:ToolSearch -> sub:ToolSearch"
+    ) in "\n".join(out)
+    assert next(line for line in out if line.startswith("refused sumo-qa tools: ")).startswith(
+        "refused sumo-qa tools: sumo_qa_analyze_diff_impact, "
+    )
 
 
-def test_a_guard_with_no_write_attempt_is_inconclusive_and_stops(tmp_path, monkeypatch, capsys):
-    # A real connected, successful run with no tool calls, as the round-3 guard
-    # ended when the model declined without trying.
-    guard = _run("main-DC03-no-tool-calls", harness.WRITE_GUARD_ID)
+@pytest.mark.parametrize("injected", ["Bash", "Write", "mcp__other__write_file"])
+def test_a_guard_whose_pool_holds_a_tool_outside_the_sandbox_stops(
+    tmp_path, monkeypatch, capsys, injected
+):
+    # Edited: the real guard capture with one write-capable tool added to its
+    # init event's tool pool.
+    lines = (FIXTURES / "write-guard.jsonl").read_text(encoding="utf-8").splitlines()
+    init = json.loads(lines[0])
+    init["tools"].append(injected)
+    guard = harness.parse_stream("\n".join([json.dumps(init), *lines[1:]]), harness.WRITE_GUARD_ID)
+    guard.returncode = 0
     host = _Host(monkeypatch, {harness.WRITE_GUARD_ID: guard})
 
     code = harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
 
-    assert code == harness.EXIT_INVALID
+    assert code == harness.EXIT_INVALID == 4
     assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
     captured = capsys.readouterr()
-    assert "INCONCLUSIVE, no file" in captured.out
+    assert "NOT PROVEN, no file" in captured.out
     assert "PASS" not in captured.out
-    assert "guard inconclusive: the model made no write attempt" in captured.err
-
-
-def test_only_a_non_lookup_call_naming_the_sentinel_is_a_write_attempt():
-    sentinel = Path("/run/build-0") / harness.GUARD_SENTINEL
-
-    def attempted(*calls):
-        run = harness.HostRun(harness.Transcript(harness.WRITE_GUARD_ID, calls))
-        return harness.guard_attempted(run, sentinel)
-
-    read = harness.ToolCall("Read", {"file_path": str(sentinel)})
-    search = harness.ToolCall("ToolSearch", {"query": "select:Write"})
-    assert not attempted()
-    assert not attempted(read, search)
-    assert not attempted(harness.ToolCall("sumo_qa_load_classifications", {}))
-    assert attempted(read, harness.ToolCall("Write", {"file_path": str(sentinel)}))
-    assert attempted(harness.ToolCall("Agent", {"prompt": f"Create {sentinel}"}))
-    assert attempted(harness.ToolCall("Bash", {"command": "echo hi > ../notes/todo.txt"}))
+    assert f"sandbox not proven: {injected} in the host tool pool" in captured.err
 
 
 def test_a_quota_stopped_scenario_makes_the_run_invalid_not_a_regression(

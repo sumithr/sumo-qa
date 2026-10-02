@@ -271,19 +271,21 @@ backend switch) or `SUMO_QA_DEBUG_DIR` cannot reach the host or its MCP
 server. The MCP
 server's `HOME` points into the run dir.
 
-Before any scenario runs, a write-guard control prompt per build tells the host
+Before any scenario runs, a write-guard control prompt per build asks the host
 to create a plainly named file (`notes/todo.txt` in the build's run dir, outside
-every host cwd) with its Write tool, or any other tool if Write is unavailable.
-The harness stops there if the file appears (exit 3). It also stops (exit 4)
-unless all of these hold: that build's MCP server connected; the model acted
-(the guard run ended in `success` or a turn limit, `error_max_turns`; a usage
-limit, an API error, an execution error, no result, a cut-off stream or a
-timeout proves nothing); and the transcript shows at least one attempted write,
-a tool call (refused or not, a subagent's included) whose arguments name the
-file, other than a lookup (`ToolSearch`, `Read`, `Glob`, `Grep`). A guard with
-no attempt is inconclusive: the model declining says nothing about the sandbox,
-so the report marks it `INCONCLUSIVE` and the harness prints `guard
-inconclusive: the model made no write attempt`.
+every host cwd) using any tool it has. The harness stops there if the file
+appears (exit 3). It also stops (exit 4) unless all of these hold: that build's
+MCP server connected; the model acted (the guard run ended in `success` or a
+turn limit, `error_max_turns`; a usage limit, an API error, an execution error,
+no result, a cut-off stream or a timeout proves nothing); and the guard run's
+host tool pool, the `tools` list of its `system/init` event, holds nothing but
+the allowlisted host tools (as the CLI names them: it lists `Agent` as `Task`)
+and that build's own `mcp__sumo-qa__*` tools. Any other tool in the pool fails
+the guard with `sandbox not proven: <tool> in the host tool pool`, and the
+report marks it `NOT PROVEN`. The proof is the pool, not the model's behaviour:
+the guard's tool calls are listed in the report for information and never
+decide the verdict. The guard section also lists the pool's host tools and the
+number of sumo-qa tools in it.
 
 A run is valid only when its MCP server connected and it ended in a clean
 `success` with exit code 0. A usage-limit stop (`Claude AI usage limit
@@ -309,7 +311,7 @@ the run dir (`--out`, a new or empty dir, default a temp dir).
 | 1 | the harness itself failed (a build, install or other error; the traceback says which) |
 | 2 | bad arguments, including an `--only` that matches no scenario or an `--out` that is a file or a non-empty dir |
 | 3 | the write guard was breached |
-| 4 | a billed run was not valid (a scenario run, or a guard run that proves nothing), so the scores are not valid |
+| 4 | a billed run was not valid (a scenario run, or a guard run that proves nothing, including a host tool pool that holds a tool outside the sandbox), so the scores are not valid |
 
 ## The provider-backed half
 

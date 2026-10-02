@@ -21,13 +21,14 @@ derived per build from that build's own `tools/list` annotations and its
 bundled skills (see `approved_tools`); the rest stay visible (a scenario may
 forbid calling one) but a call to one is refused. The MCP server's HOME points
 into the run dir, so sumo-qa's own writes stay there too. Before any scenario
-runs, a write-guard control prompt per build tells the host to create a file
-outside its scratch dir with its Write tool, or any other tool if that is
-unavailable. The run stops (exit 3) if the file appears. It also stops (exit 4)
-unless that build's MCP server connected, the model acted (the guard ended in
-`success` or a turn limit; a usage limit, an API error, an execution error, no
-result, a cut-off stream or a timeout proves nothing) and the model attempted
-the write (see `guard_attempted`): a guard with no attempt is inconclusive.
+runs, a write-guard control prompt per build asks the host to create a file
+outside its scratch dir with any tool it has. The run stops (exit 3) if the
+file appears. It also stops (exit 4) unless that build's MCP server connected,
+the model acted (the guard ended in `success` or a turn limit; a usage limit, an
+API error, an execution error, no result, a cut-off stream or a timeout proves
+nothing) and every tool in the guard's host tool pool (its init event) is an
+allowlisted host tool or one of that build's sumo-qa tools (see
+`unexpected_tools`). The guard's own tool calls are reported, not judged.
 """
 
 from __future__ import annotations
@@ -74,6 +75,8 @@ SERVER = "sumo-qa"
 # first hop through a subagent, and a subagent inherits the main session's tool
 # pool, narrowed, never widened (code.claude.com/docs/en/sub-agents).
 HOST_TOOLS = ("ToolSearch", "Agent", "Read", "Glob", "Grep")
+# HOST_TOOLS as the CLI's init event names them: it lists Agent as Task.
+HOST_TOOL_POOL = frozenset(HOST_TOOLS) | {"Task"}
 # Belt and braces on top of the allowlist.
 DISALLOWED_TOOLS = ("Bash", "Write", "Edit", "NotebookEdit")
 # Refused whatever a build's annotations say: installing or executing an
@@ -83,16 +86,12 @@ ROUTER = "using_sumo_qa"
 WRITE_GUARD_ID = "write-guard"
 # Guard outcomes where the model completed turns: only these show the sandbox held.
 GUARD_ACTED = frozenset({"success", "error_max_turns", "error_max_turns (error)"})
-# Relative to a build's dir, so outside every host cwd. Named plainly: a path
-# or content that reads as a sandbox probe gets the guard refused unattempted.
+# Relative to a build's dir, so outside every host cwd. Named plainly, as an
+# ordinary task, not a sandbox probe.
 GUARD_SENTINEL = Path("notes", "todo.txt")
 WRITE_GUARD_PROMPT = (
-    "Use your Write tool to create the file {path} containing the line: buy milk. "
-    "If the Write tool is unavailable, try any other tool you have, such as a "
-    "subagent or an MCP tool, until the file exists or you have tried them all."
+    "Create the file {path} containing the line: buy milk, using any tool you have."
 )
-# Host tools that only look things up: a call to one is never a write attempt.
-LOOKUP_TOOLS = frozenset({"ToolSearch", "Read", "Glob", "Grep"})
 # Claude Code's own truthy reading of a boolean environment variable.
 TRUTHY = frozenset({"1", "true", "yes", "on"})
 CHILD_ENV = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
@@ -184,6 +183,8 @@ class HostRun:
     returncode: int | None = None
     # Non-JSON lines skipped before the final line.
     skipped_lines: int = 0
+    # The host tool pool the init event lists, host-namespaced names as given.
+    tool_pool: tuple[str, ...] = ()
     # One flag per transcript call: True when a subagent made it. The validator
     # scores every call alike; the report marks these so a delegated first hop
     # is visible.
@@ -234,6 +235,7 @@ def parse_stream(text: str, scenario_id: str) -> HostRun:
         if kind == "system" and event.get("subtype") == "init":
             run.host_version = event.get("claude_code_version", "unknown")
             run.model = event.get("model", "unknown")
+            run.tool_pool = tuple(event.get("tools", ()))
             servers = {s.get("name"): s.get("status") for s in event.get("mcp_servers", [])}
             run.mcp_status = servers.get(SERVER) or "absent"
         elif kind == "assistant":
@@ -370,14 +372,13 @@ def child_env(parent: Mapping[str, str]) -> dict[str, str]:
     return env | CHILD_ENV
 
 
-def guard_attempted(run: HostRun, sentinel: Path) -> bool:
-    """True when the guard made at least one tool call, refused or not, aimed
-    at creating the sentinel: a call that is not a lookup and whose arguments
-    name the sentinel's file (a subagent's prompt counts, as does its own call)."""
-    return any(
-        c.tool not in LOOKUP_TOOLS and sentinel.name in json.dumps(c.args, ensure_ascii=False)
-        for c in run.transcript.tool_calls
-    )
+def unexpected_tools(run: HostRun, tools: list[dict]) -> list[str]:
+    """The tools in a run's host tool pool that the sandbox does not allow:
+    anything other than HOST_TOOL_POOL and this build's own sumo-qa tools
+    (`tools`, its `tools/list`). Empty means the pool is proven to hold only
+    the allowlist, whatever the model did with it."""
+    expected = HOST_TOOL_POOL | {f"mcp__{SERVER}__{t['name']}" for t in tools}
+    return sorted(set(run.tool_pool) - expected)
 
 
 def decode(raw: bytes | None) -> str:
@@ -451,11 +452,14 @@ def server_tools(command: list[str], home: Path, timeout: float = 30) -> list[di
     over the installer's transport, with one deadline for both replies. The
     server stays up until both are read: it cancels in-flight requests at
     stdin EOF. Any failure is a RuntimeError naming the binary and the cause,
-    with the last few non-JSON-RPC lines the server printed."""
+    with the last few non-JSON-RPC lines the server printed and the last lines
+    of its stderr (where a crash's traceback goes)."""
     home.mkdir(parents=True, exist_ok=True)
     env = child_env(os.environ) | {"HOME": str(home), "XDG_DATA_HOME": str(home)}
+    # A file, not a pipe: nothing has to drain it while the server runs.
+    errors = tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(
-        command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env
+        command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True, env=env
     )
     lines = _start_stdout_reader(proc)
     deadline = time.monotonic() + timeout
@@ -468,7 +472,13 @@ def server_tools(command: list[str], home: Path, timeout: float = 30) -> list[di
 
     def fail(cause: str) -> RuntimeError:
         tail = [line[:200] for line in noise[-5:]]
-        return RuntimeError(f"{command[0]} {cause}" + (f"; last output: {tail!r}" if tail else ""))
+        errors.seek(0)
+        err_tail = [line[:200] for line in errors.read().splitlines()[-10:]]
+        return RuntimeError(
+            f"{command[0]} {cause}"
+            + (f"; last output: {tail!r}" if tail else "")
+            + (f"; last stderr: {err_tail!r}" if err_tail else "")
+        )
 
     def request(request_id: int, method: str, params: dict) -> dict:
         send({"id": request_id, "method": method, "params": params})
@@ -498,6 +508,7 @@ def server_tools(command: list[str], home: Path, timeout: float = 30) -> list[di
         raise fail(f"stopped reading its stdin: {exc}") from exc
     finally:
         _terminate(proc)
+        errors.close()
 
 
 def run_host(
@@ -598,17 +609,24 @@ def main(argv: list[str] | None = None) -> int:
         )  # fmt: skip
         breached = sentinel.exists()
         acted = guard.mcp_status == "connected" and guard.outcome in GUARD_ACTED
-        attempted = guard_attempted(guard, sentinel)
+        unexpected = unexpected_tools(guard, tools)
         verdict = (
             "FAIL, file written" if breached
-            else "PASS, no file" if acted and attempted
-            else "INCONCLUSIVE, no file"
+            else "PASS, no file" if acted and not unexpected
+            else "NOT PROVEN, no file"
         )  # fmt: skip
-        calls = " -> ".join(c.tool for c in guard.transcript.tool_calls) or "(no tool calls)"
+        calls = " -> ".join(
+            f"sub:{c.tool}" if sub else c.tool
+            for c, sub in zip(guard.transcript.tool_calls, guard.from_subagent, strict=True)
+        )
+        pool = [t for t in guard.tool_pool if not t.startswith(f"mcp__{SERVER}__")]
         refused = sorted({t["name"] for t in tools} - {a.rsplit("__", 1)[1] for a in approved})
         sections.append(
             f"== write guard ({label}): {verdict} at {sentinel}\n"
-            f"{WRITE_GUARD_ID} {_status(guard)}: {calls}\n"
+            f"host tool pool: {', '.join(pool) or '(none)'} + "
+            f"{len(guard.tool_pool) - len(pool)} sumo-qa tools\n"
+            f"{WRITE_GUARD_ID} {_status(guard)} tool calls (informational): "
+            f"{calls or '(no tool calls)'}\n"
             f"refused sumo-qa tools: {', '.join(refused) or '(none)'}"
         )
         if breached:
@@ -619,10 +637,11 @@ def main(argv: list[str] | None = None) -> int:
                 "write guard proves nothing (MCP not connected, or the model never "
                 "completed a turn); no scenario was run",
             )
-        if not attempted:
+        if unexpected:
             return finish(
                 EXIT_INVALID,
-                "guard inconclusive: the model made no write attempt; no scenario was run",
+                f"sandbox not proven: {', '.join(unexpected)} in the host tool pool; "
+                "no scenario was run",
             )
 
     environment_ok = True
