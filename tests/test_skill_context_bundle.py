@@ -175,3 +175,42 @@ def test_unreadable_classification_catalogue_returns_envelope_not_raise(monkeypa
     monkeypatch.setattr(sm, "list_catalogue_entries", _missing)
     out = _bundle(classification="test_change")
     assert "unreadable" in out["error"]
+
+
+def test_mixed_case_classification_gets_the_same_rules_from_loader_and_bundle():
+    """The single loaders and the bundle parse ids through one shared parser,
+    so a mixed-case id selects the same rules and standards everywhere."""
+    out = _bundle(classification="Business_Logic_Change")
+    loader_rules = sumo_qa_load_rules(classification="Business_Logic_Change")
+    assert loader_rules.strip() != "{}"
+    assert out["rules"] == loader_rules
+    assert out["standards"] == sumo_qa_load_standards(classification="Business_Logic_Change")
+
+
+def test_malformed_rules_file_does_not_accept_a_misspelt_id(monkeypatch, tmp_path):
+    """Acceptance is membership in the parsed rules keys: a rules file that
+    does not parse to a mapping declares no ids, so a typo stays unknown."""
+    for body in ("business_logic_change: [unclosed\n", "- just\n- a list\n"):
+        rules = tmp_path / "change_rules.yaml"
+        rules.write_text(body, encoding="utf-8")
+        monkeypatch.setenv("QA_RULES_PATH", str(rules))
+        out = _bundle(classification="busines_logic_change")
+        assert "busines_logic_change" in out["error"]
+
+
+def test_unknown_classification_lists_every_accepted_id(monkeypatch, tmp_path):
+    rules = tmp_path / "change_rules.yaml"
+    rules.write_text("rules_only_change:\n  must_consider: [x]\n", encoding="utf-8")
+    packs = tmp_path / "packs"
+    packs.mkdir()
+    (packs / "p.yaml").write_text(
+        "applies_to_classifications: [pack_only_change]\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("QA_RULES_PATH", str(rules))
+    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    available = _bundle(classification="made_up_change")["available_classifications"]
+    assert {"rules_only_change", "pack_only_change", "business_logic_change"} <= set(available)
+    assert available == sorted(available)
+    accepted = _bundle(classification="Pack_Only_Change")
+    assert accepted["classification"] == ["pack_only_change"]
+    assert accepted["standards"] == sumo_qa_load_standards(classification="pack_only_change")

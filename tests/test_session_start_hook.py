@@ -315,3 +315,34 @@ def test_compact_bootstrap_names_the_fallback_when_the_router_tool_is_unavailabl
     ctx = _extract_additional_context(_run_hook({}))
     assert "`using-sumo-qa` Skill" in ctx
     assert "skills/using-sumo-qa/SKILL.md" in ctx
+
+
+@_BASH
+@pytest.mark.parametrize(
+    "host_env",
+    [{}, {"CLAUDE_PLUGIN_ROOT": "x"}, {"CURSOR_PLUGIN_ROOT": "x"}],
+    ids=["sdk-default", "claude-code", "cursor"],
+)
+def test_compact_bootstrap_injects_the_absolute_router_path(tmp_path, host_env):
+    """The file fallback names the router by absolute path, substituted into
+    every host envelope as valid JSON even when the path needs escaping."""
+    root = tmp_path / 'plug "in" \\ & co'
+    (root / "skills" / "using-sumo-qa").mkdir(parents=True)
+    shutil.copytree(ROOT / "hooks", root / "hooks")
+    shutil.copy(USING_SKILL, root / "skills" / "using-sumo-qa" / "SKILL.md")
+    with tempfile.TemporaryDirectory() as bindir:
+        stub = pathlib.Path(bindir) / "uvx"
+        stub.write_text("#!/bin/sh\necho 0.5.0\n")
+        stub.chmod(0o755)
+        env = {"HOME": os.environ["HOME"], "PATH": f"{bindir}:/usr/bin:/bin", **host_env}
+        proc = subprocess.run(
+            ["bash", str(root / "hooks" / "session-start")],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    assert proc.returncode == 0, proc.stderr
+    ctx = _extract_additional_context(json.loads(proc.stdout))
+    assert f"{root.resolve()}/skills/using-sumo-qa/SKILL.md" in ctx
+    assert "${PLUGIN_ROOT}" not in ctx

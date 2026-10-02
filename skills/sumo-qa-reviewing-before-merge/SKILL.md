@@ -35,9 +35,9 @@ Work through these in order. Steps 1-4 are AI-only homework (no user questions);
 
 2. **Read the actual changed files** — not just the diff hunks. For each, identify the public surface that moved.
 
-3. **Classify, load context in ONE call**: confirm the classification(s), then `sumo_qa_load_skill_context(skill_name="sumo-qa-reviewing-before-merge", mode="bundle", include_body=false, classification="<ids>", modules="runtime-scope,discovery-probes,coverage-ledger,<any the file list calls for>")`. Note which rules apply.
+3. **Classify, load context in ONE call**: `sumo_qa_load_skill_context(skill_name="sumo-qa-reviewing-before-merge", mode="bundle", include_body=false, classification=<ids>, modules=<ids>)`; modules: `test-only-diff` if step 1 is all tests, else `runtime-scope,discovery-probes,coverage-ledger` plus conditional ones the files call for. Note applicable rules.
 
-4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → fetch `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). A moved constraint loads `mirrored-constraints`, trivial diffs included. Each hit is a named risk anchored to file:line; an uncovered one is a SAFE-blocker labelled per `coverage-ledger`, never a residual note.
+4. **Adversarial discovery pass**: test-only diffs follow `test-only-diff`; else `runtime-scope` sets the shape (non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). A moved constraint loads `mirrored-constraints`, trivial diffs included. Each hit is a named risk anchored to file:line; an uncovered one is a SAFE-blocker labelled per `coverage-ledger`, never a residual note.
 
 5. **Confirm scope, only for the AMBIGUOUS parts** — name the files, line counts, and what the change does in domain terms, then ask ONE focused question for what the diff couldn't reveal. Else skip it.
 
@@ -55,7 +55,7 @@ Work through these in order. Steps 1-4 are AI-only homework (no user questions);
 
 ## Module routing table
 
-Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carries. Load each in the step-3 bundle or later via `mode="module"` (or the file); only what the diff shape requires, never a rule from memory.
+Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carries. Load each via the step-3 bundle or `mode="module"`, only as the diff shape requires, never from memory.
 
 | Module | Load when |
 |---|---|

@@ -31,10 +31,14 @@ from pathlib import Path
 from typing import Any
 
 from sumo_qa.knowledge_loaders import (
+    filter_rules,
+    filter_standards,
+    find_catalogue_entry,
     list_catalogue_entries,
+    read_rules,
+    read_standards_packs,
+    rule_classification_ids,
     split_classification_terms,
-    sumo_qa_load_rules,
-    sumo_qa_load_standards,
 )
 from sumo_qa.skill_prompts import _parse_frontmatter, _response_token_cap, _skills_dir
 
@@ -568,47 +572,35 @@ def _served(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
-def _resolve_classifications(requested: list[str]) -> dict[str, Any]:
+def _resolve_classifications(requested: list[str], known: set[str]) -> dict[str, Any]:
     """Resolve requested classification ids to ``{"ids": [...], "entries": {...}}``
     or an error envelope.
 
     An id is accepted when the classifications catalogue names it (matched by
-    id or heading, case-insensitively, as ``load_catalogue_entry`` matches) or
-    when the rules or standards loaders return content for it (an id such as
-    ``ui_only_change`` that only ``change_rules.yaml`` declares). ``entries``
-    holds the catalogue text for the ids the catalogue names."""
-    try:
-        catalogue = list_catalogue_entries("classifications")
-        ids: list[str] = []
-        entries: dict[str, str] = {}
-        unknown: list[str] = []
-        for term in requested:
-            needle = term.strip().lower()
-            entry = next(
-                (e for e in catalogue if e["id"] == needle or e["heading"].lower() == needle),
-                None,
-            )
-            if entry is not None:
-                entries[entry["id"]] = entry["text"]
-                ids.append(entry["id"])
-            elif _loaders_accept(needle):
-                ids.append(needle)
-            else:
-                unknown.append(term)
-    except OSError as exc:
-        return _error(f"classification context unreadable: {exc}")
+    id or heading, as ``load_catalogue_entry`` matches) or when it is in
+    *known*, the ids the rules file or a standards pack declares (such as
+    ``ui_only_change``, which only the change rules carry). ``entries`` holds
+    the catalogue text for the ids the catalogue names. Raises ``OSError``
+    when the catalogue is unreadable."""
+    catalogue = list_catalogue_entries("classifications")
+    ids: list[str] = []
+    entries: dict[str, str] = {}
+    unknown: list[str] = []
+    for term in requested:
+        entry = find_catalogue_entry(catalogue, term)
+        if entry is not None:
+            entries[entry["id"]] = entry["text"]
+            ids.append(entry["id"])
+        elif term in known:
+            ids.append(term)
+        else:
+            unknown.append(term)
     if unknown:
         return _error(
             f"Unknown classification(s) {unknown}.",
-            {"available_classifications": sorted(e["id"] for e in catalogue)},
+            {"available_classifications": sorted({e["id"] for e in catalogue} | known)},
         )
     return {"ids": list(dict.fromkeys(ids)), "entries": entries}
-
-
-def _loaders_accept(classification: str) -> bool:
-    """True when the rules or standards loader returns content for the id."""
-    rules = sumo_qa_load_rules(classification=classification)
-    return rules.strip() != "{}" or bool(sumo_qa_load_standards(classification=classification))
 
 
 def _bundle(
@@ -640,7 +632,13 @@ def _bundle(
     requested = split_classification_terms(classification)
     resolved: dict[str, Any] = {"ids": [], "entries": {}}
     if requested:
-        resolved = _resolve_classifications(requested)
+        try:
+            rules = read_rules()
+            packs = read_standards_packs()
+            known = rule_classification_ids(rules[1]).union(*(p[2] for p in packs))
+            resolved = _resolve_classifications(requested, known)
+        except OSError as exc:
+            return _error(f"classification context unreadable: {exc}")
         if "error" in resolved:
             return resolved
     ids = resolved["ids"]
@@ -652,13 +650,9 @@ def _bundle(
         {"id": m["id"], "path": m["path"], "content": m["_text"]} for m in matches
     ]
     if ids:
-        joined = ",".join(ids)
         payload["classifications"] = "".join(resolved["entries"].get(c, "") for c in ids)
-        try:
-            payload["standards"] = sumo_qa_load_standards(classification=joined)
-            payload["rules"] = sumo_qa_load_rules(classification=joined)
-        except OSError as exc:
-            return _error(f"classification context unreadable: {exc}")
+        payload["standards"] = filter_standards(packs, set(ids))
+        payload["rules"] = filter_rules(rules, set(ids))
 
     text = _served(payload)
     tokens = _approx_tokens(text)

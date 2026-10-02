@@ -22,7 +22,8 @@ a transcript from a ``SUMO_QA_DEBUG_DIR`` capture (see ``debug_capture``).
 First-slice matching semantics (documented limits): ``required_tool_calls``
 are checked as a SET (presence, not order or multiplicity); ``required_one_of``
 is met by any one call matching one alternative, an alternative naming a tool
-and optionally argument values (``"*"``: present and non-empty); output markers
+and optionally argument values (``"*"``: at least one id once split on
+``,``/``;``/whitespace); output markers
 match as case-insensitive substrings — pin distinctive phrases in fixtures
 (an id like ``INV-12345`` also matches inside ``INV-123456``).
 """
@@ -41,7 +42,11 @@ from typing import Any
 import yaml
 
 from sumo_qa.first_hop import ENTRY_ROUTER, ROUTER_CHAIN
-from sumo_qa.knowledge_loaders import sumo_qa_load_approaches, sumo_qa_load_classifications
+from sumo_qa.knowledge_loaders import (
+    split_classification_terms,
+    sumo_qa_load_approaches,
+    sumo_qa_load_classifications,
+)
 from sumo_qa.skill_prompts import _skills_dir
 
 # The canonical router chain (``sumo_qa.first_hop``) fires BEFORE the
@@ -90,7 +95,8 @@ class Violation:
 @dataclass(frozen=True)
 class ToolRequirement:
     """One alternative of ``required_one_of``: a tool name plus argument values
-    the call must carry (``"*"`` accepts any present, non-empty value)."""
+    the call must carry (``"*"`` accepts any value holding at least one id
+    after ``split_classification_terms``)."""
 
     tool: str
     args: tuple[tuple[str, str], ...] = ()
@@ -100,7 +106,10 @@ class ToolRequirement:
             return False
         for key, want in self.args:
             got = call.args.get(key)
-            ok = bool(got) if want == "*" else got is not None and str(got) == want
+            if want == "*":
+                ok = bool(got) and bool(split_classification_terms(str(got)))
+            else:
+                ok = got is not None and str(got) == want
             if not ok:
                 return False
         return True
@@ -187,9 +196,15 @@ def _duplicates(items: list[str]) -> set[str]:
     return dupes
 
 
-def _requirement(entry: str | dict[str, Any]) -> ToolRequirement:
+def _requirement(scenario_id: Any, entry: str | dict[str, Any]) -> ToolRequirement:
     if isinstance(entry, str):
         return ToolRequirement(entry)
+    extra = sorted(set(entry) - {"tool", "args"})
+    if "tool" not in entry or extra:
+        raise ValueError(
+            f"scenario {scenario_id!r}: required_one_of entry {entry!r} needs a "
+            f"'tool' key and only 'tool'/'args' keys (unexpected: {extra})"
+        )
     args = entry.get("args") or {}
     return ToolRequirement(entry["tool"], tuple((str(k), str(v)) for k, v in args.items()))
 
@@ -208,7 +223,9 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
         mode=mode,
         expected_entry_skill=entry.get("expected_entry_skill"),
         required_tool_calls=tuple(entry.get("required_tool_calls") or ()),
-        required_one_of=tuple(_requirement(r) for r in entry.get("required_one_of") or ()),
+        required_one_of=tuple(
+            _requirement(entry.get("id"), r) for r in entry.get("required_one_of") or ()
+        ),
         forbidden_tool_calls=tuple(entry.get("forbidden_tool_calls") or ()),
         required_output_markers=tuple(entry.get("required_output_markers") or ()),
         forbidden_output_markers=tuple(entry.get("forbidden_output_markers") or ()),

@@ -2045,7 +2045,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           - "full"     — the entire SKILL.md body, byte-for-byte identical to the
             existing zero-argument skill tool for `skill_name`; a body over the
             host's per-response token cap is returned as an `oversize` pointer
-            to the manifest/section/module slices instead of failing (#393);
+            to the manifest/section/module slices instead of failing;
           - "bundle": a routed skill's working context in ONE call: the
             body (omit with `include_body=false` when you already hold it),
             the `modules` named (comma-separated ids), and for

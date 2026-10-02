@@ -56,33 +56,26 @@ def _classification_filter_terms(classification: str | None) -> set[str] | None:
 
 
 def split_classification_terms(value: str | None) -> list[str]:
-    """Split a comma/semicolon/whitespace separated id list into its terms, in
-    the order given, without duplicates. ``None`` or blank yields ``[]``."""
+    """Split a comma/semicolon/whitespace separated id list into its lowercased
+    terms, in the order given, without duplicates. ``None`` or blank yields
+    ``[]``. Every classification filter parses through here, so matching is
+    case-insensitive for every loader and the context bundle alike."""
     # Only backtick/quote chars are stripped; any other edge character is kept.
     # Pinned by test_split_classification_terms_* (strip and split-regex mutants).
     parts = (
-        part.strip("`'\"") for part in re.split(r"[\s,;]+", "" if value is None else str(value))
+        part.strip("`'\"").lower()
+        for part in re.split(r"[\s,;]+", "" if value is None else str(value))
     )
     return list(dict.fromkeys(part for part in parts if part))
 
 
 def _metadata_terms(value: Any) -> set[str]:
-    if value is None:
-        return set()
-    if isinstance(value, str):
-        return _classification_filter_terms(value) or set()
-    if isinstance(value, (list, tuple, set)):
-        # Same contract as _classification_filter_terms, applied per list item.
-        # Pinned by test_metadata_terms_strips_backticks_in_list_inputs
-        # (strip→None) and test_metadata_terms_strip_only_quote_chars_and_split
-        # (XX-quoted strip / XX-wrapped split-regex variants).
-        return {
-            part.strip("`'\"")
-            for item in value
-            for part in re.split(r"[\s,;]+", str(item))
-            if part.strip("`'\"")
-        }
-    return {str(value)}
+    """Classification ids a pack's metadata declares: a scalar or a list of
+    scalars, each parsed by ``split_classification_terms``."""
+    items = value if isinstance(value, (list, tuple, set)) else (value,)
+    return {
+        term for item in items if item is not None for term in split_classification_terms(str(item))
+    }
 
 
 def _knowledge_dir() -> Path:
@@ -337,6 +330,12 @@ def _missing_catalogue_error(catalogue: str, exc: OSError) -> dict[str, Any]:
     )
 
 
+def find_catalogue_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    """The entry whose stable id or heading text (case-insensitive) is *name*."""
+    needle = name.strip().lower()
+    return next((e for e in entries if e["id"] == needle or e["heading"].lower() == needle), None)
+
+
 def load_catalogue_entry(
     catalogue: str,
     name: str | None = None,
@@ -376,11 +375,7 @@ def load_catalogue_entry(
             "name is required.",
             available_entries=available,
         )
-    needle = name.strip().lower()
-    match = next(
-        (e for e in entries if e["id"] == needle or e["heading"].lower() == needle),
-        None,
-    )
+    match = find_catalogue_entry(entries, name)
     if match is None:
         return _catalogue_error(
             f"Unknown entry {name!r} in catalogue {catalogue!r}.",
@@ -486,29 +481,43 @@ def _standards_dir() -> Path:
     return Path(__file__).parent.parent.parent / "standards" / "packs"  # pragma: no mutate
 
 
+def read_standards_packs() -> list[tuple[str, str, set[str]]]:
+    """Every standards pack as ``(file name, text, declared classification ids)``.
+    A pack whose YAML does not parse declares no ids."""
+    root = _standards_dir()
+    packs: list[tuple[str, str, set[str]]] = []
+    for path in sorted(list(root.glob("*.yaml")) + list(root.glob("*.yml"))):
+        text = path.read_text(encoding="utf-8")
+        packs.append((path.name, text, _declared_classifications(text)))
+    return packs
+
+
+def _declared_classifications(pack_text: str) -> set[str]:
+    try:
+        doc = yaml.safe_load(pack_text)
+    except yaml.YAMLError:
+        return set()
+    if not isinstance(doc, dict):
+        return set()
+    return _metadata_terms(doc.get("applies_to_classifications") or doc.get("classifications"))
+
+
+def filter_standards(packs: list[tuple[str, str, set[str]]], requested: set[str] | None) -> str:
+    """The ``sumo_qa_load_standards`` text for *packs*: every pack when
+    *requested* is ``None``, else the packs declaring a requested id."""
+    return "\n\n---\n\n".join(
+        f"# {name}\n\n{text}"
+        for name, text, applies in packs
+        if requested is None or not requested.isdisjoint(applies)
+    )
+
+
 def sumo_qa_load_standards(classification: str | None = None) -> str:
     """Return the team's loaded standards as text. Optional metadata filter
     by classification — packs whose frontmatter declares any requested
     classification. Multiple classifications may be comma/space separated.
     No keyword inference; the filter is pure file-metadata selection."""
-    root = _standards_dir()
-    packs: list[str] = []
-    pack_paths = sorted(list(root.glob("*.yaml")) + list(root.glob("*.yml")))
-    requested = _classification_filter_terms(classification)
-    for path in pack_paths:
-        text = path.read_text(encoding="utf-8")
-        if requested is not None:
-            try:
-                doc = yaml.safe_load(text) or {}
-            except yaml.YAMLError:
-                continue
-            applies = _metadata_terms(
-                doc.get("applies_to_classifications") or doc.get("classifications")
-            )
-            if not applies or requested.isdisjoint(applies):
-                continue
-        packs.append(f"# {path.name}\n\n{text}")
-    return "\n\n---\n\n".join(packs)
+    return filter_standards(read_standards_packs(), _classification_filter_terms(classification))
 
 
 def _rules_path() -> Path:
@@ -532,23 +541,36 @@ def _rules_path() -> Path:
     return candidates[0]
 
 
-def sumo_qa_load_rules(classification: str | None = None) -> str:
-    """Return the team's loaded change rules as text. Optional metadata filter
-    by classification — the rules file is a dict keyed by classification, so
-    filtering returns matching entries. Multiple classifications may be
-    comma/space separated."""
-    path = _rules_path()
-    text = path.read_text(encoding="utf-8")
-    requested = _classification_filter_terms(classification)
-    if requested is None:
-        return text
+def read_rules() -> tuple[str, dict[Any, Any] | None]:
+    """The change-rules file as ``(text, parsed mapping)``; the mapping is
+    ``None`` when the YAML does not parse or is not a mapping."""
+    text = _rules_path().read_text(encoding="utf-8")
     try:
         doc = yaml.safe_load(text) or {}
     except yaml.YAMLError:
+        return text, None
+    return text, doc if isinstance(doc, dict) else None
+
+
+def rule_classification_ids(doc: dict[Any, Any] | None) -> set[str]:
+    """Ids the rules filter returns entries for: the mapping's keys plus each
+    alias whose target key is present."""
+    if doc is None:
+        return set()
+    aliased = {
+        term
+        for term, targets in _RULE_CLASSIFICATION_ALIASES.items()
+        if any(t in doc for t in targets)
+    }
+    return {str(name).lower() for name in doc} | aliased
+
+
+def filter_rules(rules: tuple[str, dict[Any, Any] | None], requested: set[str] | None) -> str:
+    """The ``sumo_qa_load_rules`` text for a ``read_rules`` result."""
+    text, doc = rules
+    if requested is None or doc is None:
         return text
-    if not isinstance(doc, dict):
-        return text
-    entries = {name: entry for name, entry in doc.items() if str(name) in requested}
+    entries = {name: entry for name, entry in doc.items() if str(name).lower() in requested}
     for term in sorted(requested):
         if term in entries:
             continue
@@ -563,3 +585,11 @@ def sumo_qa_load_rules(classification: str | None = None) -> str:
     # pragma: no mutate — equivalent: PyYAML treats sort_keys=None identically to False
     # (preserves insertion order); covers load_rules mutant that swaps False→None
     return yaml.safe_dump(entries, sort_keys=False)  # pragma: no mutate
+
+
+def sumo_qa_load_rules(classification: str | None = None) -> str:
+    """Return the team's loaded change rules as text. Optional metadata filter
+    by classification — the rules file is a dict keyed by classification, so
+    filtering returns matching entries. Multiple classifications may be
+    comma/space separated."""
+    return filter_rules(read_rules(), _classification_filter_terms(classification))

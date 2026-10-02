@@ -236,8 +236,16 @@ def test_review_scenario_accepts_either_rules_load(scenarios, load) -> None:
         ToolCall("sumo_qa_load_skill_context", {"mode": "module", "module": "runtime-scope"}),
         ToolCall("sumo_qa_load_skill_context", {"mode": "bundle", "modules": "runtime-scope"}),
         ToolCall("sumo_qa_load_skill_context", {"mode": "bundle", "classification": ""}),
+        ToolCall("sumo_qa_load_skill_context", {"mode": "bundle", "classification": ","}),
+        ToolCall("sumo_qa_load_skill_context", {"mode": "bundle", "classification": " "}),
     ],
-    ids=["module-only", "bundle-without-classification", "bundle-blank-classification"],
+    ids=[
+        "module-only",
+        "bundle-without-classification",
+        "bundle-blank-classification",
+        "bundle-separator-only-classification",
+        "bundle-whitespace-classification",
+    ],
 )
 def test_review_scenario_fails_when_rules_are_never_loaded(scenarios, load) -> None:
     """A review that loads only modules never sees the change rules: S02 fails."""
@@ -568,6 +576,31 @@ def test_scenario_expecting_a_skill_and_forbidding_sumo_qa_is_rejected(tmp_path)
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="X01.*cannot both"):
+        load_scenarios(fixture)
+
+
+@pytest.mark.parametrize(
+    ("entry", "match"),
+    [
+        ("{args: {mode: bundle}}", "R01.*'tool' key"),
+        ("{tool: sumo_qa_load_rules, arg: {classification: '*'}}", r"R01.*unexpected: \['arg'\]"),
+    ],
+    ids=["missing-tool", "unknown-key"],
+)
+def test_malformed_required_one_of_entry_is_rejected(tmp_path, entry, match) -> None:
+    """A misspelt key would otherwise silently drop the argument check."""
+    fixture = tmp_path / "one_of.yaml"
+    fixture.write_text(
+        "scenarios:\n"
+        "  - id: R01\n"
+        "    source_doc: SCENARIOS.md\n"
+        "    source_heading: whatever\n"
+        "    user_prompt: hi\n"
+        "    mode: deterministic\n"
+        f"    required_one_of:\n      - {entry}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=match):
         load_scenarios(fixture)
 
 
