@@ -171,11 +171,14 @@ def _run_eval(
     claude.write_text(claude_script)
     claude.chmod(0o755)
     # The caller's colour settings are dropped too, so a test's colour case is the
-    # one it sets, not whatever the terminal running pytest happens to export.
+    # one it sets, not whatever the terminal running pytest happens to export. So is
+    # LOG_LEVEL: promptfoo prints its info-level "Writing output to" line only at the
+    # default level, and the colour cases look for that line.
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_")) and k not in ("TIER", *_COLOUR_ENV)
+        if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_"))
+        and k not in ("TIER", "LOG_LEVEL", *_COLOUR_ENV)
     }
     env["PATH"] = f"{fakebin}{os.pathsep}{env.get('PATH', '')}"
     env["SUMO_EVAL_DRY_RUN"] = "1"
@@ -298,8 +301,12 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
     """When promptfoo fails before writing a readable report (a misspelled config
     path, malformed YAML), no model answered and nothing was graded. That is a
     harness or config error: it must not print `[eval] ABORT:` or exit 3, which
-    mean a readable report carried provider or judge errors. Real run with dry run
-    off and the stand-in `claude` on PATH; promptfoo stops before any provider call.
+    mean a readable report carried provider or judge errors. The boundary cases
+    alongside it check the other side: a readable report with provider errors
+    exits 3, and a clean report exits 0, in each colour environment. Every case is
+    a real run with dry run off and the stand-in `claude` on PATH; the harness
+    error cases stop before any provider call, and the report cases call the
+    stand-in once.
     """
 
     def _real_run(
@@ -349,9 +356,12 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         # promptfoo colours its "Writing output to" line only when colour is on (its
         # results table borders are grey either way, so a bare escape proves nothing).
         # Seeing the coloured line proves the forced case really ran with colour on,
-        # so it cannot pass as a colour-off run.
-        if "FORCE_COLOR" in colour_env:
+        # so it cannot pass as a colour-off run; its absence proves the opt-out case
+        # really ran with colour off.
+        if colour_env.get("FORCE_COLOR", "0") != "0":
             assert "\x1b[33mWriting output to" in result.stdout, result.stdout
+        else:
+            assert "\x1b[33mWriting output to" not in result.stdout, result.stdout
 
     # Two classes of colour environment, one case each: colour forced on, and the
     # NO_COLOR opt-out. Forced colour is what made node print a coloured count.
