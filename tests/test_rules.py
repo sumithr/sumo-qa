@@ -225,7 +225,7 @@ def test_dedupe_removes_duplicates_preserving_first_seen_order() -> None:
 # (red) until the rule carries the concrete probe itself.
 SURFACE_PROBE_MARKERS = {
     # schema/model validation + request/response/IPC protocol surface
-    "api_contract_change": ("removed", "omits", "old-shaped"),
+    "api_contract_change": ("removed", "omits", "old-shaped", "additive surface", "collides"),
     # CI / config / deployment surface
     "configuration_change": ("missing or empty", "precedence", "in flight"),
     # async / retry / idempotency surface

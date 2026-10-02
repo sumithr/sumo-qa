@@ -12,7 +12,7 @@ api_contract_change:
     - "An old-shaped request or message replayed against the new contract is still accepted, or is explicitly version-gated"
     # Additive public surface (new MCP tool/resource/prompt, new caller-visible
     # format on an existing tool or exporter). Distinct from breaking drift above.
-    - "Additive surface: the new tool, resource, or format name is unique and discoverable, and is registered in the canonical derived tool surface rather than a hand-kept list"
+    - "Additive surface: the new tool, resource, or format name is unique and discoverable, and appears wherever the service publishes or lists its surface"
     - "Additive surface: input defaults, required fields, and schema validation behave as declared, and the output and error envelope serialize stably"
     - "Additive surface: a persisted or exchanged versioned format round-trips, and existing tools and formats are preserved unchanged"
   suggested_test_types:

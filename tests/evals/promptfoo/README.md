@@ -1082,7 +1082,7 @@ Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-op
 | Control | A0 | A1 | B | Notes |
 |---|---|---|---|---|
 | `skill-answering-testing-question.ab.yaml` | 0/5 | 4/5 | 5/5 | |
-| `skill-deciding-approach.ab.yaml` | 0/7 | 1/7 | 7/7 | |
+| `skill-deciding-approach.ab.yaml` | 0/7 | 1/7 | 7/7 | Figures are the 7-case run; two MCP and serialization pair cases added (9 cases); a filtered run on the two new cases plus the new-endpoint seed gave B 3/3, A0 0/3, A1 0/3; full-file rerun pending |
 | `skill-implementing-with-tdd.ab.yaml` | 0/3 | 0/3 | 3/3 | |
 | `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | After the axis-A tightening; on the production-defect seed over 3 repeats, B 3/3, A0 0/3, A1 0/3 |
 | `skill-preparing-for-work.ab.yaml` | 4/4 | 2/4 | 4/4 | Non-discriminating, see below; one A1 sample lost to an unparseable judge reply |
