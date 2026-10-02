@@ -9,12 +9,109 @@ All optional. Defaults work out of the box after `pip install sumo-qa && sumo-qa
 | `QA_TEST_DATA_PATH` | `knowledge/test_data` (cwd) | Override the known-good test data catalogue. **No samples ship in the wheel**, the catalogue is empty on a fresh install; populate it per your team's domains. |
 | `QA_KNOWLEDGE_PATH` | bundled `_data/knowledge` / repo `knowledge` | Override the canonical knowledge catalogues (classifications, approaches, principles, techniques) |
 | `SUMO_QA_DEBUG_DIR` | unset | Directory to capture per-tool-call args + output as JSON for debugging / grading |
+| `SUMO_QA_MCP_PROFILE` | `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist tools or external-skill search/check/install/execute tools). See [Tool profiles](#tool-profiles) |
 
 These env vars are the lowest-level override and always win. For a no-clone way
 to add custom content, see [Adding custom knowledge without cloning the
 repo](#adding-custom-knowledge-without-cloning-the-repo) below, it inserts
 ingested project/global packs as middle tiers between the env vars and the
 bundled defaults.
+
+## Tool profiles
+
+`SUMO_QA_MCP_PROFILE` picks which tools the server lists, once at startup:
+
+- `full` (default; also when unset or empty): every tool, unchanged.
+- `core`: the tools the native QA workflows use: the entry router, every
+  workflow skill, the knowledge loaders, the test-data, repo-map, evidence and
+  report tools, and `sumo_qa_capabilities`. It leaves out the specialist tools
+  (`sumo_qa_load_catalogue_entry`, `sumo_qa_list_skill_manifests`,
+  `sumo_qa_export_test_cases`, `sumo_qa_ingest_knowledge_pack`) and the
+  external-skill tools. The `sumo-qa-suggesting-external-skill` workflow is
+  listed, but the search, check, install and execute tools it drives are
+  absent, so it cannot run under `core`; set `full` to use it.
+
+Any other value stops the server at launch with an error naming the valid
+profiles. Each tool's capability group and profile membership live in
+`src/sumo_qa/tool_registry.py`.
+
+Set the profile in the host's `sumo-qa` entry `env`. Re-running
+`sumo-qa-install` refreshes the entry's `command` and `args` and keeps its
+`env` in every host it writes: `claude_desktop_config.json` (Claude Desktop,
+and the copy written for Claude Code), `.vscode/mcp.json`, and Claude Code's
+own MCP registry (user scope in `~/.claude.json`, or
+`$CLAUDE_CONFIG_DIR/.claude.json`). It also keeps `envFile` in
+`claude_desktop_config.json` and `.vscode/mcp.json`, but not in Claude Code's
+registry: the installer re-registers that entry through `claude mcp add-json`
+with the old entry's `env` (string values only), and Claude Code entries
+cannot use `envFile`, so the claude CLI drops it. A CLI without `add-json`
+gets `claude mcp add -e`, which cannot pass `envFile` or any key other than
+`command`, `args` and `env`, so the installer warns naming the keys it drops.
+If that registration fails, the installer re-adds the entry it removed; when
+the remove itself failed, the old entry is still registered and it says so.
+Any other key you added to an entry is removed.
+
+`sumo-qa-doctor --host <host>` probes the entry that host launches, with that
+entry's `env`:
+
+| `--host` | Entry probed | Shell `SUMO_QA_MCP_PROFILE` |
+|---|---|---|
+| `claude-code` | Claude Code's user-scope registry (`$CLAUDE_CONFIG_DIR/.claude.json` when set, else `~/.claude.json`) | kept |
+| `claude-desktop` | `claude_desktop_config.json` | dropped |
+| `vscode` | `<workspace>/.vscode/mcp.json` `servers` (VS Code ignores `mcpServers`) | kept |
+| `codex`, `jetbrains` | none: the `sumo-qa` on `PATH` | kept |
+
+The entry's `env` always wins over the shell. Where the shell's value is
+kept, it follows the host:
+
+- Claude Code passes its own process env to stdio servers, so a profile
+  exported in the shell that starts `claude` applies when the entry sets none.
+  Verified with Claude Code 2.1.287 in a temp HOME: a server registered with
+  `claude mcp add -e ENTRY_VAR=...` and started by `claude mcp list` saw both
+  `ENTRY_VAR` and the shell's `SUMO_QA_MCP_PROFILE`; with the entry setting
+  `SUMO_QA_MCP_PROFILE=full`, the entry's value won over the shell's `core`.
+- Claude Desktop is a GUI app and does not see the doctor shell's env, so the
+  probe drops the shell's value and only the entry picks the profile.
+- VS Code: not verified. Whether its servers see a shell's env depends on
+  how VS Code was started (with `code` from that terminal, or from the Dock or
+  Start menu), so the probe keeps the shell's value.
+
+A `${...}` in an entry's command, args or env is read the way its host reads
+it:
+
+- VS Code: `${workspaceFolder}`, `${userHome}` and `${env:NAME}` are expanded
+  as VS Code does, by both the probe and the `vscode_workspace_config` check.
+  An entry that still holds another `${...}` (such as `${input:...}`, which VS
+  Code prompts for) is a WARN in both: the doctor cannot know the value, so it
+  does not launch it. This WARN applies only to VS Code entries.
+- Claude Code: `${VAR}` and `${VAR:-default}` are expanded from the doctor's
+  env, as Claude Code expands them from its own. Verified with Claude Code
+  2.1.287 on a user-scope entry: a set `VAR` (even empty) gives its value, an
+  unset one gives the default, and an unset one with no default stays as
+  written (Claude Code warns "Missing environment variables" and launches it).
+- Claude Desktop: nothing is expanded; the entry launches as written, so a
+  `${...}` in its command is a launch FAIL.
+
+An invalid profile is a FAIL; otherwise the probe requires every tool the
+launch profile serves. An entry whose command cannot be started (a moved
+venv) is a FAIL naming the command and the config file. An entry `env` key
+containing `=` cannot be passed to a process: the probe launches without it
+and reports a WARN naming it. The doctor does not read `envFile`. With no
+`--host`, or when the host has no `sumo-qa` entry, the doctor probes the
+`sumo-qa` on `PATH` with its own shell env. The `vscode_workspace_config`
+check judges the same `servers` entry as the probe; an entry only under the
+legacy `mcpServers` key is a FAIL, since VS Code does not register it.
+
+```json
+{
+  "mcpServers": {
+    "sumo-qa": {
+      "command": "sumo-qa",
+      "env": { "SUMO_QA_MCP_PROFILE": "core" }
+    }
+  }
+}
+```
 
 ## Example: custom team standards
 

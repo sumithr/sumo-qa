@@ -23,6 +23,9 @@ import pytest
 
 from sumo_qa import installer
 
+# Registration reads Claude Code's registry from HOME; never the real one.
+pytestmark = pytest.mark.usefixtures("_empty_claude_home")
+
 
 def _ok(stdout: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr=b"")
@@ -96,11 +99,11 @@ def test_register_claude_code_mcp_second_run_still_removes_then_adds() -> None:
     # First call: remove
     assert "remove" in calls[0].args[0], "Call 0 should be 'mcp remove'"
     # Second call: add
-    assert "add" in calls[1].args[0], "Call 1 should be 'mcp add'"
+    assert "add-json" in calls[1].args[0], "Call 1 should be 'mcp add-json'"
     # Third call (second invocation): remove again
     assert "remove" in calls[2].args[0], "Call 2 should be 'mcp remove' (second run)"
     # Fourth call (second invocation): add again
-    assert "add" in calls[3].args[0], "Call 3 should be 'mcp add' (second run)"
+    assert "add-json" in calls[3].args[0], "Call 3 should be 'mcp add-json' (second run)"
 
 
 # ---------------------------------------------------------------------------
@@ -456,3 +459,79 @@ def test_setup_vscode_strips_legacy_mcp_servers_key(tmp_path: Path) -> None:
     config = json.loads((vscode_dir / "mcp.json").read_text(encoding="utf-8"))
     assert "mcpServers" not in config, "Legacy mcpServers key should be stripped"
     assert config["servers"]["sumo-qa"]["command"] == mcp_cmd.command
+
+
+# ---------------------------------------------------------------------------
+# T_ENV: a refresh keeps the entry's env block (the documented profile switch)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("host", ["claude-code", "claude-desktop", "vscode"])
+def test_rerun_keeps_an_existing_entry_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str
+) -> None:
+    """A re-run refreshes command/args but must not drop a configured ``env``
+    such as ``SUMO_QA_MCP_PROFILE=core`` (docs/CONFIGURATION.md). For Claude
+    Code that means both the file it writes and its own MCP registry, which it
+    re-registers through ``claude mcp add-json``."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    env = {"SUMO_QA_MCP_PROFILE": "core", "OTHER": "1"}
+    mcp_cmd = installer.McpCommand(command="/new/sumo-qa", args=[])
+
+    if host == "vscode":
+        (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+        config_path = tmp_path / ".vscode" / "mcp.json"
+        key = "servers"
+    elif host == "claude-desktop":
+        config_path = installer._claude_desktop_config_path(home, "Darwin")
+        key = "mcpServers"
+    else:
+        (home / ".claude").mkdir()
+        config_path = home / ".config" / "claude" / "claude_desktop_config.json"
+        key = "mcpServers"
+    old_entries = json.dumps({key: {"sumo-qa": {"command": "/old/sumo-qa", "env": env}}})
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(old_entries, encoding="utf-8")
+    if host == "claude-code":
+        (home / ".claude.json").write_text(old_entries, encoding="utf-8")
+
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()) as run,
+    ):
+        if host == "vscode":
+            installer._setup_vscode_copilot(mcp_cmd, tmp_path)
+        elif host == "claude-desktop":
+            installer._setup_claude_desktop(mcp_cmd, "Darwin")
+        else:
+            installer._setup_claude_code(mcp_cmd, "Darwin")
+
+    entry = json.loads(config_path.read_text(encoding="utf-8"))[key]["sumo-qa"]
+    assert entry["command"] == "/new/sumo-qa"
+    assert entry["env"] == env
+    if host == "claude-code":
+        add_json = next(c.args[0] for c in run.call_args_list if "add-json" in c.args[0])
+        registered = json.loads(add_json[-1])
+        assert registered["command"] == "/new/sumo-qa"
+        assert registered["env"] == env
+
+
+def test_vscode_rerun_keeps_an_existing_entry_env_file(tmp_path: Path) -> None:
+    """VS Code stdio entries may load env from ``envFile``; a re-run keeps it."""
+    (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+    config_path = tmp_path / ".vscode" / "mcp.json"
+    config_path.parent.mkdir()
+    env_file = "${workspaceFolder}/.env"
+    config_path.write_text(
+        json.dumps({"servers": {"sumo-qa": {"command": "/old/sumo-qa", "envFile": env_file}}}),
+        encoding="utf-8",
+    )
+
+    installer._setup_vscode_copilot(installer.McpCommand(command="/new/sumo-qa"), tmp_path)
+
+    entry = json.loads(config_path.read_text(encoding="utf-8"))["servers"]["sumo-qa"]
+    assert entry["command"] == "/new/sumo-qa"
+    assert entry["envFile"] == env_file

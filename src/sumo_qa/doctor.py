@@ -72,7 +72,7 @@ import subprocess
 import sys as _sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path as _Path
@@ -80,20 +80,19 @@ from typing import Literal
 
 from sumo_qa import installer as _installer
 from sumo_qa.installer import (
-    REQUIRED_TOOL_NAMES,
     McpCommand,
     _read_json_rpc_response,
     _start_stdout_reader,
     _terminate,
     _VerifyTimeout,
 )
+from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, profile_tool_names, resolve_profile
 
 # Re-export the names doctor's surface relies on so callers (and tests)
 # can reach them via ``sumo_qa.doctor`` without importing installer.
 __all__ = [
     "CheckResult",
     "McpCommand",
-    "REQUIRED_TOOL_NAMES",
     "check_binary_discoverable",
     "check_uvx_available",
     "check_claude_code_config",
@@ -167,6 +166,15 @@ def check_python_version() -> CheckResult:
 
 _HANDSHAKE_FIX = "Run `sumo-qa-install` and re-run `sumo-qa-doctor`."
 
+# A ``${...}`` in a host entry. VS Code expands the variables the doctor
+# can (``_VSCODE_VARIABLE``) and prompts for others (e.g. ``${input:...}``),
+# which the probe reports instead of launching. Claude Code expands ``${VAR}``
+# and ``${VAR:-default}`` from its env (``_CLAUDE_CODE_VARIABLE``) and leaves an
+# unset VAR with no default as written; Claude Desktop expands nothing.
+_PLACEHOLDER = re.compile(r"\$\{[^}]*\}")
+_VSCODE_VARIABLE = re.compile(r"\$\{(workspaceFolder|userHome|env:([^}]*))\}")
+_CLAUDE_CODE_VARIABLE = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}")
+
 
 def _handshake_fail(
     *,
@@ -215,8 +223,25 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     - ``malformed_jsonrpc``: a response arrived but failed shape validation
       (missing id, wrong ``jsonrpc`` version, error envelope, non-dict
       ``result``).
-    - ``missing_tools``: ``tools/list`` returned a strict subset of
-      ``REQUIRED_TOOL_NAMES``; names listed in ``details["missing"]``.
+    - ``missing_tools``: ``tools/list`` lacks some of the tools the launch
+      profile serves; names listed in ``details["missing"]``.
+    - ``invalid_profile``: the launch env names an unknown
+      ``SUMO_QA_MCP_PROFILE``; the server would refuse to start, so nothing
+      is launched.
+    - ``launch_error``: the command could not be started (e.g. a host entry
+      still points at a moved venv); the summary names the command and the
+      config file the entry came from.
+
+    WARN, nothing launched:
+
+    - ``unexpandable_placeholder``: a VS Code entry still holds a ``${...}``
+      VS Code fills at launch and the doctor cannot (e.g. ``${input:...}``).
+
+    An entry env key containing ``=`` cannot be passed to a process: the
+    probe launches without it and a passing handshake becomes a WARN naming it.
+
+    The command launches with ``mcp_cmd.env`` (a host entry's env, already
+    adjusted for the host by ``_resolve_mcp_command``) over this process's env.
 
     On success both records carry status ``OK``.
     """
@@ -235,13 +260,46 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     initialized_note = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"})
     tools_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
 
-    proc = subprocess.Popen(  # noqa: S603 -- argv comes from a trusted McpCommand
-        mcp_cmd.as_subprocess_argv(),
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    origin = f"the sumo-qa entry in {mcp_cmd.source}" if mcp_cmd.source else "PATH"
+    if mcp_cmd.unexpanded:
+        handshake, tools = _handshake_fail(
+            summary=(
+                f"cannot probe: {origin} uses {mcp_cmd.unexpanded}, "
+                "which VS Code fills in at launch"
+            ),
+            kind="unexpandable_placeholder",
+        )
+        return replace(handshake, status="WARN", fix=None), replace(tools, status="WARN")
+    skipped = sorted(k for k in mcp_cmd.env or {} if "=" in k)
+    entry_env = {k: v for k, v in (mcp_cmd.env or {}).items() if k not in skipped}
+    env = {**os.environ, **entry_env}
+    try:
+        required = profile_tool_names(resolve_profile(env))
+    except ValueError as exc:
+        handshake, tools = _handshake_fail(
+            summary=(
+                f"sumo-qa: {exc}. Set {PROFILE_ENV} in "
+                f"{'the env of ' + origin if entry_env.get(PROFILE_ENV) else 'this shell'} "
+                f"to one of: {', '.join(PROFILES)}"
+            ),
+            kind="invalid_profile",
+        )
+        return replace(handshake, fix=None), tools
+
+    try:
+        proc = subprocess.Popen(  # noqa: S603 -- argv comes from a trusted McpCommand
+            mcp_cmd.as_subprocess_argv(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+    except OSError as exc:
+        return _handshake_fail(
+            summary=f"cannot launch `{mcp_cmd.display()}` from {origin}: {exc.strerror or exc}",
+            kind="launch_error",
+        )
     # ``stdin=subprocess.PIPE`` guarantees ``proc.stdin`` is a real stream, but
     # typeshed types it as ``IO[str] | None``. Bind + assert once so the writes
     # below type-check without a None-guard on every line.
@@ -361,6 +419,16 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
         summary="MCP initialize handshake succeeded",
         details={"kind": "ok"},
     )
+    if skipped:
+        handshake_ok = replace(
+            handshake_ok,
+            status="WARN",
+            summary=(
+                f"{handshake_ok.summary}, launched without env key(s) "
+                f"{', '.join(skipped)} from {origin}: a variable name cannot contain '='"
+            ),
+            fix=f"Remove or rename the key(s) in {mcp_cmd.source}.",
+        )
 
     # --- tools/list classification ---
     if tools_resp is None:
@@ -393,7 +461,7 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
             summary="tools/list 'result.tools' is not a list",
         )
     advertised = {t.get("name") for t in tools if isinstance(t, dict)}
-    missing = [n for n in REQUIRED_TOOL_NAMES if n not in advertised]
+    missing = sorted(required - advertised)
     if missing:
         return handshake_ok, CheckResult(
             check_id="tools_list_complete",
@@ -408,7 +476,7 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     return handshake_ok, CheckResult(
         check_id="tools_list_complete",
         status="OK",
-        summary=f"all {len(REQUIRED_TOOL_NAMES)} required tools advertised",
+        summary=f"all {len(required)} required tools advertised",
         details={"advertised_count": len(advertised)},
     )
 
@@ -880,14 +948,15 @@ def check_claude_desktop_config(
     )
 
 
-def check_vscode_workspace_config(workspace: _Path) -> CheckResult:
+def check_vscode_workspace_config(workspace: _Path, home: _Path | None = None) -> CheckResult:
     """Verify ``<workspace>/.vscode/mcp.json`` is present, parseable, and
     its sumo-qa entry points at a resolvable binary.
 
     VS Code's MCP config schema differs from Claude's — the top-level key
     is ``servers`` (not ``mcpServers``) and each entry includes a ``type``
-    field. We tolerate either shape on read; ``servers`` wins when both
-    are present so the canonical VS Code-native layout is preferred.
+    field. VS Code ignores ``mcpServers``, so an entry only there is a FAIL.
+    The command is expanded as VS Code expands it, the same as the probe;
+    one still holding a ``${...}`` VS Code fills at launch is a WARN.
     """
     config_path = workspace / ".vscode" / "mcp.json"
     # Shell-quote the workspace path so the printed Fix command stays
@@ -914,7 +983,7 @@ def check_vscode_workspace_config(workspace: _Path) -> CheckResult:
             fix=f"Fix the permissions on {config_path}.",
         )
     try:
-        config = json.loads(text)
+        json.loads(text)  # validity only; the entry is read below
     except json.JSONDecodeError as exc:
         return CheckResult(
             check_id="vscode_workspace_config",
@@ -922,29 +991,47 @@ def check_vscode_workspace_config(workspace: _Path) -> CheckResult:
             summary=(f"{config_path} is not valid JSON ({exc.msg} at line {exc.lineno})"),
             fix=(f"Re-run `sumo-qa-install {install_flag}` to overwrite the corrupt config."),
         )
-    entry = (config.get("servers") or config.get("mcpServers") or {}).get("sumo-qa")
-    if entry is None or not isinstance(entry, dict):
+    # The probe's reader and expansion, so both judge the command VS Code launches.
+    entry = _installer._read_server_entry(config_path, "servers")
+    if entry is None:
+        legacy = _installer._read_server_entry(config_path, "mcpServers") is not None
         return CheckResult(
             check_id="vscode_workspace_config",
             status="FAIL",
-            summary=f"{config_path} has no `sumo-qa` entry under `servers`",
+            summary=(
+                f"{config_path} has the `sumo-qa` entry only under `mcpServers`, "
+                "which VS Code ignores"
+                if legacy
+                else f"{config_path} has no `sumo-qa` entry under `servers`"
+            ),
             fix=f"Run `sumo-qa-install {install_flag}` to register the server.",
         )
-    if not _server_entry_resolves(entry):
+    cmd = _host_entry_command("vscode", entry, config_path, workspace, home or _Path.home())
+    if cmd is not None and cmd.unexpanded:
+        return CheckResult(
+            check_id="vscode_workspace_config",
+            status="WARN",
+            summary=(
+                f"{config_path} registers sumo-qa with {cmd.unexpanded}, which VS Code "
+                "fills in at launch; the doctor cannot check it"
+            ),
+            details={"config_path": str(config_path), "unexpanded": cmd.unexpanded},
+        )
+    if cmd is None or not _Path(cmd.command).exists():
         return CheckResult(
             check_id="vscode_workspace_config",
             status="FAIL",
             summary=(
                 f"{config_path} points at a binary that does not resolve "
-                f"({entry.get('command')!r}) — stale config"
+                f"({cmd.command if cmd else entry.get('command')!r}) — stale config"
             ),
             fix=f"Run `sumo-qa-install {install_flag}` to refresh the binary path.",
         )
     return CheckResult(
         check_id="vscode_workspace_config",
         status="OK",
-        summary=f"{config_path} registers sumo-qa at {entry.get('command')}",
-        details={"config_path": str(config_path), "command": entry.get("command")},
+        summary=f"{config_path} registers sumo-qa at {cmd.command}",
+        details={"config_path": str(config_path), "command": cmd.command},
     )
 
 
@@ -1143,6 +1230,7 @@ def _resolve_mcp_command(
     host: str | None = None,
     system: str | None = None,
     home: _Path | None = None,
+    workspace: _Path | None = None,
 ) -> McpCommand:
     """Mirror ``installer._install_mcp_binary``'s resolution without printing.
 
@@ -1150,23 +1238,36 @@ def _resolve_mcp_command(
     would write — the legacy contract every check downstream of
     ``run_mcp_probe`` depends on.
 
-    With ``host == "claude-desktop"``, reads
-    ``claude_desktop_config.json`` and returns the command stored there.
-    That's the command the macOS Claude.app sandbox will actually launch,
-    and it can diverge from ``shutil.which`` after the user reinstalls or
-    moves their venv (issue #181). If the file is missing, unreadable, or
-    has no sumo-qa entry, falls back to the PATH command so the rest of
-    the diagnostics still run — the missing-config case is surfaced by
-    ``check_claude_desktop_config``.
+    With ``host`` set to ``claude-desktop``, ``claude-code`` or ``vscode``,
+    returns the ``sumo-qa`` entry that host launches, with its ``env``:
+    ``claude_desktop_config.json``, Claude Code's user-scope registry
+    (``.claude.json`` in ``$CLAUDE_CONFIG_DIR`` or HOME), or
+    ``<workspace>/.vscode/mcp.json`` ``servers``. That entry can diverge from
+    ``shutil.which`` after the user reinstalls or moves their venv (issue
+    #181), and its env picks the tool profile; ``_host_entry_command`` reads
+    it the way the host launches it. If the file is missing, unreadable, or
+    has no sumo-qa entry, falls back to the PATH command so the rest of the
+    diagnostics still run; the missing-config case is surfaced by the host's
+    config check.
 
     The installer prints its choice (good UX during install); doctor
     never prints from the resolver — every line of output goes through
     the renderer, so callers can swap human / JSON without re-coupling.
     """
+    h = home or _Path.home()
+    ws = workspace or _Path.cwd()
+    config_path, key = None, "mcpServers"
     if host == "claude-desktop":
-        sys_name = system or _platform.system()
-        h = home or _Path.home()
-        configured = _read_configured_claude_desktop_command(h, sys_name)
+        config_path = _installer._claude_desktop_config_path(h, system or _platform.system())
+    elif host == "claude-code":
+        config_path = _installer._claude_code_registry_path(h)
+    elif host == "vscode":
+        # VS Code reads only ``servers``; it ignores a legacy ``mcpServers``.
+        config_path, key = ws / ".vscode" / "mcp.json", "servers"
+    if config_path is not None:
+        configured = _host_entry_command(
+            host, _installer._read_server_entry(config_path, key), config_path, ws, h
+        )
         if configured is not None:
             return configured
     existing = shutil.which("sumo-qa")
@@ -1175,33 +1276,61 @@ def _resolve_mcp_command(
     return McpCommand(command=_sys.executable, args=["-m", "sumo_qa"])
 
 
-def _read_configured_claude_desktop_command(home: _Path, system: str) -> McpCommand | None:
-    """Return the ``sumo-qa`` server entry stored in
-    ``claude_desktop_config.json`` as an ``McpCommand``, or ``None`` if the
-    config is missing / unreadable / corrupt / has no entry."""
-    config_path = _installer._claude_desktop_config_path(home, system)
-    if not config_path.exists():
-        return None
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    # ``mcpServers`` is normally an object, but a user-edited config could
-    # leave it as ``null``, a list, or a string. ``(x or {}).get`` is not
-    # enough — a non-empty list / string is truthy and would propagate to
-    # ``.get`` and ``AttributeError``. Require dicts at each level.
-    mcp_servers = config.get("mcpServers") if isinstance(config, dict) else None
-    if not isinstance(mcp_servers, dict):
-        return None
-    entry = mcp_servers.get("sumo-qa")
-    if not isinstance(entry, dict):
+def _host_entry_command(
+    host: str | None, entry: dict | None, source: _Path, workspace: _Path, home: _Path
+) -> McpCommand | None:
+    """A host config's ``sumo-qa`` entry as the ``McpCommand`` that host
+    launches, or ``None`` when there is no entry or it has no usable
+    ``command``. Shared by the probe and the VS Code config check so both judge
+    the same command.
+
+    - ``vscode``: ``${workspaceFolder}``, ``${userHome}`` and ``${env:X}`` are
+      expanded as VS Code does (an unset ``X`` is empty); any other ``${...}``
+      left (e.g. ``${input:...}``) is recorded in ``unexpanded``.
+    - ``claude-code``: ``${VAR}`` and ``${VAR:-default}`` are expanded from this
+      process's env as Claude Code expands them from its own (a set-but-empty
+      VAR is empty; an unset VAR with no default stays as written).
+    - ``claude-desktop``: launched as written. It is a GUI app that does not
+      inherit the doctor shell's env, so the env sets an empty
+      ``SUMO_QA_MCP_PROFILE`` (the server default) unless the entry sets one.
+      The Claude Code CLI and VS Code keep the shell's value
+      (docs/CONFIGURATION.md).
+    """
+    if entry is None:
         return None
     command = entry.get("command")
     if not isinstance(command, str) or not command:
         return None
     raw_args = entry.get("args") or []
     args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
-    return McpCommand(command=command, args=args)
+    env = _installer._string_env(entry.get("env"))
+    if host == "claude-desktop":
+        return McpCommand(command, args, env={PROFILE_ENV: "", **env}, source=str(source))
+    if host == "vscode":
+
+        def expand(value: str) -> str:
+            return _VSCODE_VARIABLE.sub(
+                lambda m: (
+                    os.environ.get(m[2], "")
+                    if m[2] is not None
+                    else str(workspace if m[1] == "workspaceFolder" else home)
+                ),
+                value,
+            )
+    else:
+
+        def expand(value: str) -> str:
+            return _CLAUDE_CODE_VARIABLE.sub(
+                lambda m: os.environ.get(m[1], m[0] if m[2] is None else m[2]), value
+            )
+
+    command, args = expand(command), [expand(a) for a in args]
+    env = {k: expand(v) for k, v in env.items()}
+    left = None
+    if host == "vscode":
+        found = (_PLACEHOLDER.search(v) for v in (command, *args, *env.values()))
+        left = next((m.group() for m in found if m), None)
+    return McpCommand(command, args, env=env, source=str(source), unexpanded=left)
 
 
 def _collect_checks(
@@ -1221,7 +1350,7 @@ def _collect_checks(
         check_binary_discoverable(),
         check_uvx_available(),
     ]
-    handshake, tools = run_mcp_probe(_resolve_mcp_command(host=host_filter))
+    handshake, tools = run_mcp_probe(_resolve_mcp_command(host=host_filter, workspace=workspace))
     out.extend([handshake, tools])
     if host_filter in (None, "claude-code"):
         out.append(check_claude_code_config())

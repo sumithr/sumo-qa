@@ -913,3 +913,16 @@ def test_required_tool_names_matches_live_registry() -> None:
     # AND ordering (sorted). This is the canonical home for the exact-count
     # invariant now that the constant is no longer hand-maintained.
     assert installer.REQUIRED_TOOL_NAMES == tuple(sorted(static_tool_names))
+
+
+def test_required_tool_names_follow_a_profile_changed_in_process(monkeypatch) -> None:
+    """The derived surface is keyed on the profile, so a profile changed after
+    the first derivation is honoured, not served from a stale cache."""
+    from sumo_qa.tool_registry import PROFILE_ENV
+
+    monkeypatch.setenv(PROFILE_ENV, "full")
+    full = set(installer._derive_required_tool_names())
+    monkeypatch.setenv(PROFILE_ENV, "core")
+    core = set(installer._derive_required_tool_names())
+
+    assert core < full

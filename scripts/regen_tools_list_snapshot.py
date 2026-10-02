@@ -1,6 +1,9 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Regenerate tests/fixtures/mcp_tools_list_snapshot.json from the live server.
 
+``required_tools`` and ``schemas`` pin the default (no-config, ``full``)
+profile; ``core_tools`` pins the ``core`` profile's names (#806).
+
 Run when a deliberate tool change lands. A tool add, removal, or rename fails
 the snapshot guard until this is re-run; a schema edit only warns, but still
 regenerate so the pinned schema bodies stay current. Always inspect the diff
@@ -21,25 +24,29 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
+PROFILE_ENV = "SUMO_QA_MCP_PROFILE"
 
 
-def _spawn() -> subprocess.Popen:
+def _spawn(profile: str | None) -> subprocess.Popen:
     src_path = str(REPO_ROOT / "src")
     existing = os.environ.get("PYTHONPATH", "")
     pythonpath = f"{src_path}{os.pathsep}{existing}" if existing else src_path
+    env = {k: v for k, v in os.environ.items() if k != PROFILE_ENV}
+    if profile is not None:
+        env[PROFILE_ENV] = profile
     return subprocess.Popen(
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=str(REPO_ROOT),
-        env={**os.environ, "PYTHONPATH": pythonpath},
+        env={**env, "PYTHONPATH": pythonpath},
         text=True,
     )
 
 
-def main() -> int:
-    proc = _spawn()
+def _tools_list(profile: str | None) -> list[dict]:
+    proc = _spawn(profile)
     try:
         proc.stdin.write(
             json.dumps(
@@ -80,6 +87,13 @@ def main() -> int:
         )
         proc.stdin.flush()
         response = json.loads(proc.stdout.readline())
+    except (OSError, ValueError) as exc:  # BrokenPipeError, JSONDecodeError
+        proc.kill()
+        proc.wait(timeout=2)
+        raise SystemExit(
+            f"regen: the sumo-qa server (profile {profile or 'default'}) did not answer "
+            f"tools/list ({type(exc).__name__}). Server stderr:\n{proc.stderr.read()}"
+        ) from None
     finally:
         try:
             proc.stdin.close()
@@ -92,8 +106,20 @@ def main() -> int:
             proc.kill()
             proc.wait(timeout=2)
 
-    tools = response["result"]["tools"]
+    stderr = proc.stderr.read()
+    if "has no capability metadata" in stderr:
+        raise SystemExit(
+            f"regen: the sumo-qa server (profile {profile or 'default'}) serves a tool with "
+            "no registry entry, likely from a stale src/sumo_qa/_data/skills copy; "
+            f"refusing to pin it. Server stderr:\n{stderr}"
+        )
+    return response["result"]["tools"]
+
+
+def main() -> int:
+    tools = _tools_list(None)
     snapshot = {
+        "core_tools": sorted(t["name"] for t in _tools_list("core")),
         "required_tools": sorted(t["name"] for t in tools),
         "schemas": {
             t["name"]: {

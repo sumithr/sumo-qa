@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -99,6 +100,7 @@ from sumo_qa.skill_manifest import (
 )
 from sumo_qa.skill_prompts import register_skills_as_prompts
 from sumo_qa.skill_resources import register_skill_resources
+from sumo_qa.tool_registry import profile_tool_names, resolve_profile, resolve_profile_or_exit
 from sumo_qa.tools import QAShiftLeftService
 
 # Reusable actionable hints for isError envelopes. Hosts surface these to the
@@ -581,6 +583,31 @@ def _drop_structured_output(mcp: Any) -> None:
         tool.__dict__.pop("output_schema", None)
 
 
+def _apply_profile(mcp: Any, profile: str) -> None:
+    """Remove every registered tool outside ``profile``, once at build time.
+
+    The profile's names come from ``sumo_qa.tool_registry``. A registered tool
+    with no registry entry (e.g. from a stale ``_data/skills`` copy) warns on
+    stderr and is treated as full-only, so launch, install and doctor never
+    crash on it; tests/test_tool_registry.py is what fails on missing metadata.
+    Removal keeps the registration order, so ``tools/list`` order is
+    deterministic per profile and ``full`` is byte-identical to the unfiltered
+    list."""
+    allowed = profile_tool_names(profile)
+    known = profile_tool_names("full")
+    for tool in mcp._tool_manager.list_tools():
+        if tool.name not in known:
+            print(
+                f"sumo-qa: warning: tool {tool.name!r} has no capability metadata "
+                "in sumo_qa.tool_registry.TOOLS; serving it under the full profile only",
+                file=sys.stderr,
+            )
+            if profile != "full":
+                mcp.remove_tool(tool.name)
+        elif tool.name not in allowed:
+            mcp.remove_tool(tool.name)
+
+
 def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     try:
         from mcp.server.mcpserver import MCPServer
@@ -588,6 +615,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     except ImportError as exc:
         raise RuntimeError("The MCP SDK is not installed. Run `pip install -e .`.") from exc
 
+    profile = resolve_profile()
     qa_service = service or build_service()
     mcp = MCPServer(
         "sumo-qa",
@@ -2036,10 +2064,12 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
     register_skills_as_prompts(mcp)
     register_skill_resources(mcp)
+    _apply_profile(mcp, profile)
     _slim_tool_schemas(mcp)
     _drop_structured_output(mcp)
     return mcp
 
 
 def main() -> None:
+    resolve_profile_or_exit()
     build_mcp_server().run()

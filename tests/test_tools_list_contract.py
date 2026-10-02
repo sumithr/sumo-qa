@@ -7,6 +7,9 @@ Both must equal the live tools/list name set exactly: adding, removing, or
 renaming a tool fails this test until the snapshot is regenerated in the same
 PR, so a tool-name change is a deliberate, reviewable contract change.
 
+``core_tools`` pins the ``core`` profile's names the same way (#806). The
+other keys describe the default profile, ``full``.
+
 Only the names are pinned. Schema drift (a tool's inputSchema or outputSchema
 changing) is warn-only: it raises a UserWarning, not a failure, so the pinned
 schema bodies can still go stale.
@@ -55,15 +58,24 @@ from sumo_qa.installer import (
     _terminate,
     _VerifyTimeout,
 )
+from sumo_qa.tool_registry import PROFILE_ENV
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
 
 
-def _live_tools_list() -> list[dict]:
+def _server_env(profile: str | None) -> dict[str, str]:
+    """The caller's environment minus any inherited profile, plus ``profile``."""
     src_path = str(REPO_ROOT / "src")
     existing = os.environ.get("PYTHONPATH", "")
     pythonpath = f"{src_path}{os.pathsep}{existing}" if existing else src_path
+    env = {k: v for k, v in os.environ.items() if k != PROFILE_ENV}
+    if profile is not None:
+        env[PROFILE_ENV] = profile
+    return {**env, "PYTHONPATH": pythonpath}
+
+
+def _live_tools_list(profile: str | None = None) -> list[dict]:
     proc = subprocess.Popen(
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,
@@ -72,7 +84,7 @@ def _live_tools_list() -> list[dict]:
         # pytest's fd capture shows a crashing server's traceback on failure.
         stderr=None,
         cwd=str(REPO_ROOT),
-        env={**os.environ, "PYTHONPATH": pythonpath},
+        env=_server_env(profile),
         text=True,
     )
     lines = _start_stdout_reader(proc)
@@ -161,6 +173,11 @@ def live_tools() -> list[dict]:
     return _live_tools_list()
 
 
+@pytest.fixture(scope="module")
+def live_core_tools() -> list[dict]:
+    return _live_tools_list("core")
+
+
 _REGEN_HINT = (
     "If this is intentional, run `uv run python scripts/regen_tools_list_snapshot.py` "
     "and commit the diff with a one-line rationale."
@@ -194,6 +211,46 @@ def _assert_tool_set_matches(snapshot: dict, live_names: set[str]) -> None:
 def test_snapshot_tool_set_matches_live(snapshot, live_tools) -> None:
     """The snapshot's tool names must equal the live tools/list names exactly."""
     _assert_tool_set_matches(snapshot, {t["name"] for t in live_tools})
+
+
+def test_core_snapshot_tool_set_matches_live_core(snapshot, live_core_tools) -> None:
+    """``core_tools`` must equal the live ``core`` tools/list names exactly (#806)."""
+    core = snapshot["core_tools"]
+    core_snapshot = {
+        "required_tools": core,
+        "schemas": {n: snapshot["schemas"][n] for n in core if n in snapshot["schemas"]},
+    }
+    _assert_tool_set_matches(core_snapshot, {t["name"] for t in live_core_tools})
+
+
+def test_explicit_full_profile_is_identical_to_the_default(live_tools) -> None:
+    """``full`` is the default: setting it changes nothing in tools/list."""
+    assert _live_tools_list("full") == live_tools
+
+
+def test_core_tools_are_the_full_tools_unchanged_in_full_order(live_tools, live_core_tools) -> None:
+    """A core tool is the same tool as in full (name, description, schemas,
+    annotations), and core keeps full's order: one implementation, filtered."""
+    core_names = {t["name"] for t in live_core_tools}
+    assert live_core_tools == [t for t in live_tools if t["name"] in core_names]
+
+
+def test_unknown_profile_fails_at_launch_with_a_clear_error() -> None:
+    proc = subprocess.run(
+        [sys.executable, "-m", "sumo_qa"],
+        input="",
+        capture_output=True,
+        cwd=str(REPO_ROOT),
+        env=_server_env("bogus"),
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode != 0
+    assert proc.stdout == ""
+    assert proc.stderr.strip() == (
+        f"sumo-qa: {PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
+        "expected one of: core, full"
+    )
 
 
 # Pure-logic regression tests: one per equivalence partition of the guard
@@ -307,3 +364,61 @@ def test_schema_drift_warns(snapshot, live_tools) -> None:
             warnings.warn(f"{name}: inputSchema changed since snapshot", UserWarning, stacklevel=1)
         if pinned.get("outputSchema") != live.get("outputSchema"):
             warnings.warn(f"{name}: outputSchema changed since snapshot", UserWarning, stacklevel=1)
+
+
+def _load_regen_script():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "regen_tools_list_snapshot", REPO_ROOT / "scripts" / "regen_tools_list_snapshot.py"
+    )
+    regen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(regen)
+    return regen
+
+
+def test_regen_script_surfaces_the_server_stderr_when_the_server_fails_to_start() -> None:
+    """A server that dies at launch must stop the regen script with a clear
+    message and the server's own stderr, not a BrokenPipe/JSON traceback."""
+    regen = _load_regen_script()
+    with pytest.raises(SystemExit) as exc:
+        regen._tools_list("bogus")
+    message = str(exc.value)
+    assert "did not answer tools/list" in message
+    assert f"{PROFILE_ENV}='bogus' is not a valid MCP tool profile" in message
+
+
+# Answers initialize and tools/list like the real server, after printing the
+# warning the real server prints for a tool with no registry entry.
+_STALE_TOOL_SERVER = """
+import json, sys
+print("sumo-qa: warning: tool 'stale_tool' has no capability metadata in "
+      "sumo_qa.tool_registry.TOOLS; serving it under the full profile only",
+      file=sys.stderr, flush=True)
+sys.stdin.readline()
+print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}), flush=True)
+sys.stdin.readline()
+sys.stdin.readline()
+print(json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "stale_tool"}]}}),
+      flush=True)
+"""
+
+
+def test_regen_script_refuses_to_pin_a_tool_without_capability_metadata(monkeypatch) -> None:
+    """A stale ``_data/skills`` tool makes the server warn on stderr but still
+    answer; the regen script must fail instead of pinning it in the snapshot."""
+    regen = _load_regen_script()
+    monkeypatch.setattr(
+        regen,
+        "_spawn",
+        lambda _profile: subprocess.Popen(
+            [sys.executable, "-c", _STALE_TOOL_SERVER],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ),
+    )
+    with pytest.raises(SystemExit) as exc:
+        regen._tools_list(None)
+    assert "'stale_tool' has no capability metadata" in str(exc.value)

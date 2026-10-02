@@ -13,11 +13,13 @@ import queue as _queue
 import subprocess
 import sys
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from sumo_qa import doctor
+from sumo_qa.tool_registry import PROFILE_ENV, profile_tool_names
 
 # mutmut-subprocess-spawning: spawns ``python -m sumo_qa.doctor`` from a fresh
 # interpreter, so it MUST be excluded from the mutmut gate via
@@ -164,7 +166,7 @@ def _mcp_cmd() -> doctor.McpCommand:
 
 
 def test_run_mcp_probe_ok(monkeypatch) -> None:
-    proc = _FakeProc([_ok_initialize_line(), _tools_list_line(list(doctor.REQUIRED_TOOL_NAMES))])
+    proc = _FakeProc([_ok_initialize_line(), _tools_list_line(sorted(profile_tool_names("full")))])
     monkeypatch.setattr(doctor.subprocess, "Popen", lambda *a, **k: proc)
 
     handshake, tools = doctor.run_mcp_probe(_mcp_cmd())
@@ -172,7 +174,7 @@ def test_run_mcp_probe_ok(monkeypatch) -> None:
     assert handshake.status == "OK"
     assert tools.check_id == "tools_list_complete"
     assert tools.status == "OK"
-    assert str(len(doctor.REQUIRED_TOOL_NAMES)) in tools.summary
+    assert str(len(profile_tool_names("full"))) in tools.summary
 
 
 def test_run_mcp_probe_timeout(monkeypatch) -> None:
@@ -886,11 +888,15 @@ def test_check_claude_desktop_config_malformed(tmp_path) -> None:
     assert str(cfg_path) in result.summary
 
 
-def test_check_claude_desktop_config_stale_binary(tmp_path) -> None:
+@pytest.mark.parametrize("command", ["no_such", 42])
+def test_check_claude_desktop_config_stale_binary(tmp_path, command) -> None:
+    """A missing binary, or a hand-edited non-string command, is stale."""
     cfg_dir = tmp_path / ".config" / "Claude"
     cfg_dir.mkdir(parents=True)
+    if command == "no_such":
+        command = str(tmp_path / "no_such")
     (cfg_dir / "claude_desktop_config.json").write_text(
-        json.dumps({"mcpServers": {"sumo-qa": {"command": str(tmp_path / "no_such")}}})
+        json.dumps({"mcpServers": {"sumo-qa": {"command": command}}})
     )
 
     result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
@@ -1698,3 +1704,377 @@ def test_check_uvx_available_runs_before_mcp_handshake(monkeypatch) -> None:
     assert "uvx_available" in check_ids
     assert "mcp_handshake" in check_ids
     assert check_ids.index("uvx_available") < check_ids.index("mcp_handshake")
+
+
+def _run_module_with_bad_profile(tmp_path: Path, *argv: str) -> subprocess.CompletedProcess:
+    """``python -m <argv>`` with an unknown shell profile and a temp HOME, so
+    nothing reads or writes the real one."""
+    env = {
+        **os.environ,
+        PROFILE_ENV: "Core",
+        "PYTHONPATH": str(_REPO_ROOT / "src"),
+        "HOME": str(tmp_path),
+        "USERPROFILE": str(tmp_path),
+    }
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    return subprocess.run(
+        [sys.executable, "-m", *argv],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        timeout=120,
+    )
+
+
+def test_installer_exits_cleanly_on_unknown_profile_before_writing(tmp_path: Path) -> None:
+    """The installer's verify step needs the profile: a bad one stops the
+    install with the server's one-line message, before any host config is
+    written."""
+    proc = _run_module_with_bad_profile(
+        tmp_path, "sumo_qa.installer", "--vscode", "--skip-mcp-install", "--workspace", "."
+    )
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    assert proc.stderr.strip() == (
+        f"sumo-qa: {PROFILE_ENV}='Core' is not a valid MCP tool profile; "
+        "expected one of: core, full"
+    )
+    assert not (tmp_path / ".vscode").exists()
+
+
+def test_doctor_reports_an_unknown_shell_profile_as_a_failed_check(tmp_path: Path) -> None:
+    """Importing the doctor (and the installer it imports) must not exit on a
+    bad shell profile: the doctor runs every check and reports it as a FAIL."""
+    proc = _run_module_with_bad_profile(
+        tmp_path, "sumo_qa.doctor", "--host", "claude-code", "--json"
+    )
+    assert "Traceback" not in proc.stderr, proc.stderr
+    checks = {c["check_id"]: c for c in json.loads(proc.stdout)["checks"]}
+    assert proc.returncode == 1
+    assert checks["mcp_handshake"]["status"] == "FAIL"
+    assert checks["mcp_handshake"]["details"]["kind"] == "invalid_profile"
+    assert "this shell" in checks["mcp_handshake"]["summary"]
+    assert "claude_code_config" in checks
+
+
+_PROBE_HOSTS = ("claude-desktop", "claude-code", "vscode")
+
+
+def _probe_host_entry(tmp_path: Path, host: str, env: dict) -> tuple:
+    """Probe the server the way ``--host <host>`` does."""
+    return doctor.run_mcp_probe(_host_entry_command(tmp_path, host, env))
+
+
+def _host_entry_command(tmp_path: Path, host: str, env: dict) -> doctor.McpCommand:
+    """The command ``--host <host>`` resolves from a temp HOME / workspace
+    whose ``sumo-qa`` entry launches this interpreter with ``env``.
+    Claude Desktop uses the Darwin path so no test writes Windows' real
+    ``%APPDATA%``."""
+    from sumo_qa.installer import _claude_desktop_config_path
+
+    # PYTHONPATH: the pre-push hook venv imports sumo_qa from src/, not an install.
+    entry = {
+        "command": sys.executable,
+        "args": ["-m", "sumo_qa"],
+        "env": {**env, "PYTHONPATH": str(_REPO_ROOT / "src")},
+    }
+    key = "mcpServers"
+    if host == "claude-desktop":
+        config_path = _claude_desktop_config_path(tmp_path, "Darwin")
+    elif host == "claude-code":
+        config_path = tmp_path / ".claude.json"
+    else:
+        config_path = tmp_path / ".vscode" / "mcp.json"
+        key = "servers"
+        entry["type"] = "stdio"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps({key: {"sumo-qa": entry}}), encoding="utf-8")
+    cmd = doctor._resolve_mcp_command(host=host, system="Darwin", home=tmp_path, workspace=tmp_path)
+    assert cmd.command == sys.executable, "the probe must launch the host entry's command"
+    return cmd
+
+
+@pytest.fixture
+def _no_claude_config_dir(monkeypatch) -> None:
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize("host", _PROBE_HOSTS)
+def test_probe_fails_on_an_invalid_profile_in_the_host_entry_env(tmp_path: Path, host) -> None:
+    """The host launches with the entry's env, so a bogus profile there must
+    fail the probe with the server's message, not report healthy. There is no
+    single shell command that edits a host entry, so ``fix`` stays empty."""
+    handshake, tools = _probe_host_entry(tmp_path, host, {PROFILE_ENV: "bogus"})
+    assert handshake.status == "FAIL"
+    assert handshake.summary.startswith(
+        f"sumo-qa: {PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
+        "expected one of: core, full. "
+    )
+    assert handshake.details["kind"] == "invalid_profile"
+    assert handshake.fix is None
+    assert tools.status == "FAIL"
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize("host", _PROBE_HOSTS)
+def test_probe_launches_with_the_host_entry_profile_and_checks_its_tools(
+    tmp_path: Path, host
+) -> None:
+    """A ``core`` entry must be probed as core (its env reaches the launch) and
+    pass against core's tools, not full's."""
+    handshake, tools = _probe_host_entry(tmp_path, host, {PROFILE_ENV: "core"})
+    assert handshake.status == "OK", handshake
+    assert tools.status == "OK", tools
+    assert tools.details["advertised_count"] == len(profile_tool_names("core"))
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    # Claude Desktop is a GUI app and does not inherit the shell's env; the
+    # Claude Code CLI passes its own env to stdio servers (verified against
+    # the real CLI, see docs/CONFIGURATION.md); VS Code's depends on how it
+    # was started, so the shell's value is kept.
+    [("claude-desktop", "full"), ("claude-code", "core"), ("vscode", "core")],
+)
+def test_probe_keeps_the_shell_profile_only_for_hosts_that_inherit_it(
+    tmp_path: Path, monkeypatch, host, expected
+) -> None:
+    """An entry with no profile, probed from a shell exporting ``core``,
+    launches the profile that host would launch."""
+    monkeypatch.setenv(PROFILE_ENV, "core")
+    handshake, tools = _probe_host_entry(tmp_path, host, {})
+    assert handshake.status == "OK", handshake
+    assert tools.details["advertised_count"] == len(profile_tool_names(expected))
+
+
+def test_probe_requires_every_tool_of_the_entry_profile(monkeypatch) -> None:
+    """A full entry must be checked for every full tool, so a server
+    advertising only core's tools fails."""
+    core = sorted(profile_tool_names("core"))
+    proc = _FakeProc([_ok_initialize_line(), _tools_list_line(core)])
+    monkeypatch.setattr(doctor.subprocess, "Popen", lambda *a, **k: proc)
+
+    _, tools = doctor.run_mcp_probe(doctor.McpCommand(command="/fake/sumo-qa", env={}))
+    assert tools.status == "FAIL"
+    assert tools.details["missing"] == sorted(profile_tool_names("full") - set(core))
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize("host", _PROBE_HOSTS)
+def test_probe_reports_a_host_entry_command_that_cannot_launch(tmp_path: Path, host) -> None:
+    """A host entry left pointing at a moved venv is a FAIL naming the command
+    and the config it came from, never a crash."""
+    cmd = _host_entry_command(tmp_path, host, {})
+    moved = str(tmp_path / "moved-venv" / "bin" / "sumo-qa")
+
+    handshake, tools = doctor.run_mcp_probe(replace(cmd, command=moved, args=[]))
+
+    assert handshake.status == "FAIL"
+    assert handshake.details["kind"] == "launch_error"
+    assert moved in handshake.summary
+    assert f"the sumo-qa entry in {cmd.source}" in handshake.summary
+    assert tools.status == "FAIL"
+
+
+def _write_vscode_entry(workspace: Path, entry: dict, key: str = "servers") -> None:
+    (workspace / ".vscode").mkdir(parents=True, exist_ok=True)
+    (workspace / ".vscode" / "mcp.json").write_text(
+        json.dumps({key: {"sumo-qa": entry}}), encoding="utf-8"
+    )
+
+
+def test_vscode_entry_variables_are_expanded_as_vscode_does(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SUMO_TEST_VAR", "from-env")
+    monkeypatch.delenv("SUMO_TEST_UNSET", raising=False)
+    _write_vscode_entry(
+        tmp_path,
+        {
+            "type": "stdio",
+            "command": "${userHome}/bin/sumo-qa",
+            "args": ["${workspaceFolder}/x"],
+            "env": {"A": "${env:SUMO_TEST_VAR}", "B": "[${env:SUMO_TEST_UNSET}]"},
+        },
+    )
+    home = tmp_path / "home"
+    cmd = doctor._resolve_mcp_command(host="vscode", home=home, workspace=tmp_path)
+    assert cmd.command == f"{home}/bin/sumo-qa"
+    assert cmd.args == [f"{tmp_path}/x"]
+    assert cmd.env == {"A": "from-env", "B": "[]"}
+
+
+def test_probe_warns_instead_of_launching_an_unexpandable_placeholder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """``${input:...}`` is prompted for by VS Code at launch; the doctor cannot
+    know it, so it reports that instead of launching or judging the profile."""
+    _write_vscode_entry(
+        tmp_path,
+        {"type": "stdio", "command": "sumo-qa", "env": {PROFILE_ENV: "${input:profile}"}},
+    )
+
+    def _no_launch(*_a, **_k):
+        raise AssertionError("must not launch")
+
+    monkeypatch.setattr(doctor.subprocess, "Popen", _no_launch)
+    cmd = doctor._resolve_mcp_command(host="vscode", workspace=tmp_path)
+    handshake, tools = doctor.run_mcp_probe(cmd)
+    assert handshake.status == "WARN"
+    assert handshake.details["kind"] == "unexpandable_placeholder"
+    assert "${input:profile}" in handshake.summary
+    assert tools.status == "WARN"
+
+
+def test_vscode_probe_ignores_the_legacy_mcp_servers_key(tmp_path: Path) -> None:
+    """VS Code ignores ``mcpServers``, so an entry only there is not what it launches."""
+    _write_vscode_entry(tmp_path, {"command": "/legacy/sumo-qa"}, key="mcpServers")
+    cmd = doctor._resolve_mcp_command(host="vscode", workspace=tmp_path)
+    assert cmd.command != "/legacy/sumo-qa"
+    assert cmd.source is None
+
+
+def test_vscode_config_check_judges_the_expanded_command_the_probe_launches(
+    tmp_path: Path,
+) -> None:
+    """The config check reads the entry the probe launches, with the same
+    expansion, so a ``${workspaceFolder}`` command is not reported stale."""
+    binary = tmp_path / "bin" / "sumo-qa"
+    binary.parent.mkdir()
+    binary.write_text("#!/bin/sh\n")
+    _write_vscode_entry(
+        tmp_path, {"type": "stdio", "command": "${workspaceFolder}/bin/sumo-qa", "args": []}
+    )
+
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+    probed = doctor._resolve_mcp_command(host="vscode", workspace=tmp_path)
+
+    assert result.status == "OK", result
+    # The literal ``/`` VS Code keeps after the expansion stays in the string,
+    # so compare as paths: the same file on Windows too.
+    assert result.details["command"] == probed.command
+    assert Path(probed.command) == binary
+
+
+def test_vscode_config_check_treats_a_legacy_mcp_servers_entry_as_not_registered(
+    tmp_path: Path,
+) -> None:
+    """VS Code ignores ``mcpServers``: an entry only there is not registered."""
+    binary = tmp_path / "sumo-qa"
+    binary.write_text("#!/bin/sh\n")
+    _write_vscode_entry(tmp_path, {"command": str(binary)}, key="mcpServers")
+
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+
+    assert result.status == "FAIL"
+    assert "only under `mcpServers`" in result.summary
+    assert result.fix is not None and "sumo-qa-install --vscode" in result.fix
+
+
+def test_vscode_config_check_warns_on_an_unexpandable_placeholder(tmp_path: Path) -> None:
+    """Same verdict as the probe: a ``${input:...}`` command cannot be judged."""
+    _write_vscode_entry(tmp_path, {"type": "stdio", "command": "${input:bin}"})
+
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+
+    assert result.status == "WARN"
+    assert "${input:bin}" in result.summary
+
+
+def _host_entry_with(tmp_path: Path, host: str, **fields) -> doctor.McpCommand:
+    """``--host <host>``'s command for a temp HOME / workspace whose ``sumo-qa``
+    entry is this interpreter plus ``fields``."""
+    cmd = _host_entry_command(tmp_path, host, {})
+    config_path = Path(cmd.source)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    for entry in config.values():
+        entry["sumo-qa"].update(fields)
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    return doctor._resolve_mcp_command(
+        host=host, system="Darwin", home=tmp_path, workspace=tmp_path
+    )
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize("host", ["claude-desktop", "claude-code"])
+def test_probe_launches_a_non_vscode_placeholder_literally(tmp_path: Path, host) -> None:
+    """Only VS Code expands ``${input:...}``; the other hosts launch it as written,
+    so the doctor does too instead of warning."""
+    cmd = _host_entry_with(
+        tmp_path,
+        host,
+        env={"SUMO_TEST_LITERAL": "${input:x}", "PYTHONPATH": str(_REPO_ROOT / "src")},
+    )
+    assert cmd.env["SUMO_TEST_LITERAL"] == "${input:x}"
+
+    handshake, _ = doctor.run_mcp_probe(cmd)
+
+    assert handshake.status == "OK", handshake
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+def test_claude_desktop_command_placeholder_is_a_launch_error(tmp_path: Path) -> None:
+    """Claude Desktop launches ``${...}`` literally, so the probe does too and
+    reports the command it cannot start."""
+    cmd = _host_entry_with(tmp_path, "claude-desktop", command="${HOME}/bin/sumo-qa")
+
+    handshake, _ = doctor.run_mcp_probe(cmd)
+
+    assert handshake.status == "FAIL"
+    assert handshake.details["kind"] == "launch_error"
+    assert "${HOME}/bin/sumo-qa" in handshake.summary
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+def test_claude_code_entry_expands_env_vars_as_claude_code_does(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Claude Code expands ``${VAR}`` and ``${VAR:-default}`` from its env in the
+    command, args and env; a set-but-empty VAR stays empty and an unset VAR
+    without a default stays literal (verified with Claude Code 2.1.287)."""
+    monkeypatch.setenv("SUMO_TEST_PY", sys.executable)
+    monkeypatch.setenv("SUMO_TEST_EMPTY", "")
+    monkeypatch.delenv("SUMO_TEST_UNSET", raising=False)
+    cmd = _host_entry_with(
+        tmp_path,
+        "claude-code",
+        command="${SUMO_TEST_PY}",
+        args=["-m", "${SUMO_TEST_UNSET:-sumo_qa}"],
+        env={"A": "[${SUMO_TEST_EMPTY:-d}]", "B": "${SUMO_TEST_UNSET}"},
+    )
+
+    assert cmd.command == sys.executable
+    assert cmd.args == ["-m", "sumo_qa"]
+    assert cmd.env == {"A": "[]", "B": "${SUMO_TEST_UNSET}"}
+
+
+def test_probe_skips_an_env_key_containing_equals_with_a_warning(monkeypatch) -> None:
+    """A hand-edited env key with ``=`` cannot be passed to a process; the probe
+    drops it and warns instead of crashing."""
+    full = sorted(profile_tool_names("full"))
+    launched: dict = {}
+
+    def fake_popen(argv, **kwargs):
+        launched.update(kwargs["env"])
+        return _FakeProc([_ok_initialize_line(), _tools_list_line(full)])
+
+    monkeypatch.setattr(doctor.subprocess, "Popen", fake_popen)
+    handshake, tools = doctor.run_mcp_probe(
+        doctor.McpCommand(command="/fake/sumo-qa", env={"A=B": "x", "C": "y"}, source="/cfg")
+    )
+
+    assert "A=B" not in launched and launched["C"] == "y"
+    assert handshake.status == "WARN"
+    assert "A=B" in handshake.summary
+    assert tools.status == "OK"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="pwd is POSIX-only")
+def test_doctor_tests_never_see_the_real_home() -> None:
+    """Every doctor test runs in a temp HOME, so none reads the real
+    ``~/.claude.json``."""
+    import pwd
+
+    assert Path.home() != Path(pwd.getpwuid(os.getuid()).pw_dir)
+    assert "CLAUDE_CONFIG_DIR" not in os.environ
