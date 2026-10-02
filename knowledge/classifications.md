@@ -7,8 +7,12 @@ not in this list.
 
 ## api_contract_change
 A change that adds, removes, or modifies a public API surface (HTTP endpoint,
-gRPC method, public library function, event schema). Risk: downstream
-consumers break on signature drift.
+gRPC method, public library function, event schema), including an MCP tool,
+resource, or prompt (name, input schema, output schema, error envelope) and any
+caller-visible serialization or versioned wire format, such as a new format
+added to an existing tool or exporter. Risk: downstream consumers break on
+signature drift. Refactoring an internal serializer with no observable output
+change is `business_logic_change`, not this.
 
 ## business_logic_change
 A change to domain rules, calculations, decision logic, or state machines.
