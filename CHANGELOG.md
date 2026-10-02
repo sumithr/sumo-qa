@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.70.1](https://github.com/sumithr/sumo-qa/compare/v0.70.0...v0.70.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **skills:** stop downstream skills leaking announce lines and approach labels ([#816](https://github.com/sumithr/sumo-qa/issues/816)) ([f21f376](https://github.com/sumithr/sumo-qa/commit/f21f37648506db26f4043ee9a3a040ad3ae86d2d))
+
+
+### Tests
+
+* **conformance:** add a live-host first-hop harness that scores real host tool selection ([#814](https://github.com/sumithr/sumo-qa/issues/814)) ([6e1cac7](https://github.com/sumithr/sumo-qa/commit/6e1cac774ce9f9fbf5582f21f8ebbe61ed6a1d15))
+
+
+### Continuous Integration
+
+* **tests:** cut the pytest matrix to 9 jobs and run the suite under pytest-xdist ([#813](https://github.com/sumithr/sumo-qa/issues/813)) ([7a84f9b](https://github.com/sumithr/sumo-qa/commit/7a84f9bc1c6ecc7687e83a2d5c3dd3bd8bc1f495))
+
 ## [0.70.0](https://github.com/sumithr/sumo-qa/compare/v0.69.1...v0.70.0) (2026-10-02)
 
 
