@@ -20,15 +20,19 @@ through ``__main__.py`` which calls ``main()`` correctly.
 # tests/test_mutmut_subprocess_exclusions.py guard enforces this marker↔ignore
 # pairing loudly at PR time. See docs/DEVELOPMENT.md § Mutation testing.
 
+import collections
 import json
 import os
+import queue
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from sumo_qa import server as sumo_server
+from sumo_qa.installer import _read_json_rpc_response, _start_stdout_reader, _terminate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,7 +78,7 @@ def _spawn_mcp() -> subprocess.Popen:
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
         cwd=str(REPO_ROOT),
         env={**os.environ, "PYTHONPATH": pythonpath},
         text=True,
@@ -87,10 +91,18 @@ def _send(proc: subprocess.Popen, request: dict) -> None:
     proc.stdin.flush()
 
 
-def _recv(proc: subprocess.Popen) -> dict:
-    """Read one JSON-RPC line from the server's stdout."""
-    line = proc.stdout.readline()
-    return json.loads(line)
+def _recv(lines: queue.Queue, expected_id: int) -> dict:
+    """The server's JSON-RPC response to ``expected_id``; a stalled server
+    fails the test after 60s instead of hanging the worker."""
+    response = _read_json_rpc_response(
+        line_queue=lines,
+        expected_id=expected_id,
+        deadline=time.monotonic() + 60,
+        extra_lines=[],
+        pending_responses=collections.deque(),
+    )
+    assert response is not None, "the MCP server exited before responding"
+    return response
 
 
 def _expected_tool_count() -> int:
@@ -110,21 +122,13 @@ def _expected_tool_count() -> int:
 
 @pytest.fixture
 def mcp_proc():
-    """Spawn the MCP server and guarantee it is terminated after the test."""
+    """Spawn the MCP server with a stdout reader and guarantee it is
+    terminated after the test."""
     proc = _spawn_mcp()
     try:
-        yield proc
+        yield proc, _start_stdout_reader(proc)
     finally:
-        try:
-            proc.stdin.close()
-        except Exception:  # noqa: BLE001
-            pass
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=60)
+        _terminate(proc)
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +138,9 @@ def mcp_proc():
 
 def test_mcp_initialize_returns_server_name(mcp_proc):
     """The server responds to JSON-RPC ``initialize`` with serverInfo.name == 'sumo-qa'."""
-    _send(mcp_proc, _INITIALIZE_REQUEST)
-    response = _recv(mcp_proc)
+    proc, lines = mcp_proc
+    _send(proc, _INITIALIZE_REQUEST)
+    response = _recv(lines, 1)
 
     assert response.get("jsonrpc") == "2.0"
     assert response.get("id") == 1
@@ -150,14 +155,15 @@ def test_mcp_tools_list_count_matches_registry(mcp_proc):
     """The ``tools/list`` response returns exactly the same number of tools
     as are registered via ``build_mcp_server()``."""
     # Complete the handshake before sending tools/list.
-    _send(mcp_proc, _INITIALIZE_REQUEST)
-    _recv(mcp_proc)  # consume the initialize result
+    proc, lines = mcp_proc
+    _send(proc, _INITIALIZE_REQUEST)
+    _recv(lines, 1)  # consume the initialize result
 
-    _send(mcp_proc, _INITIALIZED_NOTIFICATION)
+    _send(proc, _INITIALIZED_NOTIFICATION)
     # notifications/initialized has no response; go straight to tools/list.
 
-    _send(mcp_proc, _TOOLS_LIST_REQUEST)
-    response = _recv(mcp_proc)
+    _send(proc, _TOOLS_LIST_REQUEST)
+    response = _recv(lines, 2)
 
     assert response.get("jsonrpc") == "2.0"
     assert response.get("id") == 2

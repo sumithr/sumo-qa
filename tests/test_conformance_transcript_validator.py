@@ -601,10 +601,10 @@ def test_same_second_captures_order_by_call_time_not_name(tmp_path, monkeypatch)
 # the same words ("approach", "classification", "routing", numbered steps), the
 # substring/token-confusion failure mode a naive marker match would trip on.
 _LEAK_FIXTURE = Path(__file__).parent / "scenarios" / "conformance" / "leak_transcripts.yaml"
-# ReDoS guards: the linear matchers finish these inputs in about 10ms, while
-# quadratic backtracking on them takes seconds and exponential backtracking
-# takes hours, so the budget tolerates a loaded pytest-xdist worker and still
-# fails a catastrophic regression.
+# ReDoS guards: the linear matchers finish these inputs in under 100ms, while a
+# quadratic rescan or exponential backtracking regression takes well over the
+# budget on them, so the budget tolerates a loaded pytest-xdist worker and
+# still fails the regression.
 _REDOS_BUDGET_SECONDS = 2.0
 
 
@@ -925,11 +925,11 @@ def test_find_routing_leaks_scans_repeated_next_action_keys_quickly() -> None:
     """Each next_action key rescans the rest of the span for its object; the
     scan must stop at the first object (#248 review)."""
     start = time.perf_counter()
-    text = "{classification:x,approach:y," + "next_action:{a:1}," * 4_000 + "}"
+    text = "{classification:x,approach:y," + "next_action:{a:1}," * 6_000 + "}"
     assert find_routing_leaks(text) == ()
-    nested = "{classification:x,approach:y," + "next_action:{a:" * 4_000 + "1" + "}" * 4_001
+    nested = "{classification:x,approach:y," + "next_action:{a:" * 6_000 + "1" + "}" * 6_001
     assert find_routing_leaks(nested) == ()
-    quoted = '{"classification":"x","approach":"y",' + '"next_action:{":1,' * 3_000 + '"z":1}'
+    quoted = '{"classification":"x","approach":"y",' + '"next_action:{":1,' * 6_000 + '"z":1}'
     assert find_routing_leaks(quoted) == ()
     assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 
@@ -938,7 +938,7 @@ def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
     """Repeated status markers on one line must not rescan the line per
     marker (second adversarial pass, #248)."""
     start = time.perf_counter()
-    assert find_routing_leaks("[DONE] " * 8_000) == ()
+    assert find_routing_leaks("[DONE] " * 16_000) == ()
     assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 
 
@@ -949,5 +949,5 @@ def test_blank_string_values_does_not_backtrack_exponentially() -> None:
     from sumo_qa import conformance
 
     start = time.perf_counter()
-    assert conformance._blank_string_values('{"a' + "\\a" * 26) == '{"a' + "\\a" * 26
+    assert conformance._blank_string_values('{"a' + "\\a" * 28) == '{"a' + "\\a" * 28
     assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
