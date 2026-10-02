@@ -1,7 +1,7 @@
 // Deterministic routing-state leak assertion for
 // skill-deciding-approach-user-facing.yaml (issue #248), which grades both
 // routing hops, and for the downstream skill evals they route to (#735),
-// which check only taxonomy_label (a downstream hand-off may name a skill):
+// which skip route_announcement (a downstream hand-off may name a skill):
 // routing is internal, so its routing payload, taxonomy labels, route
 // announcement and checklist bookkeeping must never appear in what the user
 // reads.
@@ -280,11 +280,16 @@ function findRoutingLeaks(text) {
   return Object.keys(CHECKS).filter((family) => CHECKS[family](s));
 }
 
-// An optional `config: {families: [...]}` on the assert limits it to those
-// families; omitted, every family is checked.
+// An optional `config: {skip: [...]}` on the assert leaves those families
+// out; omitted, every family is checked. An unknown name fails the assert, so
+// a typo cannot silently disable a check.
 module.exports = (output, context) => {
-  const only = context && context.config && context.config.families;
-  const leaks = findRoutingLeaks(output).filter((family) => !only || only.includes(family));
+  const skip = (context && context.config && context.config.skip) || [];
+  const unknown = skip.filter((family) => !Object.hasOwn(CHECKS, family));
+  if (unknown.length) {
+    return { pass: false, score: 0, reason: `unknown leak family in config.skip: ${unknown.join(', ')}` };
+  }
+  const leaks = findRoutingLeaks(output).filter((family) => !skip.includes(family));
   if (leaks.length) {
     return {
       pass: false,
@@ -292,7 +297,9 @@ module.exports = (output, context) => {
       reason: `internal routing state leaked into the user-visible reply: ${leaks.join(', ')}`,
     };
   }
-  return { pass: true, score: 1, reason: 'no routing payload, taxonomy label, announcement or checklist leaked' };
+  const checked = Object.keys(CHECKS).filter((family) => !skip.includes(family));
+  const skipped = skip.length ? `; skipped ${skip.join(', ')}` : '';
+  return { pass: true, score: 1, reason: `no routing leak: checked ${checked.join(', ')}${skipped}` };
 };
 
 // Exposed for offline verification.

@@ -36,7 +36,7 @@ defaultTest:
       # A hand-off may name the next skill, so route_announcement is not checked.
       value: file://asserts/no-routing-leak.js
       config:
-        families: [taxonomy_label]
+        skip: [route_announcement]
       threshold: 1
     - type: llm-rubric
       value: |

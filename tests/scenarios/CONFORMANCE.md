@@ -134,12 +134,14 @@ The families match high-confidence router voice only. A label inside prose and
 a paraphrased handoff ("handing this over to...", "the next step will...") read
 the same as text a downstream skill may legitimately write, so the
 user-facing eval's judge grades them instead, and a test pins that boundary.
-Two overlaps remain, each flagged if it reaches scored output: a downstream
-field line with a catalogue value, such as the planning-qa-rollout task
-template's `**Approach:** regression-first` or the rollout reviewer prompts'
-`- Approach: tdd-scaffold`; and a downstream skill narrating its own onward
-route in router wording, such as "Routing to `sumo-qa-preparing-for-work`
-first". Third-person handoff targets are hyphenated skill names (`sumo-qa-...`,
+Two overlaps remain. A downstream field line with a catalogue value, such as
+the planning-qa-rollout task template's `**Approach:** regression-first` or
+the rollout reviewer prompts' `- Approach: tdd-scaffold`, is flagged wherever
+it reaches scored output, the downstream skill evals included. A downstream
+skill narrating its own onward route in router wording, such as "Routing to
+`sumo-qa-preparing-for-work` first", is flagged by the transcript validator
+and the user-facing eval, but not by the downstream skill evals, which skip
+`route_announcement` because a hand-off may name the next skill. Third-person handoff targets are hyphenated skill names (`sumo-qa-...`,
 `using-sumo-qa`, `using_sumo_qa`); `sumo_qa_*` tool names such as
 `sumo_qa_record_coverage` are not. The silent-hop instruction in
 both routing skills is the primary control.
@@ -153,9 +155,11 @@ applies the same families to live candidate replies in
 `skill-deciding-approach-user-facing.yaml`, which loads both routing hops.
 The downstream-skill configs `skill-closing-qa-gaps.yaml`,
 `skill-implementing-with-tdd.yaml`, `skill-security-testing.yaml` and
-`skill-triaging-test-failures.yaml` wire it with `config: {families:
-[taxonomy_label]}`, since a downstream hand-off may name the next skill. A
-contract test runs both over the fixture so they stay in step. One deliberate
+`skill-triaging-test-failures.yaml` wire it with `config: {skip:
+[route_announcement]}`, since a downstream hand-off may name the next skill;
+every other family is still checked, and an unknown family name in `skip`
+fails the assert. A contract test runs the JS assert and the Python validator
+over the fixture so they stay in step. One deliberate
 difference: the assert reads
 catalogue names from `QA_KNOWLEDGE_PATH` or the repo's `knowledge/` (what the
 eval loads), while the validator resolves ingested project/global packs too.
