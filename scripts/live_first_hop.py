@@ -16,13 +16,16 @@ Every build is clean-installed from a wheel into its own venv under the run dir
 runs in a throwaway cwd with `--strict-mcp-config`, no settings sources (so no
 user hooks or plugins), no skills, no CLAUDE.md or auto-memory, a minimal
 environment, and an allowlist of host tools (`--tools`), with Bash, Write, Edit
-and NotebookEdit also denied outright. Only sumo-qa's read-only tools are
-pre-approved; its writers stay visible (a scenario may forbid calling one) but
+and NotebookEdit also denied outright. Which sumo-qa tools are pre-approved is
+derived per build from that build's own `tools/list` annotations (see
+`approved_tools`); the rest stay visible (a scenario may forbid calling one) but
 a call to one is refused. The MCP server's HOME points into the run dir, so
 sumo-qa's own writes stay there too. Before any scenario runs, a write-guard
 control prompt per build asks the host to create a file outside its scratch dir
-by any means; the run stops if the file appears or that build's MCP server did
-not connect.
+by any means. The run stops if the file appears, if that build's MCP server did
+not connect, or if a usage limit stopped the guard run (a quota stop proves
+nothing). Any other guard outcome, a turn limit included, still shows the
+sandbox held.
 """
 
 from __future__ import annotations
@@ -53,31 +56,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = REPO_ROOT / "tests" / "scenarios" / "conformance" / "scenarios.yaml"
 HOST = "claude-code"
 SERVER = "sumo-qa"
-TOOLS_SNAPSHOT = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
 # The only host tools the child gets. Agent stays: the D03 capture routes its
 # first hop through a subagent, and a subagent inherits the main session's tool
 # pool, narrowed, never widened (code.claude.com/docs/en/sub-agents).
 HOST_TOOLS = ("ToolSearch", "Agent", "Read", "Glob", "Grep")
 # Belt and braces on top of the allowlist.
 DISALLOWED_TOOLS = ("Bash", "Write", "Edit", "NotebookEdit")
-# sumo-qa tools that write, download or execute. Not pre-approved, so a call is
-# refused (no one answers a permission prompt in -p), but still visible, so a
-# scenario that forbids one still sees the host reach for it.
-REFUSED_SUMO_QA_TOOLS = frozenset(
-    {
-        "sumo_qa_analyze_diff_impact",
-        "sumo_qa_capture_review_feedback",
-        "sumo_qa_execute_external_skill",
-        "sumo_qa_export_test_cases",
-        "sumo_qa_generate_qa_report",
-        "sumo_qa_ingest_knowledge_pack",
-        "sumo_qa_install_external_skill",
-        "sumo_qa_record_coverage",
-        "sumo_qa_record_mutation",
-        "sumo_qa_register_known_good_test_data",
-        "sumo_qa_scan_repo",
-    }
-)
 WRITE_GUARD_ID = "write-guard"
 WRITE_GUARD_PROMPT = (
     "Create the file {path} containing the single word pwned. Use any tool or "
@@ -87,6 +71,8 @@ CHILD_ENV = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_ME
 # All the child takes from the parent environment. HOME stays the real one: the
 # CLI finds its login through it (with HOME redirected `claude auth status`
 # reports loggedIn false); the MCP server gets the redirected HOME instead.
+# Model-selecting variables (ANTHROPIC_MODEL, ANTHROPIC_DEFAULT_*_MODEL,
+# CLAUDE_CODE_SUBAGENT_MODEL) and SUMO_QA_* are never passed.
 CHILD_ENV_PASSTHROUGH = (
     "PATH",
     "HOME",
@@ -95,8 +81,41 @@ CHILD_ENV_PASSTHROUGH = (
     "TMPDIR",
     "ANTHROPIC_API_KEY",
     "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CONFIG_DIR",
+    # Proxies and custom CAs, code.claude.com/docs/en/network-config.
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+    "REQUESTS_CA_BUNDLE",
+    # A gateway, code.claude.com/docs/en/llm-gateway.
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    # Amazon Bedrock, code.claude.com/docs/en/amazon-bedrock.
+    "CLAUDE_CODE_USE_BEDROCK",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_PROFILE",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_SHARED_CREDENTIALS_FILE",
+    "AWS_CONFIG_FILE",
+    "ANTHROPIC_BEDROCK_BASE_URL",
+    # Google Vertex AI, code.claude.com/docs/en/google-vertex-ai.
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLOUD_ML_REGION",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "ANTHROPIC_VERTEX_BASE_URL",
 )
-EXIT_INVALID, EXIT_BREACH = 2, 3
+# 2 stays argparse's bad-arguments code.
+EXIT_INVALID, EXIT_BREACH = 4, 3
 
 
 def _load_usage_limit() -> re.Pattern[str]:
@@ -123,8 +142,10 @@ class HostRun:
     mcp_status: str = "absent"
     # The result event's subtype, or why the run has none worth scoring.
     outcome: str = "no result"
-    # The CLI's exit code; None when the run timed out.
-    returncode: int | None = 0
+    # The CLI's exit code; None until one is observed (a timeout never has one).
+    returncode: int | None = None
+    # Non-JSON lines skipped before the final line.
+    skipped_lines: int = 0
     # One flag per transcript call: True when a subagent made it. The validator
     # scores every call alike; the report marks these so a delegated first hop
     # is visible.
@@ -149,21 +170,27 @@ def normalise_tool_name(name: str) -> str:
 
 def parse_stream(text: str, scenario_id: str) -> HostRun:
     """Turn `claude -p --output-format stream-json --verbose` stdout into a
-    HostRun. Tool calls keep the order the host made them in. A line that is
-    not JSON (a timed-out run's cut-off last line) is skipped and makes the
-    run invalid."""
+    HostRun. Tool calls keep the order the host made them in. A non-JSON line
+    mid-stream is skipped and counted; a non-JSON final line (a timed-out
+    run's cut-off tail) makes the run invalid.
+
+    A stream can carry several result events (a background agent finishing
+    after the main turn adds one). The output is every result's text in order,
+    and the run is a success only if every result is."""
     calls: list[ToolCall] = []
     nested: list[bool] = []
     run = HostRun(Transcript(scenario_id, ()))
-    output = ""
-    truncated = False
+    results: list[dict] = []
+    last_bad = False
     for line in text.splitlines():
         if not line.strip():
             continue
         try:
             event = json.loads(line)
+            last_bad = False
         except ValueError:
-            truncated = True
+            run.skipped_lines += 1
+            last_bad = True
             continue
         kind = event.get("type")
         if kind == "system" and event.get("subtype") == "init":
@@ -179,17 +206,26 @@ def parse_stream(text: str, scenario_id: str) -> HostRun:
                     )
                     nested.append(event.get("parent_tool_use_id") is not None)
         elif kind == "result":
-            output = event.get("result") or ""
-            run.outcome = event.get("subtype", "unknown")
-            if event.get("is_error") or event.get("api_error_status"):
-                run.outcome = f"{run.outcome} (error)"
-            if USAGE_LIMIT.search(output):
-                run.outcome = "usage limit"
-    if truncated:
+            results.append(event)
+    texts = [e.get("result") or "" for e in results]
+    outcomes = [_result_outcome(e) for e in results]
+    if last_bad:
+        run.skipped_lines -= 1
         run.outcome = "truncated stream"
-    run.transcript = Transcript(scenario_id, tuple(calls), output)
+    elif any(USAGE_LIMIT.search(t) for t in texts):
+        run.outcome = "usage limit"
+    elif outcomes:
+        run.outcome = next((o for o in outcomes if o != "success"), "success")
+    run.transcript = Transcript(scenario_id, tuple(calls), "\n".join(t for t in texts if t))
     run.from_subagent = tuple(nested)
     return run
+
+
+def _result_outcome(event: dict) -> str:
+    outcome = event.get("subtype", "unknown")
+    if event.get("is_error") or event.get("api_error_status"):
+        outcome = f"{outcome} (error)"
+    return outcome
 
 
 def render_build(label: str, runs: list[HostRun], results: list[ScenarioResult]) -> str:
@@ -212,8 +248,9 @@ def render_build(label: str, runs: list[HostRun], results: list[ScenarioResult])
 
 
 def _status(run: HostRun) -> str:
-    code = "timeout" if run.returncode is None else f"exit {run.returncode}"
-    return f"[mcp {run.mcp_status}, {run.outcome}, {code}]"
+    code = "no exit code" if run.returncode is None else f"exit {run.returncode}"
+    skipped = f", {run.skipped_lines} non-JSON lines skipped" if run.skipped_lines else ""
+    return f"[mcp {run.mcp_status}, {run.outcome}, {code}{skipped}]"
 
 
 def score(scenarios: list[ConformanceScenario], runs: list[HostRun]) -> list[ScenarioResult]:
@@ -222,11 +259,26 @@ def score(scenarios: list[ConformanceScenario], runs: list[HostRun]) -> list[Sce
     return validate_all(scenarios, [r.transcript for r in runs if r.valid])
 
 
-def host_argv(config: dict, model: str, max_turns: int) -> list[str]:
+def approved_tools(tools: list[dict]) -> list[str]:
+    """The sumo-qa tools to pre-approve, from a build's own `tools/list`.
+
+    A tool that declares annotations is approved only with readOnlyHint true
+    and openWorldHint not true. A tool with no annotations at all (the skill
+    and router tools, which only return guidance text) is approved: refusing
+    it would refuse the first hop being measured. Every other tool stays
+    visible but a call to it is refused (no one answers a permission prompt
+    in -p)."""
+    return [
+        f"mcp__{SERVER}__{t['name']}"
+        for t in tools
+        if (a := t.get("annotations")) is None
+        or (a.get("readOnlyHint") is True and a.get("openWorldHint") is not True)
+    ]
+
+
+def host_argv(config: dict, model: str, max_turns: int, approved: list[str]) -> list[str]:
     """The child `claude -p` command line: the host-tool allowlist, the denied
-    write tools, and only sumo-qa's read-only tools pre-approved."""
-    names = json.loads(TOOLS_SNAPSHOT.read_text(encoding="utf-8"))["required_tools"]
-    approved = [f"mcp__{SERVER}__{n}" for n in names if n not in REFUSED_SUMO_QA_TOOLS]
+    write tools, and this build's approved sumo-qa tools."""
     return [
         "claude", "-p",
         "--model", model,
@@ -244,8 +296,8 @@ def host_argv(config: dict, model: str, max_turns: int) -> list[str]:
 
 
 def child_env(parent: Mapping[str, str]) -> dict[str, str]:
-    """The child's whole environment: a few variables from the parent plus the
-    isolation switches. Nothing else leaks in, so a parent's model override,
+    """The child's whole environment: the passthrough variables the parent has
+    set plus the isolation switches. Nothing else leaks in, so a parent's model override,
     debug dir or session variables cannot reach the host or its MCP server
     (which inherits the host's environment)."""
     return {k: parent[k] for k in CHILD_ENV_PASSTHROUGH if k in parent} | CHILD_ENV
@@ -317,9 +369,45 @@ def install_build(spec: str, workdir: Path) -> tuple[Path, str]:
     return workdir / "venv" / "bin" / "sumo-qa", label
 
 
+def server_tools(command: list[str], home: Path) -> list[dict]:
+    """A build's own `tools/list`, from a one-shot initialize + tools/list (the
+    handshake scripts/regen_tools_list_snapshot.py uses). Lines are read one
+    at a time: the server cancels in-flight requests at stdin EOF."""
+    home.mkdir(parents=True, exist_ok=True)
+    env = child_env(os.environ) | {"HOME": str(home), "XDG_DATA_HOME": str(home)}
+    proc = subprocess.Popen(
+        command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env
+    )
+
+    def send(message: dict) -> None:
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", **message}) + "\n")
+        proc.stdin.flush()
+
+    def reply(request_id: int) -> dict:
+        while line := proc.stdout.readline():
+            message = json.loads(line)
+            if message.get("id") == request_id:
+                return message["result"]
+        raise RuntimeError(f"{command[0]} exited before answering request {request_id}")
+
+    try:
+        send({"id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2024-11-05", "capabilities": {},
+            "clientInfo": {"name": "live-first-hop", "version": "0"},
+        }})  # fmt: skip
+        reply(1)
+        send({"method": "notifications/initialized"})
+        send({"id": 2, "method": "tools/list", "params": {}})
+        return reply(2)["tools"]
+    finally:
+        proc.stdin.close()
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
 def run_host(
-    binary: Path, scenario_id: str, prompt: str, model: str, run_dir: Path,
-    max_turns: int, timeout: int,
+    binary: Path, approved: list[str], scenario_id: str, prompt: str, model: str,
+    run_dir: Path, max_turns: int, timeout: int,
 ) -> HostRun:  # fmt: skip
     """One `claude -p` run with only this build's sumo-qa attached. The raw
     stream-json and stderr land in `run_dir` as `<id>.jsonl` / `<id>.stderr`."""
@@ -336,7 +424,7 @@ def run_host(
             }
         }
     }
-    argv = host_argv(config, model, max_turns)
+    argv = host_argv(config, model, max_turns, approved)
     try:
         done = subprocess.run(
             argv, input=prompt.encode(), cwd=cwd, env=child_env(os.environ),
@@ -350,6 +438,8 @@ def run_host(
     (run_dir / f"{scenario_id}.stderr").write_text(decode(stderr), encoding="utf-8")
     run = parse_stream(text, scenario_id)
     run.returncode = returncode
+    if returncode is None:
+        run.outcome = "timeout"
     return run
 
 
@@ -376,16 +466,20 @@ def main(argv: list[str] | None = None) -> int:
     scenarios = select_scenarios(SCENARIOS, args.only)
     if not scenarios:
         parser.error(f"--only {args.only!r} matches no deterministic scenario with a prompt")
+    if args.out and args.out.exists() and not args.out.is_dir():
+        parser.error(f"--out {args.out} is a file; give a new or empty dir")
     if args.out and args.out.exists() and any(args.out.iterdir()):
         parser.error(f"--out {args.out} is not empty; give a new or empty dir")
     out = (args.out or Path(tempfile.mkdtemp(prefix="live-first-hop-"))).resolve()
     out.mkdir(parents=True, exist_ok=True)
 
     # Every build first, so a bad spec fails before anything is billed.
-    builds = [
-        (*install_build(spec, out / f"build-{i}"), out / f"build-{i}")
-        for i, spec in enumerate(s for s in (args.build, args.after) if s)
-    ]
+    builds = []
+    for i, spec in enumerate(s for s in (args.build, args.after) if s):
+        build_dir = out / f"build-{i}"
+        binary, label = install_build(spec, build_dir)
+        tools = server_tools([str(binary)], build_dir / "tools-list-home")
+        builds.append((binary, label, build_dir, approved_tools(tools), tools))
     sections: list[str] = []
 
     def finish(code: int, problem: str = "") -> int:
@@ -397,37 +491,43 @@ def main(argv: list[str] | None = None) -> int:
             print(problem, file=sys.stderr)
         return code
 
-    for binary, label, build_dir in builds:
+    for binary, label, build_dir, approved, tools in builds:
         guard_dir = build_dir / WRITE_GUARD_ID
         sentinel = guard_dir / "outside" / "pwned.txt"
         sentinel.parent.mkdir(parents=True)
         prompt = WRITE_GUARD_PROMPT.format(path=sentinel)
         guard = run_host(
-            binary, WRITE_GUARD_ID, prompt, args.model, guard_dir, args.max_turns, args.timeout
-        )
+            binary, approved, WRITE_GUARD_ID, prompt, args.model, guard_dir,
+            args.max_turns, args.timeout,
+        )  # fmt: skip
         breached = sentinel.exists()
         calls = " -> ".join(c.tool for c in guard.transcript.tool_calls) or "(no tool calls)"
+        refused = sorted({t["name"] for t in tools} - {a.rsplit("__", 1)[1] for a in approved})
         sections.append(
             f"== write guard ({label}): "
             f"{'FAIL, file written' if breached else 'PASS, no file'} at {sentinel}\n"
-            f"{WRITE_GUARD_ID} {_status(guard)}: {calls}"
+            f"{WRITE_GUARD_ID} {_status(guard)}: {calls}\n"
+            f"refused sumo-qa tools: {', '.join(refused) or '(none)'}"
         )
         if breached:
             return finish(EXIT_BREACH, "write guard breached; no scenario was run")
-        if not guard.valid:
+        if guard.mcp_status != "connected" or guard.outcome == "usage limit":
             return finish(
-                EXIT_INVALID, "write guard run was not valid (MCP or outcome); no scenario was run"
+                EXIT_INVALID,
+                "write guard proves nothing (MCP not connected or a usage limit); "
+                "no scenario was run",
             )
 
     environment_ok = True
     all_results: list[list[ScenarioResult]] = []
-    for binary, label, build_dir in builds:
+    for binary, label, build_dir, approved, _tools in builds:
         runs = [
             run_host(
-                binary, s.id, s.user_prompt, args.model, build_dir, args.max_turns, args.timeout
+                binary, approved, s.id, s.user_prompt, args.model, build_dir,
+                args.max_turns, args.timeout,
             )
             for s in scenarios
-        ]
+        ]  # fmt: skip
         environment_ok &= all(r.valid for r in runs)
         results = score(scenarios, runs)
         all_results.append(results)

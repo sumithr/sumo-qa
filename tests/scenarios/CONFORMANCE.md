@@ -232,24 +232,46 @@ host runs in a throwaway cwd with `--strict-mcp-config`, no settings sources (no
 user hooks or plugins), no skills, no CLAUDE.md or auto-memory, and an allowlist
 of host tools: `--tools ToolSearch,Agent,Read,Glob,Grep`, with `--disallowedTools
 Bash Write Edit NotebookEdit` on top. A subagent inherits the main session's
-tool pool, narrowed and never widened, so `Agent` adds no tool. Only sumo-qa's
-read-only tools are pre-approved; its writers (including
-`sumo_qa_install_external_skill` and `sumo_qa_execute_external_skill`) stay in
-the tool list, so a scenario that forbids one still sees the host reach for it,
-but a call to one is refused. The child's environment is `PATH`, `HOME`, `USER`,
-`LANG`, `TMPDIR` and any `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN`, nothing
-else, so a parent's model override or `SUMO_QA_DEBUG_DIR` cannot reach the host
-or its MCP server. The MCP server's `HOME` points into the run dir.
+tool pool, narrowed and never widened, so `Agent` adds no tool.
+
+Which sumo-qa tools are pre-approved is derived per build, from that build's
+own server: the harness runs the installed binary once (`initialize` then
+`tools/list`) and reads each tool's annotations. A tool that declares
+annotations is pre-approved only with `readOnlyHint` true and `openWorldHint`
+not true; a tool with no annotations (the skill and router tools, which only
+return guidance text) is pre-approved, since refusing it would refuse the first
+hop being measured. Every other tool, such as `sumo_qa_install_external_skill`
+or the npm-backed `sumo_qa_search_external_skills`, stays in the tool list, so
+a scenario that forbids one still sees the host reach for it, but a call to one
+is refused. The guard section of the report lists the refused tools per build.
+
+The child's environment takes from the parent only `PATH`, `HOME`, `USER`,
+`LANG`, `TMPDIR`, the login (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
+`CLAUDE_CONFIG_DIR`), the proxy and CA variables (`HTTPS_PROXY`, `HTTP_PROXY`,
+`NO_PROXY` and their lowercase forms, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
+`REQUESTS_CA_BUNDLE`), a gateway (`ANTHROPIC_BASE_URL`,
+`ANTHROPIC_AUTH_TOKEN`), and the Bedrock and Vertex switches with their
+credential and region variables, each only when set; nothing else from the
+parent. The harness adds its own isolation switches. A parent's model override
+(`ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_*_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`)
+or `SUMO_QA_DEBUG_DIR` cannot reach the host or its MCP server. The MCP
+server's `HOME` points into the run dir.
 
 Before any scenario runs, a write-guard control prompt per build asks the host
 to create a file outside its scratch dir by any means. The harness stops there
-if the file appears, or if that guard run is not valid (below).
+if the file appears, if that build's MCP server did not connect, or if a usage
+limit stopped the guard run (a quota stop proves nothing). Any other guard
+outcome, a turn limit included, still shows the sandbox held.
 
 A run is valid only when its MCP server connected and it ended in a clean
 `success` with exit code 0. A usage-limit stop (`Claude AI usage limit
 reached|<epoch>`, detected with the promptfoo provider's own pattern), a turn
-limit, an execution error, a timeout or a cut-off stream is invalid: it is not
-scored (its scenario reads SKIP), and the report lists it under `not scored`.
+limit, an execution error, a timeout or a cut-off stream (a final line that is
+not JSON) is invalid: it is not scored (its scenario reads SKIP), and the report
+lists it under `not scored`. A stream with several `result` events (a background
+agent finishing after the main turn) is a success only if every one is, and its
+output is every result's text in order. A non-JSON line mid-stream is skipped
+and counted in the report.
 
 The report records the host and its version, the model, and per prompt the MCP
 connection status, the outcome, the CLI exit code and the ordered tool calls
@@ -259,11 +281,13 @@ scored like any other), then the `format_report` table per build and a before
 -> after line per scenario. The raw stream-json and stderr of every run stay in
 the run dir (`--out`, a new or empty dir, default a temp dir).
 
-Exit codes: 0 every run was valid; 1 the harness itself failed (a build,
-install or other error; the traceback says which); 2 bad arguments (including
-an `--only` that matches no scenario or a non-empty `--out`), or a run was not
-valid, the write-guard runs included, so the scores are not valid; 3 the write
-guard was breached.
+| Exit code | Meaning |
+|---|---|
+| 0 | every run was valid |
+| 1 | the harness itself failed (a build, install or other error; the traceback says which) |
+| 2 | bad arguments, including an `--only` that matches no scenario or an `--out` that is a file or a non-empty dir |
+| 3 | the write guard was breached |
+| 4 | a billed run was not valid (a scenario run, or a guard run that proves nothing), so the scores are not valid |
 
 ## The provider-backed half
 

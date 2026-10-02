@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -40,8 +39,11 @@ DC03 = "DC03-dev-naming"
 
 
 def _run(fixture: str, scenario_id: str):
+    """A capture parsed as a run that exited 0, as run_host records it."""
     text = (FIXTURES / f"{fixture}.jsonl").read_text(encoding="utf-8")
-    return harness.parse_stream(text, scenario_id)
+    run = harness.parse_stream(text, scenario_id)
+    run.returncode = 0
+    return run
 
 
 def _with_result(fixture: str, **changes) -> str:
@@ -246,6 +248,67 @@ def test_a_run_that_did_not_end_in_success_is_invalid_and_never_scored(changes, 
     assert "not scored (invalid run): DC03-dev-naming" in harness.render_build("b", [run], [result])
 
 
+def _with_extra_result(fixture: str, first: dict) -> str:
+    """Edited: a real capture with one more result event, `first`, put just
+    before its own. No real multi-result capture exists; a background agent
+    finishing after the main turn produces this shape."""
+    lines = (FIXTURES / f"{fixture}.jsonl").read_text(encoding="utf-8").splitlines()
+    result = json.loads(lines[-1])
+    return "\n".join([*lines[:-1], json.dumps({**result, **first}), lines[-1]])
+
+
+def test_a_failed_result_followed_by_a_success_is_invalid_and_keeps_both_texts():
+    text = _with_extra_result(
+        "main-DC03-no-tool-calls",
+        {
+            "subtype": "error_max_turns",
+            "is_error": True,
+            "result": "Classification: business_logic_change",
+        },
+    )
+
+    run = harness.parse_stream(text, DC03)
+    final = json.loads(text.splitlines()[-1])["result"]
+
+    assert (run.outcome, run.valid) == ("error_max_turns (error)", False)
+    assert run.transcript.output_text == f"Classification: business_logic_change\n{final}"
+
+
+def test_a_usage_limit_in_any_result_marks_the_run():
+    text = _with_extra_result(
+        "main-DC03-no-tool-calls", {"result": "Claude AI usage limit reached|1789400000"}
+    )
+
+    assert harness.parse_stream(text, DC03).outcome == "usage limit"
+
+
+def test_two_successful_results_are_a_success():
+    text = _with_extra_result(
+        "main-DC03-no-tool-calls", {"result": "The background agent finished."}
+    )
+    run = harness.parse_stream(text, DC03)
+    run.returncode = 0
+
+    assert (run.outcome, run.valid) == ("success", True)
+
+
+def test_a_non_json_line_mid_stream_is_counted_not_fatal():
+    # Edited: a real capture with a non-JSON line put after its first event.
+    lines = (FIXTURES / "main-DC03-no-tool-calls.jsonl").read_text(encoding="utf-8").splitlines()
+    run = harness.parse_stream("\n".join([lines[0], "not json", *lines[1:]]), DC03)
+    run.returncode = 0
+
+    assert (run.outcome, run.valid, run.skipped_lines) == ("success", True, 1)
+    assert "[mcp connected, success, exit 0, 1 non-JSON lines skipped]" == harness._status(run)
+
+
+def test_a_run_with_no_observed_exit_code_is_invalid():
+    text = (FIXTURES / "main-DC03-no-tool-calls.jsonl").read_text(encoding="utf-8")
+    run = harness.parse_stream(text, DC03)
+
+    assert (run.outcome, run.returncode, run.valid) == ("success", None, False)
+
+
 def test_a_stream_with_no_result_event_is_invalid():
     # Cut: the real capture minus its last line, the result event.
     text = (FIXTURES / "main-DC03-no-tool-calls.jsonl").read_text(encoding="utf-8")
@@ -258,7 +321,6 @@ def test_the_usage_limit_pattern_is_the_promptfoo_providers_own():
     provider = REPO_ROOT / "tests" / "evals" / "promptfoo" / "providers" / "claude_cli.py"
 
     assert harness.USAGE_LIMIT.pattern in provider.read_text(encoding="utf-8")
-    assert "re.compile" not in Path(harness.__file__).read_text(encoding="utf-8")
 
 
 def test_a_timed_out_stream_cut_mid_character_parses_and_is_invalid():
@@ -286,35 +348,62 @@ def _flag(argv: list[str], name: str) -> list[str]:
 
 
 def test_the_child_gets_only_the_allowlisted_host_tools_and_no_write_tools():
-    argv = harness.host_argv({"mcpServers": {}}, "haiku", 15)
+    argv = harness.host_argv({"mcpServers": {}}, "haiku", 15, ["mcp__sumo-qa__using_sumo_qa"])
 
+    assert _flag(argv, "--allowedTools") == ["mcp__sumo-qa__using_sumo_qa"]
     assert _flag(argv, "--tools") == ["ToolSearch,Agent,Read,Glob,Grep"]
     assert _flag(argv, "--disallowedTools") == ["Bash", "Write", "Edit", "NotebookEdit"]
     assert _flag(argv, "--permission-mode") == ["default"]
 
 
-def test_only_sumo_qa_read_tools_are_pre_approved_and_writers_stay_visible_but_refused():
-    approved = _flag(harness.host_argv({"mcpServers": {}}, "haiku", 15), "--allowedTools")
-    snapshot = json.loads(harness.TOOLS_SNAPSHOT.read_text(encoding="utf-8"))["required_tools"]
+def _tool(name, **annotations):
+    return {"name": name, "annotations": annotations or None}
 
-    assert "mcp__sumo-qa" not in approved
-    assert {"mcp__sumo-qa__using_sumo_qa", "mcp__sumo-qa__sumo_qa_deciding_approach"} <= set(
-        approved
+
+@pytest.mark.parametrize(
+    ("tool", "approved"),
+    [
+        (_tool("reader", readOnlyHint=True, openWorldHint=False), True),
+        (_tool("reader_no_world_hint", readOnlyHint=True), True),
+        (_tool("router"), True),
+        (_tool("writer", readOnlyHint=False, openWorldHint=False), False),
+        (_tool("downloader", readOnlyHint=True, openWorldHint=True), False),
+        (_tool("unmarked_reader", openWorldHint=False), False),
+    ],
+)
+def test_approval_follows_each_tools_own_annotations(tool, approved):
+    assert harness.approved_tools([tool]) == ([f"mcp__sumo-qa__{tool['name']}"] if approved else [])
+
+
+@pytest.fixture(scope="module")
+def dev_server_tools(tmp_path_factory):
+    """This checkout's server, asked over stdio exactly as a build is."""
+    return harness.server_tools(
+        [sys.executable, "-m", "sumo_qa"], tmp_path_factory.mktemp("server-home")
     )
+
+
+def test_a_real_servers_tools_list_approves_the_router_and_refuses_writers(dev_server_tools):
+    approved = {a.removeprefix("mcp__sumo-qa__") for a in harness.approved_tools(dev_server_tools)}
+    names = {t["name"] for t in dev_server_tools}
+    writers = {
+        t["name"]
+        for t in dev_server_tools
+        if (t.get("annotations") or {}).get("readOnlyHint") is False
+    }
+
     assert {
-        "mcp__sumo-qa__sumo_qa_install_external_skill",
-        "mcp__sumo-qa__sumo_qa_execute_external_skill",
-    }.isdisjoint(approved)
-    assert harness.REFUSED_SUMO_QA_TOOLS <= set(snapshot)
-    assert len(approved) == len(snapshot) - len(harness.REFUSED_SUMO_QA_TOOLS)
+        "using_sumo_qa",
+        "sumo_qa_deciding_approach",
+        "sumo_qa_load_classifications",
+    } <= approved
+    assert writers and writers.isdisjoint(approved)
+    assert {"sumo_qa_install_external_skill", "sumo_qa_search_external_skills"} <= names - approved
 
 
-def test_every_tool_the_server_marks_as_a_writer_is_refused():
-    source = (REPO_ROOT / "src" / "sumo_qa" / "server.py").read_text(encoding="utf-8")
-    writers = set(re.findall(r"@mcp\.tool\(annotations=_writer_\w+\)\s+def (\w+)", source))
-
-    assert writers
-    assert writers <= harness.REFUSED_SUMO_QA_TOOLS
+def test_a_server_that_exits_before_answering_is_an_error(tmp_path):
+    with pytest.raises(RuntimeError, match="exited before answering request 1"):
+        harness.server_tools([sys.executable, "-c", "pass"], tmp_path)
 
 
 def test_a_poisoned_parent_environment_does_not_reach_the_child():
@@ -331,6 +420,25 @@ def test_a_poisoned_parent_environment_does_not_reach_the_child():
     env = harness.child_env({"PATH": "/bin", "HOME": "/home/u", **poison})
 
     assert env == {"PATH": "/bin", "HOME": "/home/u", **harness.CHILD_ENV}
+
+
+def test_network_and_backend_variables_reach_the_child():
+    network = {
+        "HTTPS_PROXY": "http://proxy:8080",
+        "no_proxy": "localhost",
+        "NODE_EXTRA_CA_CERTS": "/ca.pem",
+        "CLAUDE_CONFIG_DIR": "/cfg",
+        "ANTHROPIC_BASE_URL": "https://gateway",
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "AWS_REGION": "eu-west-2",
+        "CLAUDE_CODE_USE_VERTEX": "1",
+        "ANTHROPIC_VERTEX_PROJECT_ID": "p",
+        "CLOUD_ML_REGION": "global",
+    }
+
+    env = harness.child_env({**network, "ANTHROPIC_MODEL": "opus"})
+
+    assert env == {**network, **harness.CHILD_ENV}
 
 
 def _fake_cli(monkeypatch, *, stdout=b"", stderr=b"", returncode=0, timeout=False):
@@ -351,7 +459,7 @@ def test_a_host_run_keeps_stderr_and_reports_its_exit_code(tmp_path, monkeypatch
     monkeypatch.setenv("SUMO_QA_DEBUG_DIR", "/elsewhere")
     seen = _fake_cli(monkeypatch, stdout=stdout, stderr=b"warning: x\n", returncode=1)
 
-    run = harness.run_host(Path("/bin/sumo-qa"), DC03, "p", "haiku", tmp_path, 15, 60)
+    run = harness.run_host(Path("/bin/sumo-qa"), [], DC03, "p", "haiku", tmp_path, 15, 60)
 
     assert "SUMO_QA_DEBUG_DIR" not in seen["env"]
     assert (tmp_path / f"{DC03}.stderr").read_text(encoding="utf-8") == "warning: x\n"
@@ -367,17 +475,18 @@ def test_a_timed_out_host_run_returns_its_partial_stream_as_invalid(tmp_path, mo
     lines = (FIXTURES / "main-DC03-no-tool-calls.jsonl").read_bytes().splitlines(keepends=True)
     _fake_cli(monkeypatch, stdout=b"".join(lines[:-1]), timeout=True)
 
-    run = harness.run_host(Path("/bin/sumo-qa"), DC03, "p", "haiku", tmp_path, 15, 60)
+    run = harness.run_host(Path("/bin/sumo-qa"), [], DC03, "p", "haiku", tmp_path, 15, 60)
 
-    assert (run.returncode, run.outcome, run.valid) == (None, "no result", False)
-    assert "[mcp connected, no result, timeout]" in harness._status(run)
+    assert (run.returncode, run.outcome, run.valid) == (None, "timeout", False)
+    assert "[mcp connected, timeout, no exit code]" in harness._status(run)
 
 
 # --------------------------------------------------------------------------- #
 # main: order of work and exit codes                                          #
 # --------------------------------------------------------------------------- #
 class _Host:
-    """Stands in for install_build and run_host; records the order of work."""
+    """Stands in for install_build, server_tools and run_host; records the
+    order of work."""
 
     def __init__(self, monkeypatch, runs: dict[str, harness.HostRun], breach: bool = False):
         self.log: list[str] = []
@@ -386,6 +495,7 @@ class _Host:
         self.install_dirs: list[Path] = []
         monkeypatch.setattr(harness, "install_build", self.install)
         monkeypatch.setattr(harness, "run_host", self.run)
+        monkeypatch.setattr(harness, "server_tools", self.tools)
 
     def install(self, spec, workdir):
         self.log.append(f"install {spec}")
@@ -393,7 +503,12 @@ class _Host:
         workdir.mkdir(parents=True)
         return Path("/bin/sumo-qa"), spec
 
-    def run(self, binary, scenario_id, prompt, model, run_dir, max_turns, timeout):
+    def tools(self, command, home):
+        self.log.append(f"tools/list {command[0]}")
+        return [_tool("using_sumo_qa"), _tool("writer", readOnlyHint=False)]
+
+    def run(self, binary, approved, scenario_id, prompt, model, run_dir, max_turns, timeout):
+        assert approved == ["mcp__sumo-qa__using_sumo_qa"]
         self.log.append(f"run {scenario_id}")
         if scenario_id == harness.WRITE_GUARD_ID and self.breach:
             (run_dir / "outside" / "pwned.txt").write_text("pwned")
@@ -414,7 +529,9 @@ def test_every_build_installs_then_each_guard_runs_before_any_scenario(tmp_path,
     assert code == 0
     assert host.log == [
         "install a.whl",
+        "tools/list /bin/sumo-qa",
         "install b.whl",
+        "tools/list /bin/sumo-qa",
         f"run {harness.WRITE_GUARD_ID}",
         f"run {harness.WRITE_GUARD_ID}",
         f"run {DC03}",
@@ -428,7 +545,8 @@ def test_a_breached_guard_stops_before_any_scenario_with_its_own_exit_code(tmp_p
     code = harness.main(["a.whl", "b.whl", "--only", DC03, "--out", str(tmp_path / "o")])
 
     assert code == harness.EXIT_BREACH == 3
-    assert host.log == ["install a.whl", "install b.whl", f"run {harness.WRITE_GUARD_ID}"]
+    assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
+    assert host.log.count(f"run {harness.WRITE_GUARD_ID}") == 1
 
 
 def test_a_guard_whose_mcp_did_not_connect_stops_before_any_scenario(tmp_path, monkeypatch):
@@ -438,8 +556,40 @@ def test_a_guard_whose_mcp_did_not_connect_stops_before_any_scenario(tmp_path, m
 
     code = harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
 
-    assert code == harness.EXIT_INVALID == 2
-    assert host.log == ["install a.whl", f"run {harness.WRITE_GUARD_ID}"]
+    assert code == harness.EXIT_INVALID == 4
+    assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
+
+
+def test_a_quota_stopped_guard_stops_before_any_scenario(tmp_path, monkeypatch):
+    guard = _guard()
+    guard.outcome = "usage limit"
+    host = _Host(monkeypatch, {harness.WRITE_GUARD_ID: guard})
+
+    code = harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
+
+    assert code == harness.EXIT_INVALID
+    assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
+
+
+def test_a_guard_that_hit_its_turn_limit_with_the_sandbox_held_still_passes(
+    tmp_path, monkeypatch, capsys
+):
+    guard = harness.parse_stream(
+        _with_result("write-guard", subtype="error_max_turns", is_error=True),
+        harness.WRITE_GUARD_ID,
+    )
+    guard.returncode = 1
+    host = _Host(
+        monkeypatch, {harness.WRITE_GUARD_ID: guard, DC03: _run("main-DC03-no-tool-calls", DC03)}
+    )
+
+    code = harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
+
+    assert code == 0
+    assert host.log[-1] == f"run {DC03}"
+    out = capsys.readouterr().out
+    assert "PASS, no file" in out
+    assert "refused sumo-qa tools: writer" in out
 
 
 def test_a_quota_stopped_scenario_makes_the_run_invalid_not_a_regression(
@@ -478,6 +628,20 @@ def test_a_non_empty_out_dir_is_refused_before_anything_is_built(tmp_path, monke
         harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
 
     assert "is not empty" in capsys.readouterr().err
+    assert host.log == []
+
+
+def test_an_out_path_that_is_a_file_is_refused_before_anything_is_built(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "o").write_text("a file")
+    host = _Host(monkeypatch, {})
+
+    with pytest.raises(SystemExit) as exc:
+        harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
+
+    assert exc.value.code == 2
+    assert "is a file" in capsys.readouterr().err
     assert host.log == []
 
 
