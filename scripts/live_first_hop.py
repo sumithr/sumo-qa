@@ -110,6 +110,8 @@ CHILD_ENV_PASSTHROUGH = (
     "USER",
     "LANG",
     "TMPDIR",
+    # Windows: without it a Python 3.10 child cannot seed its hash randomisation.
+    "SYSTEMROOT",
     "ANTHROPIC_API_KEY",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
@@ -574,9 +576,11 @@ def run_host(
         stdout, stderr, returncode = done.stdout, done.stderr, done.returncode
     except subprocess.TimeoutExpired as exc:
         stdout, stderr, returncode = exc.stdout, exc.stderr, None
+    # The captures byte-exact: a text-mode write would turn each \r\n into
+    # \r\r\n on Windows.
+    (run_dir / f"{scenario_id}.jsonl").write_bytes(stdout or b"")
+    (run_dir / f"{scenario_id}.stderr").write_bytes(stderr or b"")
     text = decode(stdout)
-    (run_dir / f"{scenario_id}.jsonl").write_text(text, encoding="utf-8")
-    (run_dir / f"{scenario_id}.stderr").write_text(decode(stderr), encoding="utf-8")
     run = parse_stream(text, scenario_id)
     run.returncode = returncode
     if returncode is None:

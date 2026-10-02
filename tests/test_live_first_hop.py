@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,8 @@ sys.modules[_spec.name] = harness
 _spec.loader.exec_module(harness)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "live_first_hop"
+# A fake build's binary; compared as str(), so the separators are the platform's.
+_BINARY = Path("/bin/sumo-qa")
 SCENARIOS = {s.id: s for s in load_scenarios(harness.SCENARIOS)}
 D03 = "D03-dev-framed-edge-cases"
 D04 = "D04-dev-framed-failing-tests-first"
@@ -605,8 +608,10 @@ print("startup note " + "x" * 500, flush=True)
 def test_a_binary_that_cannot_start_is_an_error_naming_it(tmp_path):
     missing = str(tmp_path / "no-such-sumo-qa")
 
-    with pytest.raises(RuntimeError, match=rf"{missing} did not start: .*No such file"):
+    with pytest.raises(RuntimeError, match=rf"^{re.escape(missing)} did not start: ") as exc:
         harness.server_tools([missing], tmp_path / "home")
+
+    assert isinstance(exc.value.__cause__, FileNotFoundError)
 
 
 def test_a_failure_reads_only_the_tail_of_a_long_stderr(tmp_path):
@@ -660,9 +665,11 @@ def test_a_poisoned_parent_environment_does_not_reach_the_child():
         "VIRTUAL_ENV": "/parent/.venv",
     }
 
-    env = harness.child_env({"PATH": "/bin", "HOME": "/home/u", **poison})
+    kept = {"PATH": "/bin", "HOME": "/home/u", "SYSTEMROOT": "C:\\Windows"}
 
-    assert env == {"PATH": "/bin", "HOME": "/home/u", **harness.CHILD_ENV}
+    env = harness.child_env({**kept, **poison})
+
+    assert env == {**kept, **harness.CHILD_ENV}
 
 
 def test_network_and_backend_variables_reach_the_child():
@@ -726,12 +733,12 @@ def _fake_cli(monkeypatch, *, stdout=b"", stderr=b"", returncode=0, timeout=Fals
 def test_a_host_run_keeps_stderr_and_reports_its_exit_code(tmp_path, monkeypatch):
     stdout = (FIXTURES / "main-DC03-no-tool-calls.jsonl").read_bytes()
     monkeypatch.setenv("SUMO_QA_DEBUG_DIR", "/elsewhere")
-    seen = _fake_cli(monkeypatch, stdout=stdout, stderr=b"warning: x\n", returncode=1)
+    seen = _fake_cli(monkeypatch, stdout=stdout, stderr=b"warning: x\r\n", returncode=1)
 
-    run = harness.run_host(Path("/bin/sumo-qa"), [], DC03, "p", "haiku", tmp_path, 15, 60)
+    run = harness.run_host(_BINARY, [], DC03, "p", "haiku", tmp_path, 15, 60)
 
     assert "SUMO_QA_DEBUG_DIR" not in seen["env"]
-    assert (tmp_path / f"{DC03}.stderr").read_text(encoding="utf-8") == "warning: x\n"
+    assert (tmp_path / f"{DC03}.stderr").read_bytes() == b"warning: x\r\n"
     assert (tmp_path / f"{DC03}.jsonl").read_bytes() == stdout
     assert (run.returncode, run.valid) == (1, False)
     assert f"{DC03} [mcp connected, success, exit 1]: (no tool calls)" in harness.render_build(
@@ -744,7 +751,7 @@ def test_a_timed_out_host_run_returns_its_partial_stream_as_invalid(tmp_path, mo
     lines = (FIXTURES / "main-DC03-no-tool-calls.jsonl").read_bytes().splitlines(keepends=True)
     _fake_cli(monkeypatch, stdout=b"".join(lines[:-1]), timeout=True)
 
-    run = harness.run_host(Path("/bin/sumo-qa"), [], DC03, "p", "haiku", tmp_path, 15, 60)
+    run = harness.run_host(_BINARY, [], DC03, "p", "haiku", tmp_path, 15, 60)
 
     assert (run.returncode, run.outcome, run.valid) == (None, "timeout", False)
     assert "[mcp connected, timeout, no exit code]" in harness._status(run)
@@ -770,7 +777,7 @@ class _Host:
         self.log.append(f"install {spec}")
         self.install_dirs.append(workdir)
         workdir.mkdir(parents=True)
-        return Path("/bin/sumo-qa"), spec
+        return _BINARY, spec
 
     def tools(self, command, home):
         self.log.append(f"tools/list {command[0]}")
@@ -802,9 +809,9 @@ def test_every_build_installs_then_each_guard_runs_before_any_scenario(tmp_path,
     assert code == 0
     assert host.log == [
         "install a.whl",
-        "tools/list /bin/sumo-qa",
+        f"tools/list {_BINARY}",
         "install b.whl",
-        "tools/list /bin/sumo-qa",
+        f"tools/list {_BINARY}",
         f"run {harness.WRITE_GUARD_ID}",
         f"run {harness.WRITE_GUARD_ID}",
         f"run {DC03}",
