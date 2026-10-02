@@ -2,12 +2,20 @@
 """Contract test: live tools/list names must exactly equal the committed snapshot.
 
 The snapshot at tests/fixtures/mcp_tools_list_snapshot.json pins the public
-MCP surface. Adding, removing, or renaming a tool fails this test until the
-snapshot is regenerated in the same PR, so the regen is a deliberate,
-reviewable contract change and the snapshot can never go stale.
+MCP tool names in two places, ``required_tools`` and the keys of ``schemas``.
+Both must equal the live tools/list name set exactly: adding, removing, or
+renaming a tool fails this test until the snapshot is regenerated in the same
+PR, so a tool-name change is a deliberate, reviewable contract change.
 
-Schema drift (input/output schema fields changing) emits a warning today;
-this can tighten to a hard assertion in a follow-up once schemas settle.
+Only the names are pinned. Schema drift (a tool's inputSchema or outputSchema
+changing) is warn-only today, so the pinned schema bodies can still go stale.
+
+The exact set includes the skill tools registered from ``skills/*/SKILL.md``
+(unlike ``installer.REQUIRED_TOOL_NAMES``, which excludes them). Adding or
+renaming a skill therefore needs
+``uv run python scripts/regen_tools_list_snapshot.py`` in the same PR, and an
+uncommitted work-in-progress skill directory under ``skills/`` makes this test
+fail locally.
 """
 
 # mutmut-subprocess-spawning: spawns a fresh Python interpreter that imports the
@@ -22,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import warnings
@@ -103,30 +112,79 @@ def live_tools() -> list[dict]:
     return _live_tools_list()
 
 
+_REGEN_HINT = (
+    "If this is intentional, run `uv run python scripts/regen_tools_list_snapshot.py` "
+    "and commit the diff with a one-line rationale."
+)
+
+
 def _assert_tool_set_matches(snapshot: dict, live_names: set[str]) -> None:
     pinned = set(snapshot["required_tools"])
     removed = sorted(pinned - live_names)
     unpinned = sorted(live_names - pinned)
     assert not removed and not unpinned, (
         f"Live tools/list differs from the snapshot. Removed or renamed: {removed}. "
-        f"Registered but missing from the snapshot: {unpinned}.\n"
-        "If this is intentional, run `uv run python scripts/regen_tools_list_snapshot.py` "
-        "and commit the diff with a one-line rationale."
+        f"Registered but missing from the snapshot: {unpinned}.\n{_REGEN_HINT}"
+    )
+    schema_names = set(snapshot["schemas"])
+    stale_schemas = sorted(schema_names - live_names)
+    missing_schemas = sorted(live_names - schema_names)
+    assert not stale_schemas and not missing_schemas, (
+        f"Snapshot schemas keys differ from live tools/list. Schemas for tools not live: "
+        f"{stale_schemas}. Live tools with no schema entry: {missing_schemas}.\n{_REGEN_HINT}"
     )
 
 
-def test_required_tools_are_all_present(snapshot, live_tools) -> None:
+def test_snapshot_tool_set_matches_live(snapshot, live_tools) -> None:
     """The snapshot's tool names must equal the live tools/list names exactly."""
     _assert_tool_set_matches(snapshot, {t["name"] for t in live_tools})
 
 
-def test_snapshot_missing_a_registered_tool_fails_the_guard(snapshot, live_tools) -> None:
-    """Regression (#500): a snapshot that lost a registered tool must turn the guard red."""
-    live_names = {t["name"] for t in live_tools}
-    dropped = sorted(live_names)[0]
-    stale = {**snapshot, "required_tools": sorted(live_names - {dropped})}
-    with pytest.raises(AssertionError, match=dropped):
-        _assert_tool_set_matches(stale, live_names)
+# Pure-logic regression tests (#500): one per equivalence partition of the guard
+# (match, missing-from-snapshot, missing-from-live, schemas-mismatch). Names share
+# a prefix so a substring match cannot satisfy the positional check.
+_LIVE = {"load", "load_more"}
+
+
+def _snap(required: set[str], schemas: set[str]) -> dict:
+    return {"required_tools": sorted(required), "schemas": {n: {} for n in schemas}}
+
+
+def _listed_under(message: str, label: str, name: str) -> bool:
+    """True when ``name`` is an element of the list printed right after ``label``."""
+    pattern = rf"{re.escape(label)} \[[^\]]*'{re.escape(name)}'[^\]]*\]"
+    return re.search(pattern, message) is not None
+
+
+def test_guard_passes_when_names_and_schemas_match_live() -> None:
+    _assert_tool_set_matches(_snap(_LIVE, _LIVE), _LIVE)
+
+
+def test_snapshot_missing_a_registered_tool_fails_the_guard() -> None:
+    with pytest.raises(AssertionError) as exc:
+        _assert_tool_set_matches(_snap({"load"}, _LIVE), _LIVE)
+    msg = str(exc.value)
+    assert _listed_under(msg, "Registered but missing from the snapshot:", "load_more")
+    assert not _listed_under(msg, "Removed or renamed:", "load_more")
+    assert not _listed_under(msg, "Registered but missing from the snapshot:", "load")
+
+
+def test_pinned_tool_no_longer_live_fails_the_guard() -> None:
+    with pytest.raises(AssertionError) as exc:
+        _assert_tool_set_matches(_snap(_LIVE, _LIVE), {"load"})
+    msg = str(exc.value)
+    assert _listed_under(msg, "Removed or renamed:", "load_more")
+    assert not _listed_under(msg, "Registered but missing from the snapshot:", "load_more")
+    assert not _listed_under(msg, "Removed or renamed:", "load")
+
+
+def test_schema_keys_differing_from_live_fail_the_guard() -> None:
+    with pytest.raises(AssertionError) as exc:
+        _assert_tool_set_matches(_snap(_LIVE, {"load", "loader"}), _LIVE)
+    msg = str(exc.value)
+    assert _listed_under(msg, "Live tools with no schema entry:", "load_more")
+    assert _listed_under(msg, "Schemas for tools not live:", "loader")
+    assert not _listed_under(msg, "Live tools with no schema entry:", "load")
 
 
 def test_schema_drift_warns(snapshot, live_tools) -> None:
@@ -138,7 +196,7 @@ def test_schema_drift_warns(snapshot, live_tools) -> None:
     live_by_name = {t["name"]: t for t in live_tools}
     for name, pinned in snapshot["schemas"].items():
         if name not in live_by_name:
-            continue  # absence already caught above
+            continue  # absence already caught by the exact-set guard
         live = live_by_name[name]
         if pinned.get("inputSchema") != live.get("inputSchema"):
             warnings.warn(f"{name}: inputSchema changed since snapshot", UserWarning, stacklevel=1)
