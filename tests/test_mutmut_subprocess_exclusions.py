@@ -212,9 +212,7 @@ def _command_imports_mutated_code(strings: list[str], mutated: frozenset[str]) -
         # `-m sumo_qa.<sub>`: a `-m` module token for ANY sumo_qa submodule that
         # transitively pulls the package (and thus a mutated module) — e.g.
         # `sumo_qa.server` (imports knowledge_loaders at top level) or
-        # `sumo_qa.ingest` (imports rules at CLI runtime). Generalised from the
-        # old `.ingest`-only allow-list, which let `-m sumo_qa.server` and other
-        # mutated-importing entry points escape detection. No entry point is
+        # `sumo_qa.ingest` (imports rules at CLI runtime). No entry point is
         # exempt (``SAFE_SUMO_QA_ENTRY_POINTS`` is empty); one could be exempted
         # later only with runtime import evidence that it never reaches a
         # mutated module.
