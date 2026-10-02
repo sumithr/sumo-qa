@@ -743,8 +743,9 @@ tests:
         in an existing linked worktree gets an absolute `GIT_DIR`, which
         redirects the `checkout` and `rev-parse` (`-C dest` does not override
         an exported `GIT_DIR`) to the hook's own repository: the checkout
-        moves the caller's HEAD and `snapshot_source` returns the caller's
-        commit, not the source's. Anchors to `src/toolkit/snapshot.py` `_git` (lines
+        runs against the caller's repository instead of the snapshot's
+        (moving the caller's HEAD and re-firing its hook when the ref resolves
+        there). Anchors to `src/toolkit/snapshot.py` `_git` (lines
         19-26). Requires an explicitly constructed subprocess environment and a
         test that runs with `GIT_DIR` / `GIT_INDEX_FILE` set to a throwaway
         value; notes the green tests ran with no git variables set, so they
@@ -770,8 +771,8 @@ tests:
            3 import subprocess
            4 from pathlib import Path
            5
-        +  6 # A ref is a name or a revision expression, never an option: it starts with a
-        +  7 # letter or digit and has no `..` range.
+        +  6 # A ref is a commit-ish that resolves in the fresh clone (a SHA, tag, HEAD or
+        +  7 # HEAD~N), never an option or a `..` range: it starts with a letter or digit.
         +  8 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/~^-]*")
         +  9
           10
@@ -782,7 +783,7 @@ tests:
         - 10     return _git(["-C", str(dest), "rev-parse", "HEAD"])
         + 12     """Clone url into dest, check out ref detached, return the resolved commit."""
         + 13     if not _REF.fullmatch(ref) or ".." in ref:
-        + 14         raise ValueError(f"ref {ref!r} is not a branch, tag, or commit name")
+        + 14         raise ValueError(f"ref {ref!r} is not a commit-ish ref")
         + 15     _git(["clone", "--quiet", "--", url, str(dest)])
         + 16     commit = _git(
         + 17         ["-C", str(dest), "rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"]
@@ -815,7 +816,7 @@ tests:
           44     return completed.stdout.strip()
 
         diff --git a/tests/test_snapshot.py b/tests/test_snapshot.py
-        @@ tests/test_snapshot.py:1-94 @@
+        @@ tests/test_snapshot.py:1-95 @@
            1 import os
            2 import subprocess
            3
@@ -894,31 +895,32 @@ tests:
         + 74 def test_repo_location_covers_gits_canonical_list(tmp_path):
         + 75     canonical = set(git(tmp_path, "rev-parse", "--local-env-vars").split())
         + 76     assert canonical - {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"} <= _REPO_LOCATION
-        + 77
+        + 77     assert not {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"} & _REPO_LOCATION
         + 78
-        + 79 def test_snapshot_ignores_inherited_git_location(tmp_path, monkeypatch):
-        + 80     shas = make_origin_repo(tmp_path / "origin", ["a", "b"])
-        + 81     decoy = tmp_path / "decoy"
-        + 82     decoy_head = make_origin_repo(decoy, ["x"])[0]
-        + 83     # The repository-location variables a hook can export, pointed at the decoy.
-        + 84     for name, value in {
-        + 85         "GIT_DIR": decoy / ".git",
-        + 86         "GIT_WORK_TREE": decoy,
-        + 87         "GIT_INDEX_FILE": decoy / ".git" / "index",
-        + 88         "GIT_COMMON_DIR": decoy / ".git",
-        + 89         "GIT_OBJECT_DIRECTORY": decoy / ".git" / "objects",
-        + 90     }.items():
-        + 91         monkeypatch.setenv(name, str(value))
-        + 92     assert snapshot_source(str(tmp_path / "origin"), tmp_path / "dest", "HEAD~1") == shas[0]
-        + 93     assert git(decoy, "rev-parse", "HEAD") == decoy_head
-        + 94     assert git(decoy, "status", "--porcelain") == ""
+        + 79
+        + 80 def test_snapshot_ignores_inherited_git_location(tmp_path, monkeypatch):
+        + 81     shas = make_origin_repo(tmp_path / "origin", ["a", "b"])
+        + 82     decoy = tmp_path / "decoy"
+        + 83     decoy_head = make_origin_repo(decoy, ["x"])[0]
+        + 84     # The repository-location variables a hook can export, pointed at the decoy.
+        + 85     for name, value in {
+        + 86         "GIT_DIR": decoy / ".git",
+        + 87         "GIT_WORK_TREE": decoy,
+        + 88         "GIT_INDEX_FILE": decoy / ".git" / "index",
+        + 89         "GIT_COMMON_DIR": decoy / ".git",
+        + 90         "GIT_OBJECT_DIRECTORY": decoy / ".git" / "objects",
+        + 91     }.items():
+        + 92         monkeypatch.setenv(name, str(value))
+        + 93     assert snapshot_source(str(tmp_path / "origin"), tmp_path / "dest", "HEAD~1") == shas[0]
+        + 94     assert git(decoy, "rev-parse", "HEAD") == decoy_head
+        + 95     assert git(decoy, "status", "--porcelain") == ""
         ```
         Context: a fix for a report that `toolkit install` run from a
         post-checkout hook in a linked worktree checked out the wrong tree; it also
-        hardens the caller-supplied `url` and `ref` the way the repository's other
-        git callers do (`--` before the url, `--end-of-options` and a name check on
-        the ref, the `ext::` command transport refused). `_git` is the only
-        subprocess call in `src/toolkit/snapshot.py`. `dest` is always a fresh path
+        hardens the caller-supplied `url` and `ref` (`--` before the url,
+        `--end-of-options` and a name check on the ref, the `ext::` command
+        transport refused). `_git` is the only subprocess call in
+        `src/toolkit/snapshot.py`. `dest` is always a fresh path
         inside a temporary directory the caller creates and removes, whatever the
         outcome. Reverting the `env=env` line makes
         `test_snapshot_ignores_inherited_git_location` fail; dropping the `--`, the
@@ -960,7 +962,7 @@ tests:
         question.
       anti_patterns:
         - Labels the inherited-environment risk UNCOVERED or UNPROVEN although the fresh passing tests pin the drop list to git's canonical list and run snapshot_source with the repo-location variables pointed at a throwaway decoy.
-        - Claims the drop list is incomplete or hand-built, though it covers every `git rev-parse --local-env-vars` entry but `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT` (git's own other-repository rule) and a fresh test pins that.
+        - Claims the drop list is incomplete, though it covers every `git rev-parse --local-env-vars` entry but `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT` (git's own other-repository rule) and a fresh test pins that.
         - Demands a universal allow-list of every environment variable, or a change to every other subprocess call in the repository, before SAFE.
         - Declares NOT SAFE / NEEDS WORK solely for inherited environment on this explicitly constructed git call.
         - Asking another confirmation question instead of delivering the verdict.

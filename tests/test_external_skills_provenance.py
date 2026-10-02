@@ -359,6 +359,9 @@ def test_git_drop_list_is_gits_own_other_repository_rule(tmp_path) -> None:
         local - {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"} - ext._GIT_REPO_LOCATION_VARIABLES
     )
     assert not missing, f"drop list lacks git's repo-location variables {sorted(missing)}"
+    assert ext._GIT_REPO_LOCATION_VARIABLES.isdisjoint(
+        {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
+    )
 
 
 def test_a_named_ref_prefers_a_tag_then_a_remote_branch(toolchain) -> None:
