@@ -76,5 +76,11 @@ jobs:
       # pytest-xdist spreads the suite over the runner's cores; `--dist
       # loadfile` keeps each module on one worker so module-scoped fixtures
       # (the wheel build, the MCP server spawns) run once per module.
+      #
+      # SUMO_QA_REQUIRE_TREESITTER makes a tree-sitter import failure fail the
+      # job (tests/test_repo_map_imports.py) instead of silently skipping the
+      # tree-sitter tests on that OS and Python.
       - name: Run pytest
+        env:
+          SUMO_QA_REQUIRE_TREESITTER: "1"
         run: python -m pytest -n auto --dist loadfile ${{ !matrix.cov && '--no-cov' || '' }}

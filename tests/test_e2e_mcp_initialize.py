@@ -170,7 +170,6 @@ def test_mcp_initialize_returns_server_name(mcp_proc):
     response = recv(1)
 
     assert response.get("jsonrpc") == "2.0"
-    assert response.get("id") == 1
     result = response.get("result", {})
     server_info = result.get("serverInfo", {})
     assert server_info.get("name") == "sumo-qa", (
@@ -193,7 +192,6 @@ def test_mcp_tools_list_count_matches_registry(mcp_proc):
     response = recv(2)
 
     assert response.get("jsonrpc") == "2.0"
-    assert response.get("id") == 2
     tools = response.get("result", {}).get("tools", [])
     expected = _expected_tool_count()
     assert len(tools) == expected, f"Expected {expected} tools from tools/list, got {len(tools)}"

@@ -82,17 +82,19 @@ def _live_tools_list() -> list[dict]:
     pending: deque[dict] = deque()
 
     def response(expected_id: int) -> dict:
+        extra_lines: list[str] = []
         try:
             found = _read_json_rpc_response(
                 line_queue=lines,
                 expected_id=expected_id,
                 deadline=deadline,
-                extra_lines=[],
+                extra_lines=extra_lines,
                 pending_responses=pending,
             )
         except _VerifyTimeout:
             pytest.fail(f"the MCP server did not answer request id={expected_id} within 60s")
         assert found is not None, "the MCP server exited before responding"
+        assert extra_lines == [], f"non-protocol lines on the server's stdout: {extra_lines!r}"
         return found
 
     try:
