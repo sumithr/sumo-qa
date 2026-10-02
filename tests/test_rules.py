@@ -219,8 +219,7 @@ def test_dedupe_removes_duplicates_preserving_first_seen_order() -> None:
 # ---------------------------------------------------------------------------
 
 # surface rule -> lowercase probe markers that must appear in the rule's must_consider
-# and risk_templates (not techniques); each additive probe has its own marker, and
-# "collides" is anchored to one risk template.
+# and risk_templates (not techniques); each additive probe has its own marker.
 SURFACE_PROBE_MARKERS = {
     # schema/model validation + request/response/IPC protocol surface
     "api_contract_change": (

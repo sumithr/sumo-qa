@@ -125,8 +125,7 @@ def test_knowledge_loaders_return_canonical_entries():
 
 def test_typical_flow_stays_under_token_budget():
     """A typical create-test-plan / prep-for-work flow loads ~3 catalogues.
-    Total returned tokens must stay under PER_FLOW_BUDGET. Reuses the
-    token-weight test's chars/4 estimator.
+    Total returned tokens must stay under PER_FLOW_BUDGET.
 
     Budget history: 2500 with nine canonical approaches; #146's tenth
     approach (`closed-loop-gap-fix`) raised the measured flow to ~2513, so
