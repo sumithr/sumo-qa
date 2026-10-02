@@ -1,10 +1,10 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
-"""Contract test: live tools/list must remain a superset of the committed snapshot.
+"""Contract test: live tools/list names must exactly equal the committed snapshot.
 
 The snapshot at tests/fixtures/mcp_tools_list_snapshot.json pins the public
-MCP surface. Adding a tool is fine (the live response grows). Removing or
-renaming a tool fails this test until the snapshot is regenerated in the
-same PR — that regen acts as a deliberate, reviewable contract change.
+MCP surface. Adding, removing, or renaming a tool fails this test until the
+snapshot is regenerated in the same PR, so the regen is a deliberate,
+reviewable contract change and the snapshot can never go stale.
 
 Schema drift (input/output schema fields changing) emits a warning today;
 this can tighten to a hard assertion in a follow-up once schemas settle.
@@ -103,15 +103,30 @@ def live_tools() -> list[dict]:
     return _live_tools_list()
 
 
-def test_required_tools_are_all_present(snapshot, live_tools) -> None:
-    """Every name pinned in the snapshot must be in the live tools/list."""
-    live_names = {t["name"] for t in live_tools}
-    missing = sorted(set(snapshot["required_tools"]) - live_names)
-    assert not missing, (
-        f"Tools removed or renamed without snapshot update: {missing}.\n"
+def _assert_tool_set_matches(snapshot: dict, live_names: set[str]) -> None:
+    pinned = set(snapshot["required_tools"])
+    removed = sorted(pinned - live_names)
+    unpinned = sorted(live_names - pinned)
+    assert not removed and not unpinned, (
+        f"Live tools/list differs from the snapshot. Removed or renamed: {removed}. "
+        f"Registered but missing from the snapshot: {unpinned}.\n"
         "If this is intentional, run `uv run python scripts/regen_tools_list_snapshot.py` "
         "and commit the diff with a one-line rationale."
     )
+
+
+def test_required_tools_are_all_present(snapshot, live_tools) -> None:
+    """The snapshot's tool names must equal the live tools/list names exactly."""
+    _assert_tool_set_matches(snapshot, {t["name"] for t in live_tools})
+
+
+def test_snapshot_missing_a_registered_tool_fails_the_guard(snapshot, live_tools) -> None:
+    """Regression (#500): a snapshot that lost a registered tool must turn the guard red."""
+    live_names = {t["name"] for t in live_tools}
+    dropped = sorted(live_names)[0]
+    stale = {**snapshot, "required_tools": sorted(live_names - {dropped})}
+    with pytest.raises(AssertionError, match=dropped):
+        _assert_tool_set_matches(stale, live_names)
 
 
 def test_schema_drift_warns(snapshot, live_tools) -> None:
