@@ -7,13 +7,14 @@ into machine-readable contracts and scores a captured host/tool-call transcript
 against them, so "does a host/model actually follow the skill chain?" becomes a
 measured question with concrete artifacts, not a prose claim.
 
-It sits between the two existing layers:
+It sits among the other layers like this:
 
 | Layer | Runs in PR CI? | Needs a model? | What it measures |
 |---|---|---|---|
 | Trigger-routing harness ([`test_skill_triggering.py`](../test_skill_triggering.py) + [`fixtures/skill_triggers.yaml`](../fixtures/skill_triggers.yaml)) | yes | no | a skill's MCP description still carries the natural-language phrase the host routes on |
 | **Conformance validator (this layer)** | yes | no | a captured transcript routed to the right skill, called the required tools, avoided the forbidden ones, kept forbidden claims out of the output |
 | Promptfoo evals ([`../evals/promptfoo/`](../evals/promptfoo/README.md)) | no (manual) | yes | response *quality*: grounding, verbosity, residual risks, anti-patterns |
+| Live-host first hop ([`../../scripts/live_first_hop.py`](../../scripts/live_first_hop.py)) | no (manual) | yes | a real host, given only the sumo-qa tool list, takes the first hop; scored by this layer's validator |
 
 The conformance validator does not replace the promptfoo evals; it pins the
 deterministic contract (routing + tool calls + output markers) that does not
@@ -201,6 +202,46 @@ print(format_report(validate_all(scenarios, [transcript])))
 `format_report` emits a compact per-scenario PASS / FAIL / SKIP line with the
 violated contract inline. It identifies the failing scenario and the broken
 clause without reading raw provider logs.
+
+### Live host first hop
+
+The fixtures above score a transcript; they cannot see whether a real host
+picks `using_sumo_qa` from its tool list. The in-prompt evals preload the
+router skill, so they cannot either.
+[`../../scripts/live_first_hop.py`](../../scripts/live_first_hop.py) runs each
+deterministic scenario's `user_prompt` through `claude -p` with only the
+sumo-qa MCP server of a named build attached, and scores the host's own tool
+calls with `validate_all`:
+
+```bash
+# one build: a git ref (archived, built to a wheel) or a .whl path
+uv run --no-sync python scripts/live_first_hop.py origin/main
+# before/after on the same prompts, limited to the D0x/DC0x set
+uv run --no-sync python scripts/live_first_hop.py origin/main path/to/branch.whl --only 'DC?0'
+```
+
+It is manual and never in PR CI: every prompt is a billed host run on the
+subscription, so follow the promptfoo cost guardrails and narrow the set with
+`--only` (a regex on scenario ids). The default model is `haiku`, the weakest
+candidate: stronger models routed every development-framed prompt on both
+builds and so could not tell them apart. Pass `--model` for an extra data point.
+
+Each build is clean-installed into its own temp venv. The child host runs in a
+throwaway cwd with `--strict-mcp-config`, no settings sources (no user hooks or
+plugins), no skills, no CLAUDE.md or auto-memory, and `--disallowedTools Bash
+Write Edit NotebookEdit` plus the host tools that act outside the cwd;
+`--allowedTools` alone does not stop a write. The MCP server's `HOME` points into
+the run dir. A write-guard control prompt then asks the host to create a file
+outside its scratch dir, and the run fails if that file appears.
+
+The report records the host and its version, the model, the MCP connection
+status, and the ordered tool calls per prompt (host-namespaced
+`mcp__sumo-qa__<tool>` names are normalised to the bare names the validator
+expects; a call a subagent made is shown as `sub:<tool>` but scored like any
+other), then the `format_report` table per build and a before -> after line
+per scenario. The raw stream-json of every run stays in the run dir (`--out`,
+default a temp dir). Exit code 1 means the write guard was breached; 2 means
+the MCP server did not connect on every run, so the scores are not valid.
 
 ## The provider-backed half
 
