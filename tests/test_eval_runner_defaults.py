@@ -163,7 +163,7 @@ _PLAIN_LINE = "Writing output to"
 _COLOURED_LINE = f"\x1b[33m{_PLAIN_LINE}"
 # promptfoo variables that select a provider runtime, kept through the scrub.
 _PROMPTFOO_RUNTIME_ENV = ("PROMPTFOO_PYTHON", "PROMPTFOO_RUBY")
-_FAILING_CLAUDE = "#!/bin/sh\necho 'stand-in claude must not be called' >&2\nexit 97\n"
+_FAILING_CLAUDE = "#!/bin/sh\necho 'stand-in claude: failing on purpose' >&2\nexit 97\n"
 
 
 def _run_eval(
@@ -346,6 +346,7 @@ class TestRunEvalReportClassification:
                     # already set, so these pin what the assertions depend on.
                     "LOG_LEVEL": "info",
                     "PROMPTFOO_LOG_TO_STDERR": "false",
+                    "PROMPTFOO_LOG_DIR": str(tmp_path / "promptfoo-store" / "logs"),
                     "FORCE_COLOR": "0",
                     **env,
                 },
