@@ -739,6 +739,23 @@ def test_an_uncreatable_lock_folder_is_a_typed_error(toolchain) -> None:
         _install(toolchain)
 
 
+def test_an_unsearchable_lock_folder_is_a_typed_error(monkeypatch, toolchain) -> None:
+    """Path.exists on a lock inside an unsearchable folder raises
+    PermissionError before Python 3.14 (which returns False)."""
+    real_exists = Path.exists
+
+    def unsearchable(self, *args, **kwargs):
+        if self.name == "external-skills.lock.json":
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", unsearchable)
+
+    with pytest.raises(ext.ExternalSkillReadError, match="could not lock"):
+        _install(toolchain)
+    assert toolchain.add_sources == []
+
+
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_a_symlinked_lock_folder_is_refused(toolchain, tmp_path) -> None:
     elsewhere = tmp_path / "elsewhere"

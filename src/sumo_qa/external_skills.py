@@ -208,7 +208,13 @@ def install_external_skill(
     # read only under its guard: on Windows an open read handle makes a
     # concurrent install's os.replace onto it fail. With no lock file there is
     # nothing to read, so nothing is created or waited on before the fetch.
-    if (lock_base / _LOCK_RELPATH).exists():
+    lock_path = lock_base / _LOCK_RELPATH
+    try:
+        # Raises on an unsearchable folder before Python 3.14.
+        lock_exists = lock_path.exists()
+    except OSError as exc:
+        raise ExternalSkillReadError(f"could not lock {lock_path}: {exc}") from exc
+    if lock_exists:
         with _lock_guard(lock_base):
             _read_lock(lock_base)
     workdir, checkout, resolved_ref = _checkout_commit(remote_url, requested_ref, timeout)
