@@ -671,11 +671,13 @@ def test_instruction_surface_names_only_registered_tools(surface: str) -> None:
     assert not unregistered, f"{surface} names unregistered tools: {sorted(unregistered)}"
     if surface == "copilot-instructions":
         # The Copilot skill list is hand-maintained; a new skill tool must be added to it.
-        # Read only the "Available skills" section (to the next heading) so a name that
-        # also appears in prose cannot stand in for a deleted bullet.
-        section = text.split("Available skills", 1)[1]
-        section = re.split(r"^#", section, maxsplit=1, flags=re.MULTILINE)[0]
-        listed = set(re.findall(r"^- `((?:using_sumo_qa|sumo_qa_[a-z_]+))`", section, re.MULTILINE))
+        # Read only the first contiguous run of "- " bullet lines after the "Available
+        # skills" anchor, so a name mentioned or bulleted later in the file cannot
+        # stand in for a deleted list entry.
+        after_anchor = text.split("Available skills", 1)[1]
+        bullets = re.search(r"^(?:- .*\n?)+", after_anchor, re.MULTILINE)
+        section = bullets.group(0) if bullets else ""
+        listed = set(re.compile(r"^- " + _TOOL_REF.pattern, re.MULTILINE).findall(section))
         unlisted = _SKILL_TOOL_NAMES - listed
         assert not unlisted, f"{surface} omits registered skill tools: {sorted(unlisted)}"
 
