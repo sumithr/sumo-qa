@@ -22,10 +22,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from sumo_qa.tool_registry import PROFILE_ENV
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
+PROFILE_ENV = "SUMO_QA_MCP_PROFILE"
 
 
 def _spawn(profile: str | None) -> subprocess.Popen:

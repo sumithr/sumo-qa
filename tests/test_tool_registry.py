@@ -139,7 +139,7 @@ def test_every_advertised_workflow_entry_is_core() -> None:
 
 
 # The external-skill workflow may name the external-group tools it drives:
-# activating them under ``core`` is #807's acceptance criterion.
+# until #807 gives a missing external tool an actionable activation path.
 _NAMED_TOOL_EXEMPTIONS = {
     "sumo-qa-suggesting-external-skill": {t.name for t in TOOLS if t.group == "external"},
 }

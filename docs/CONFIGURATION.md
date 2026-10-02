@@ -9,7 +9,7 @@ All optional. Defaults work out of the box after `pip install sumo-qa && sumo-qa
 | `QA_TEST_DATA_PATH` | `knowledge/test_data` (cwd) | Override the known-good test data catalogue. **No samples ship in the wheel**, the catalogue is empty on a fresh install; populate it per your team's domains. |
 | `QA_KNOWLEDGE_PATH` | bundled `_data/knowledge` / repo `knowledge` | Override the canonical knowledge catalogues (classifications, approaches, principles, techniques) |
 | `SUMO_QA_DEBUG_DIR` | unset | Directory to capture per-tool-call args + output as JSON for debugging / grading |
-| `SUMO_QA_MCP_PROFILE` | `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist tools or external-skill search/install/execute tools). See [Tool profiles](#tool-profiles) |
+| `SUMO_QA_MCP_PROFILE` | `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist tools or external-skill search/check/install/execute tools). See [Tool profiles](#tool-profiles) |
 
 These env vars are the lowest-level override and always win. For a no-clone way
 to add custom content, see [Adding custom knowledge without cloning the
