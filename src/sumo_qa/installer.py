@@ -492,7 +492,7 @@ def _iter_sumo_qa_on_path() -> list[str]:
     """
     seen: set[str] = set()
     out: list[str] = []
-    for dirname in os.environ.get("PATH", "").split(os.pathsep):
+    for dirname in os.environ.get("PATH", "").split(":"):
         if not dirname:
             continue
         candidate = Path(dirname) / "sumo-qa"
