@@ -54,6 +54,7 @@ import functools
 import re
 import shlex
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -136,7 +137,8 @@ def _spawns_subprocess_importing_mutated_code(path: Path) -> bool:
         # "sumo_qa") — would miss it. Tokenise a single-string command so a
         # shell-string spawn is classified like the equivalent argv list (#195
         # follow-up: the shell-string blind spot). The original string is kept too,
-        # so the substring import checks (`sumo_qa.<m>` / `import <m>`) still apply.
+        # so the `-c` body import walk and the `sumo_qa.<m>` / `import <m>`
+        # substring checks still apply to it.
         if isinstance(first, ast.Constant) and isinstance(first.value, str):
             cmd = cmd + _shell_tokens(first.value)
         # The spawn must actually launch a Python interpreter.
@@ -198,8 +200,12 @@ def _command_imports_mutated_code(strings: list[str], mutated: frozenset[str]) -
         # knowledge_loaders).
         if any(_reaches_mutated(module, mutated) for module in _body_imports(s)):
             return True
-        # A bare `import <mutated>` (the child put src/sumo_qa itself on sys.path).
-        if any(f"import {m}" in s for m in mutated):
+        # Conservative substring checks: `sumo_qa.<m>` also catches dynamic
+        # imports (`importlib.import_module("sumo_qa.rules")`, `__import__`,
+        # `exec`) the AST walk cannot see; a bare `import <m>` covers a child
+        # that put src/sumo_qa itself on sys.path. A false positive costs a
+        # marker; a false negative crashes mutmut later.
+        if any(f"sumo_qa.{m}" in s or f"import {m}" in s for m in mutated):
             return True
         # `-m sumo_qa.<sub>`: a `-m` module token for ANY sumo_qa submodule that
         # transitively pulls the package (and thus a mutated module) — e.g.
@@ -246,9 +252,10 @@ def _sumo_qa_imports(module: str) -> frozenset[str]:
 def _body_imports(body: str) -> frozenset[str]:
     """The sumo_qa modules an inline ``-c`` body imports. A body that does not
     parse (an f-string fragment) falls back to a regex over its text, which
-    sees only the module after ``from``/``import``."""
+    sees only the module after ``from``/``import``. The body is dedented first
+    so an indented ``textwrap.dedent``-style literal still parses."""
     try:
-        tree = ast.parse(body)
+        tree = ast.parse(textwrap.dedent(body))
     except (SyntaxError, ValueError):  # ValueError: a NUL byte before 3.12
         return frozenset(re.findall(r"\b(?:from|import)\s+(sumo_qa(?:\.\w+)*)", body))
     return _imported_sumo_qa_names(tree, [])
@@ -479,6 +486,14 @@ _DASH_C_HAZARDS = [
     "from sumo_qa import conformance",
     "import os, sumo_qa.conformance",
     "from  sumo_qa.conformance import x",
+    # An indented body (the ``textwrap.dedent`` pattern) still parses.
+    "\n    from sumo_qa import conformance\n",
+    "\n    import os, sumo_qa.conformance\n",
+    # Dynamic imports: no import statement, so only the conservative
+    # ``sumo_qa.<mutated>`` substring check sees them.
+    "import importlib; importlib.import_module('sumo_qa.knowledge_loaders')",
+    "__import__('sumo_qa.rules')",
+    "exec('import sumo_qa.rules')",
 ]
 
 
@@ -487,12 +502,10 @@ def test_dash_c_body_importing_a_mutated_chain_is_flagged(body: str) -> None:
     assert _command_imports_mutated_code([body], frozenset(_mutated_module_names()))
 
 
-# Negatives: the java resolver probe's import chain reaches no mutated module,
-# and naming a mutated module in a string the child never imports is not an import.
+# Negative: the java resolver probe's import chain reaches no mutated module.
 _DASH_C_NON_HAZARDS = [
     "import sumo_qa.repo_map_resolvers as pkg\n"
     "from sumo_qa.repo_map_treesitter import TREESITTER_AVAILABLE\n",
-    "import sys\nassert 'sumo_qa.rules' not in sys.modules\n",
 ]
 
 
