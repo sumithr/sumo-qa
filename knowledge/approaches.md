@@ -39,7 +39,9 @@ confirmation, not new coverage.
 
 ## no-tests-recommended
 Pure docs / typos / comments. Build + lint, no QA test work. The honest
-senior-QA answer when the change has no behavioural surface.
+senior-QA answer when the change has no behavioural surface. A procedure an
+agent executes has one: `verify-existing`, evidenced by a dry run of its
+branches.
 
 ## spike-first-then-tests
 Exploratory prototype. Defer test discipline until the design settles. The

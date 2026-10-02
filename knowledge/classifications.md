@@ -1,9 +1,15 @@
 # Canonical change classifications
 
 Ten canonical classifications used to shape testing strategy. The host LLM picks
-which apply to a given change by reasoning over the user's intent and target
-paths. The catalogue below is authoritative — do not invent classifications
-not in this list.
+which apply to a given change by reasoning over the user's intent and what each
+changed file does. The catalogue below is authoritative — do not invent
+classifications not in this list.
+
+**The executable-behaviour rule** (routing and review both apply it): a file is
+runtime when something executes, imports, or follows it as instructions (an
+agent, installer, CI job, test runner helper), whatever its path or extension.
+Ordinary test functions, fixtures and genuinely inert prose keep their lighter
+handling.
 
 ## api_contract_change
 A change that adds, removes, or modifies a public API surface (HTTP endpoint,
@@ -35,18 +41,22 @@ regressions.
 
 ## infrastructure_change
 A change to deployment, IaC, runtime configuration, networking, or platform-
-level concerns (Kubernetes manifests, Terraform, Docker, CI). Risk:
+level concerns (Kubernetes manifests, Terraform, Docker, CI), and the tooling
+they run: scripts, hooks, test runners, agent procedures. Risk:
 environment-only failures invisible in unit tests.
 
 ## test_change
 A change exclusively to test code or test fixtures, with no production code
 movement. Includes mutation-testing follow-up, raise-coverage tasks,
 strengthening weak assertions, and refactoring tests. Risk: false confidence
-if tests become tautological.
+if tests become tautological. Executable test infrastructure (a runner,
+matcher, parser or grader) is `infrastructure_change` by the rule above.
 
 ## docs_change
 A change to documentation, comments, README, or any non-executable artefact.
-Risk: minimal — typically no QA test work needed beyond build/lint.
+Risk: minimal — typically no QA test work needed beyond build/lint. A
+procedure an agent or operator follows step by step is runtime by the rule
+above, not `docs_change`.
 
 ## config_change
 A change to configuration files (YAML, JSON, env files, feature flags) where

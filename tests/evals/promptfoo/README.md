@@ -359,6 +359,40 @@ moves.
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-runtime-scope.ab.yaml --no-cache
 ```
 
+## Executable-behaviour corpus (issue #761)
+
+Routing and review decide whether a changed file is runtime by one rule, stated
+once in `knowledge/classifications.md` (the executable-behaviour rule: a file is
+runtime when something executes, imports, or follows it as instructions,
+whatever its path or extension). Two configs pin it:
+
+- `skill-deciding-approach.yaml` carries three routing seeds: an executable
+  runner package under `tests/` routes `infrastructure_change`, not
+  `test_change`; an edit to `test_*.py` files only still routes `test_change`;
+  and a markdown procedure an agent executes routes `verify-existing`, not
+  `no-tests-recommended`.
+- `skill-reviewing-before-merge-executable-scope.yaml` carries two review
+  seeds and three controls. Seeds: a boolean fence toggle in an eval assertion
+  helper under `tests/evals/promptfoo/asserts/` must get the stateful-scanner
+  probe and the 4-backtick-wrapping-3-backtick discriminator despite the
+  test-only path, and changed commands in an agent-executable procedure doc
+  must get named risks (shell state lost across calls, an unexpanded glob, an
+  unhandled `none` payload) instead of the trivial-change exemption. Controls:
+  the same helper written length-aware with a red-on-pre-fix regression test is
+  SAFE, an ordinary test file holding fenced Markdown fixtures gets the
+  test-only probe and no runtime probes, and an inert prose doc keeps the
+  trivial-change exemption.
+
+The fence seed declares the module set the new routing loads for executable
+test infrastructure (`test-only-diff` plus the runtime probes). With every
+module preloaded the pre-change skill text already finds the fence defect; the
+miss it guards against was dispatch, so on the pre-change routing set
+(`runtime-scope` and `test-only-diff` only) it fails.
+
+```bash
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-executable-scope.yaml --no-cache
+```
+
 ## Verification-evidence corpus (issue #332, consolidating #316/#321/#331)
 
 Four configs grade ONE consolidated discipline added to
@@ -1026,6 +1060,7 @@ renders.
 | `fixtures/reviewing-before-merge-PRE-187.SKILL.md` | Snapshot of the pre-#187 SKILL.md body, the A0 control leg for the unproven-escalation `.ab.yaml` |
 | `skill-reviewing-before-merge-fence-parser.yaml` + `.ab.yaml` | Issue #296 discriminating-input fence probe + A0(pre-edit)/A1(post-edit) load-bearing control (see "Discriminating-input fence probe" above) |
 | `fixtures/reviewing-before-merge-PRE-296.SKILL.md` | Snapshot of the pre-#296 SKILL.md body, the A0 control leg for the fence-parser `.ab.yaml` |
+| `skill-reviewing-before-merge-executable-scope.yaml` | Issue #761 executable-behaviour review corpus (2 seeds: fence toggle in an eval assertion helper under `tests/` → structural probe + NOT SAFE; agent-executable procedure doc → named procedure risks + NOT SAFE; 3 controls: length-aware helper with red-on-pre-fix regression → SAFE, ordinary fenced-fixture test → test-only probe only, inert prose → trivial exemption) (see "Executable-behaviour corpus" above) |
 | `skill-reviewing-before-merge-runtime-scope.ab.yaml` | Issue #300 A0(pre-edit)/A1(post-edit) load-bearing control for the behaviour-not-path runtime-scope rule (see "Runtime-scope corpus" above) |
 | `fixtures/reviewing-before-merge-PRE-300.SKILL.md` | Snapshot of the pre-#300 SKILL.md body, the A0 control leg for the runtime-scope `.ab.yaml` |
 | `skill-reviewing-before-merge-verifier-evidence.yaml` + `.ab.yaml` | Issue #332 surface-specific verifier-evidence corpus (3 seeds: unrun eval with a CLOSED risk gate, the unrun eval NOT pre-named → NOT SAFE, no combined-tree run → NOT SAFE, discharged combined-tree run → SAFE-eligible) + A0(pre-edit)/A1(post-edit) load-bearing control (see "Verification-evidence corpus" above) |

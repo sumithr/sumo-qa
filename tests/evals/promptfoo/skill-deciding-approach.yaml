@@ -1,8 +1,10 @@
 description: >
-  Skill-isolation eval for sumo-qa-deciding-approach. Two seed tests define
+  Skill-isolation eval for sumo-qa-deciding-approach. The seed tests define
   the internal router shape: catalogue-grounded classification, catalogue-
   grounded approach, and exact downstream skill route — one per routing
-  branch under guard (regression-first, and #146's closed-loop-gap-fix).
+  branch under guard (regression-first, #146's closed-loop-gap-fix, and
+  #761's executable-behaviour rule: a runner under tests/, an ordinary
+  test_*.py edit, and an agent-executable procedure doc).
 providers:
   - file://providers/claude-candidate.yaml
 defaultTest:
@@ -170,3 +172,103 @@ tests:
         - Routes to any skill other than `sumo-qa-closing-qa-gaps` (e.g. `sumo-qa-implementing-with-tdd` or `sumo-qa-strengthening-tests` would miss the closed-loop intent).
         - Omits the exact verbatim approach name `closed-loop-gap-fix`.
         - Performs downstream test-writing or gap-closing work instead of returning the route.
+
+  # Issue #761 (from #667): classification keys on executable behaviour, not
+  # the `tests/` path prefix. The added package is a runner a CLI invokes, not
+  # a test file, so `test_change` (and its tautology risk) is the misroute.
+  - description: SEED - executable runner package under tests/ routes infrastructure_change, not test_change
+    vars:
+      user_prompt: >-
+        Review this before I merge. It adds `tests/evals/claude/`, a new
+        ~1,000-line Python package: `__main__.py` is the entry point we run as
+        `python -m tests.evals.claude`, `runner.py` spawns `claude -p` once per
+        eval case and parses its JSON reply, `discover.py` walks the checkout
+        for case files, and `report.py` writes the pass/fail report our
+        maintainers read. No `test_*.py` file and nothing under `src/` changed.
+      expected_routing: >-
+        For this seed, the classification must be `infrastructure_change`
+        (NOT `test_change`), the approach must be `verify-existing`, and the
+        next skill must be `sumo-qa-reviewing-before-merge`.
+      expected_shape: >-
+        Internal router decision. Names the verbatim catalogue classification
+        `infrastructure_change`, names the verbatim catalogue approach
+        `verify-existing`, gives a short rationale that the package is
+        executable tooling a command runs (an entry point, a spawned CLI,
+        parsing, file discovery, a written report) whatever its `tests/`
+        location, and routes to the exact next skill
+        `sumo-qa-reviewing-before-merge`. This is internal routing data, so
+        verbatim catalogue names are required and must not be treated as a
+        user-facing taxonomy leak in this eval.
+      anti_patterns:
+        - Classifies the change as `test_change` because the files sit under `tests/`.
+        - Invents a classification not present in knowledge/classifications.md.
+        - Invents an approach not present in knowledge/approaches.md.
+        - Routes to any skill other than `sumo-qa-reviewing-before-merge`.
+        - Performs downstream review or test-writing work instead of returning the route.
+
+  # Issue #761 (from #667): the negative twin. Ordinary test functions keep
+  # their lighter handling: an edit to `test_*.py` files only is `test_change`.
+  - description: SEED - edit to test_*.py files only still routes test_change
+    vars:
+      user_prompt: >-
+        I tightened the assertions in `tests/test_pricing.py` and
+        `tests/test_refunds.py`: several only checked the result was not None,
+        now they check the exact totals. Only those two `test_*.py` files
+        changed; the pricing and refund code is untouched. Strengthen them
+        further where they are still weak.
+      expected_routing: >-
+        For this seed, the classification must be `test_change`, the approach
+        must be `strengthen-test-coverage`, and the next skill must be
+        `sumo-qa-strengthening-tests`.
+      expected_shape: >-
+        Internal router decision. Names the verbatim catalogue classification
+        `test_change`, names the verbatim catalogue approach
+        `strengthen-test-coverage`, gives a short rationale tied to edits in
+        ordinary test functions on unchanged production code, and routes to
+        the exact next skill `sumo-qa-strengthening-tests`. This is internal
+        routing data, so verbatim catalogue names are required and must not be
+        treated as a user-facing taxonomy leak in this eval.
+      anti_patterns:
+        - Classifies the change as `infrastructure_change` or any runtime classification because test code can be executed.
+        - Invents a classification not present in knowledge/classifications.md.
+        - Invents an approach not present in knowledge/approaches.md.
+        - Routes to any skill other than `sumo-qa-strengthening-tests`.
+        - Performs downstream test-writing work instead of returning the route.
+
+  # Issue #761 (from #747): a markdown procedure an agent executes step by
+  # step has a behavioural surface, so it is not inert docs and does not STOP
+  # at no-tests-recommended.
+  - description: SEED - agent-executable procedure doc does not route no-tests-recommended
+    vars:
+      user_prompt: >-
+        Review my change before merge. It only edits two markdown files:
+        `docs/DEVELOPMENT.md` (two reworded paragraphs) and
+        `.claude/skills/work-issue/implement-phase.md`, the step-by-step
+        procedure our coding agents follow when they work an issue. In that
+        file I changed the shell commands an agent runs (`git -C <tree> show
+        <AUTH_SHA>:<path>` for every catalogue file), the step that records
+        the authority commit (`AUTH_SHA`, the git SHA the catalogues are read
+        at) for later steps to reuse, and the STOP and escalation branches. No Python, YAML or workflow file changed.
+      expected_routing: >-
+        For this seed, the approach must be `verify-existing` (NOT
+        `no-tests-recommended`) and the next skill must be
+        `sumo-qa-reviewing-before-merge`. The classification must be a
+        verbatim catalogue entry for a change with a behavioural surface
+        (`infrastructure_change` or `business_logic_change` are both
+        acceptable), NOT `docs_change`.
+      expected_shape: >-
+        Internal router decision. Names a verbatim catalogue classification
+        other than `docs_change`, names the verbatim catalogue approach
+        `verify-existing`, gives a short rationale that the procedure file is
+        followed as instructions by an agent (commands it runs, a value handed
+        between steps, STOP branches), so it has a behavioural surface even
+        though it is markdown, and routes to the exact next skill
+        `sumo-qa-reviewing-before-merge`. This is internal routing data, so
+        verbatim catalogue names are required and must not be treated as a
+        user-facing taxonomy leak in this eval.
+      anti_patterns:
+        - Routes to `no-tests-recommended` or `next_action.skill` `none` because only markdown changed.
+        - Classifies the change as `docs_change`.
+        - Invents a classification not present in knowledge/classifications.md.
+        - Invents an approach not present in knowledge/approaches.md.
+        - Performs downstream review work instead of returning the route.
