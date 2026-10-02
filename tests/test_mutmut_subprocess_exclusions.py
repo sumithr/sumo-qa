@@ -50,6 +50,8 @@ platform (mutmut's fork-based runner segfaults on macOS) and at PR time.
 from __future__ import annotations
 
 import ast
+import functools
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -63,6 +65,7 @@ else:  # pragma: no cover -- 3.10 backport path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = REPO_ROOT / "tests"
+SRC_DIR = REPO_ROOT / "src"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 # ``sumo_qa`` submodule CLI entry points that provably DO NOT pull a mutated
@@ -190,6 +193,12 @@ def _command_imports_mutated_code(strings: list[str], mutated: set[str]) -> bool
         # — bare `sumo_qa` token from a `-m` arg.
         if s == "sumo_qa":
             return True
+        # An inline `-c` body importing a sumo_qa module that transitively
+        # imports a mutated one (`from sumo_qa.conformance import ...` reaches
+        # knowledge_loaders).
+        for module in re.findall(r"\b(?:from|import) (sumo_qa(?:\.\w+)*)", s):
+            if _reaches_mutated(module, frozenset(mutated)):
+                return True
         # An inline `-c` body (or a module arg) that references a mutated module.
         for m in mutated:
             if f"sumo_qa.{m}" in s or f"import {m}" in s:
@@ -204,6 +213,46 @@ def _command_imports_mutated_code(strings: list[str], mutated: set[str]) -> bool
         # runtime import evidence shows they do not reach mutated modules.
         if _is_sumo_qa_submodule_token(s) and s not in SAFE_SUMO_QA_ENTRY_POINTS:
             return True
+    return False
+
+
+@functools.cache
+def _sumo_qa_imports(module: str) -> frozenset[str]:
+    """Every sumo_qa module named by an import anywhere in ``module``'s source,
+    lazy (function-level) imports included, so the closure over-approximates."""
+    path = SRC_DIR.joinpath(*module.split("."))
+    path = path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
+    if not path.is_file():
+        return frozenset()
+    package = module.split(".") if path.name == "__init__.py" else module.split(".")[:-1]
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = package[: len(package) - node.level + 1] if node.level else []
+            name = ".".join(base + ([node.module] if node.module else []))
+            # `from pkg import sub` may import a submodule: keep both readings.
+            names.add(name)
+            names.update(f"{name}.{alias.name}" for alias in node.names)
+    return frozenset(n for n in names if n.split(".")[0] == "sumo_qa")
+
+
+def _reaches_mutated(module: str, mutated: frozenset[str]) -> bool:
+    """True if importing ``module`` (with its parent packages) can import a
+    mutated module, by a static walk of the source tree's imports."""
+    seen: set[str] = set()
+    todo = [module]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        if name.rsplit(".", 1)[-1] in mutated:
+            return True
+        parts = name.split(".")
+        todo.extend(".".join(parts[:i]) for i in range(1, len(parts)))
+        todo.extend(_sumo_qa_imports(name))
     return False
 
 

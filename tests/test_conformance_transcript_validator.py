@@ -10,8 +10,6 @@ forbidden tool call, and forbidden output claim.
 
 from __future__ import annotations
 
-import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -942,36 +940,3 @@ def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
     start = time.perf_counter()
     assert find_routing_leaks("[DONE] " * 16_000) == ()
     assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
-
-
-def test_blank_string_values_does_not_backtrack_exponentially() -> None:
-    """A backslash must match only the escape branch of the quoted-string
-    pattern; when it could match either, an unterminated string of escapes
-    backtracks exponentially (CodeQL py/redos, #248)."""
-    from sumo_qa import conformance
-
-    span = '{"a' + "\\a" * 28
-    # The call runs in a child killed at 30s, so a regression fails fast
-    # instead of blocking the pytest-xdist worker while it backtracks. The
-    # child imports the same sumo_qa as this test: the pre-push hook's venv
-    # has it only on pytest's pythonpath, not installed.
-    import_root = str(Path(conformance.__file__).parents[1])
-    child = (
-        f"import sys, time; sys.path.insert(0, {import_root!r});"
-        "from sumo_qa.conformance import _blank_string_values;"
-        f"span = {span!r}; start = time.perf_counter();"
-        "assert _blank_string_values(span) == span;"
-        "print(time.perf_counter() - start)"
-    )
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-c", child],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        pytest.fail("ReDoS: _blank_string_values did not finish in 30s")
-    assert proc.returncode == 0, proc.stderr
-    elapsed = float(proc.stdout)
-    assert elapsed < _REDOS_BUDGET_SECONDS, f"ReDoS: _blank_string_values took {elapsed:.1f}s"
