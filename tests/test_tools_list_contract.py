@@ -15,8 +15,10 @@ The exact set includes the skill tools registered from ``skills/*/SKILL.md``
 (unlike ``installer.REQUIRED_TOOL_NAMES``, which excludes them). Adding or
 renaming a skill therefore needs
 ``uv run python scripts/regen_tools_list_snapshot.py`` in the same PR. The test
-reads the working tree, not commit state: any ``skills/<name>/SKILL.md``
-present in the working tree but absent from the snapshot fails it.
+reads the working tree, not commit state: the server lists skills from
+``src/sumo_qa/_data/skills`` when that directory exists, else from repo-root
+``skills/``, so a stale ``_data/skills`` copy shadows the working tree for
+both this test and the regen script.
 """
 
 # mutmut-subprocess-spawning: spawns a fresh Python interpreter that imports the
