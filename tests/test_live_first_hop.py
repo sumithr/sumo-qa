@@ -334,8 +334,26 @@ def test_a_timed_out_stream_cut_mid_character_parses_and_is_invalid():
     run = harness.parse_stream(text, D03)
 
     assert text.endswith("\ufffd")
-    assert (run.outcome, run.valid) == ("truncated stream", False)
+    assert (run.outcome, run.valid, run.skipped_lines) == ("truncated stream", False, 0)
     assert _tools(run)[:2] == ["ToolSearch", "Agent"]
+
+
+def test_a_usage_limit_outranks_a_cut_off_final_line():
+    # Edited: a real capture whose result is a quota stop, then a cut-off line.
+    text = _with_result("write-guard", result="Claude AI usage limit reached|1789400000")
+
+    run = harness.parse_stream(text + '\n{"type": "assist', harness.WRITE_GUARD_ID)
+
+    assert (run.outcome, run.skipped_lines) == ("usage limit", 0)
+
+
+def test_an_api_error_is_named_apart_from_a_turn_limit():
+    run = harness.parse_stream(
+        _with_result("write-guard", subtype="error_max_turns", is_error=True, api_error_status=529),
+        harness.WRITE_GUARD_ID,
+    )
+
+    assert run.outcome == "error_max_turns (api error 529)"
 
 
 # --------------------------------------------------------------------------- #
@@ -361,36 +379,62 @@ def _tool(name, **annotations):
     return {"name": name, "annotations": annotations or None}
 
 
+SKILL_TOOLS = frozenset({"sumo_qa_deciding_approach"})
+
+
 @pytest.mark.parametrize(
     ("tool", "approved"),
     [
         (_tool("reader", readOnlyHint=True, openWorldHint=False), True),
-        (_tool("reader_no_world_hint", readOnlyHint=True), True),
-        (_tool("router"), True),
+        # A missing openWorldHint defaults to true in the MCP spec.
+        (_tool("reader_no_world_hint", readOnlyHint=True), False),
+        (_tool("using_sumo_qa"), True),
+        (_tool("sumo_qa_deciding_approach"), True),
+        # An unannotated tool that is neither the router nor a skill of this build,
+        # as every writer is on a build that predates tool annotations.
+        (_tool("sumo_qa_register_known_good_test_data"), False),
         (_tool("writer", readOnlyHint=False, openWorldHint=False), False),
         (_tool("downloader", readOnlyHint=True, openWorldHint=True), False),
         (_tool("unmarked_reader", openWorldHint=False), False),
     ],
 )
 def test_approval_follows_each_tools_own_annotations(tool, approved):
-    assert harness.approved_tools([tool]) == ([f"mcp__sumo-qa__{tool['name']}"] if approved else [])
+    assert harness.approved_tools([tool], SKILL_TOOLS) == (
+        [f"mcp__sumo-qa__{tool['name']}"] if approved else []
+    )
 
 
 @pytest.mark.parametrize("name", sorted(harness.ALWAYS_REFUSED))
 def test_installing_or_executing_an_external_skill_is_refused_whatever_its_annotations(name):
-    assert harness.approved_tools([_tool(name, readOnlyHint=True, openWorldHint=False)]) == []
-    assert harness.approved_tools([_tool(name)]) == []
+    skills = frozenset({name})
+    assert (
+        harness.approved_tools([_tool(name, readOnlyHint=True, openWorldHint=False)], skills) == []
+    )
+    assert harness.approved_tools([_tool(name)], skills) == []
+
+
+def test_a_builds_skill_tools_come_from_the_skills_its_wheel_bundles(tmp_path):
+    skills = tmp_path / "lib" / "python3.12" / "site-packages" / "sumo_qa" / "_data" / "skills"
+    for name in ("using-sumo-qa", "sumo-qa-deciding-approach"):
+        (skills / name).mkdir(parents=True)
+        (skills / name / "SKILL.md").write_text("---\n---\n")
+    (skills / "not-a-skill").mkdir()
+
+    assert harness.build_skill_tools(tmp_path) == {"using_sumo_qa", "sumo_qa_deciding_approach"}
+    assert harness.build_skill_tools(tmp_path / "missing") == frozenset()
 
 
 def test_this_checkouts_served_annotations_approve_the_router_and_refuse_writers():
     # In-process: a spawned `python -m sumo_qa` would bypass mutmut's trampoline.
     from sumo_qa.server import build_mcp_server
+    from sumo_qa.skill_prompts import _skills_dir
 
     tools = [
         t.model_dump(by_alias=True, exclude_none=True)
         for t in asyncio.run(build_mcp_server().list_tools())
     ]
-    approved = {a.removeprefix("mcp__sumo-qa__") for a in harness.approved_tools(tools)}
+    skills = frozenset(p.parent.name.replace("-", "_") for p in _skills_dir().glob("*/SKILL.md"))
+    approved = {a.removeprefix("mcp__sumo-qa__") for a in harness.approved_tools(tools, skills)}
     writers = {t["name"] for t in tools if t.get("annotations", {}).get("readOnlyHint") is False}
 
     assert {
@@ -406,11 +450,13 @@ def test_this_checkouts_served_annotations_approve_the_router_and_refuse_writers
     }.isdisjoint(approved)
 
 
-# A stand-in server: answers initialize and tools/list over stdio, one line at a time.
+# A stand-in server: answers initialize and tools/list over stdio, one line at a
+# time, with a log line and a notification before each reply.
 _FAKE_SERVER = """
 import json, sys
 for line in sys.stdin:
     m = json.loads(line)
+    print("starting up", flush=True)
     print(json.dumps({"jsonrpc": "2.0", "method": "notifications/message"}), flush=True)
     if m.get("id") == 1:
         print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}), flush=True)
@@ -427,8 +473,38 @@ def test_a_builds_tools_list_is_read_over_stdio(tmp_path):
 
 
 def test_a_server_that_exits_before_answering_is_an_error(tmp_path):
-    with pytest.raises(RuntimeError, match="exited before answering request 1"):
-        harness.server_tools([sys.executable, "-c", "pass"], tmp_path)
+    # Reads the request first, so the write never races the exit.
+    server = [sys.executable, "-c", "import sys; sys.stdin.readline()"]
+
+    with pytest.raises(RuntimeError, match=r"python\S* exited before answering initialize"):
+        harness.server_tools(server, tmp_path)
+
+
+def test_a_stalled_server_times_out_and_is_killed(tmp_path, monkeypatch):
+    started = []
+    popen = subprocess.Popen
+
+    def spy(*args, **kwargs):
+        started.append(popen(*args, **kwargs))
+        return started[-1]
+
+    monkeypatch.setattr(harness.subprocess, "Popen", spy)
+    server = [sys.executable, "-c", "import time; time.sleep(60)"]
+
+    with pytest.raises(RuntimeError, match=r"did not answer within 0.5s"):
+        harness.server_tools(server, tmp_path, timeout=0.5)
+    assert started[0].poll() is not None
+
+
+def test_an_error_envelope_names_the_method_and_the_error(tmp_path):
+    server = """
+import json, sys
+m = json.loads(sys.stdin.readline())
+print(json.dumps({"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message": "nope"}}),
+      flush=True)
+"""
+    with pytest.raises(RuntimeError, match=r"answered initialize with .*'nope'"):
+        harness.server_tools([sys.executable, "-c", server], tmp_path)
 
 
 def test_a_poisoned_parent_environment_does_not_reach_the_child():
@@ -436,6 +512,8 @@ def test_a_poisoned_parent_environment_does_not_reach_the_child():
         "CLAUDE_CODE_SUBAGENT_MODEL": "opus",
         "ANTHROPIC_MODEL": "opus",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": "opus",
+        "VERTEX_REGION_CLAUDE_HAIKU_4_5": "us-east5",
+        "CLOUDSDK_CONFIG": "/gcloud",
         "SUMO_QA_DEBUG_DIR": "/elsewhere",
         "CLAUDECODE": "1",
         "CLAUDE_CODE_SESSION_ID": "parent",
@@ -459,11 +537,26 @@ def test_network_and_backend_variables_reach_the_child():
         "CLAUDE_CODE_USE_VERTEX": "1",
         "ANTHROPIC_VERTEX_PROJECT_ID": "p",
         "CLOUD_ML_REGION": "global",
+        "ANTHROPIC_BEDROCK_BASE_URL": "https://bedrock",
+        "ANTHROPIC_VERTEX_BASE_URL": "https://vertex",
+        # The backend's alias mapping and gcloud config, passed only with a backend set.
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-haiku-4-5",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "s",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "o",
+        "VERTEX_REGION_CLAUDE_HAIKU_4_5": "us-east5",
+        "CLOUDSDK_CONFIG": "/gcloud",
     }
 
     env = harness.child_env({**network, "ANTHROPIC_MODEL": "opus"})
 
     assert env == {**network, **harness.CHILD_ENV}
+
+
+@pytest.mark.parametrize("switch", ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"])
+def test_either_backend_switch_alone_passes_the_alias_mapping(switch):
+    env = harness.child_env({switch: "1", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "h"})
+
+    assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "h"
 
 
 def _fake_cli(monkeypatch, *, stdout=b"", stderr=b"", returncode=0, timeout=False):
@@ -585,9 +678,23 @@ def test_a_guard_whose_mcp_did_not_connect_stops_before_any_scenario(tmp_path, m
     assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
 
 
-def test_a_quota_stopped_guard_stops_before_any_scenario(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "usage limit",
+        "success (api error 529)",
+        "success (error)",
+        "error_during_execution (error)",
+        "no result",
+        "truncated stream",
+        "timeout",
+    ],
+)
+def test_a_guard_where_the_model_never_acted_stops_before_any_scenario(
+    tmp_path, monkeypatch, outcome
+):
     guard = _guard()
-    guard.outcome = "usage limit"
+    guard.outcome = outcome
     host = _Host(monkeypatch, {harness.WRITE_GUARD_ID: guard})
 
     code = harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])

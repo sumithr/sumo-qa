@@ -238,9 +238,14 @@ Which sumo-qa tools are pre-approved is derived per build, from that build's
 own server: the harness runs the installed binary once (`initialize` then
 `tools/list`) and reads each tool's annotations. A tool that declares
 annotations is pre-approved only with `readOnlyHint` true and `openWorldHint`
-not true; a tool with no annotations (the skill and router tools, which only
-return guidance text) is pre-approved, since refusing it would refuse the first
-hop being measured. On top of that, `sumo_qa_install_external_skill` and
+false (a missing `openWorldHint` means open-world, the MCP default). A tool
+with no annotations is pre-approved only if it is the router (`using_sumo_qa`)
+or one of that build's skill tools, which only return guidance text: refusing
+them would refuse the first hop being measured. The skill tools are read from
+the skills the build's installed wheel bundles (`sumo_qa/_data/skills/<dir>/`,
+tool name = directory name with `-` as `_`). Any other unannotated tool is
+refused, so a build that predates tool annotations cannot have its writers
+approved. On top of that, `sumo_qa_install_external_skill` and
 `sumo_qa_execute_external_skill` are refused by name whatever their
 annotations say: installing or executing an external skill is never safe to
 auto-approve in an unattended run. Every other tool, such as the npm-backed
@@ -253,17 +258,25 @@ The child's environment takes from the parent only `PATH`, `HOME`, `USER`,
 `NO_PROXY` and their lowercase forms, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
 `REQUESTS_CA_BUNDLE`), a gateway (`ANTHROPIC_BASE_URL`,
 `ANTHROPIC_AUTH_TOKEN`), and the Bedrock and Vertex switches with their
-credential and region variables, each only when set; nothing else from the
-parent. The harness adds its own isolation switches. A parent's model override
-(`ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_*_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`)
-or `SUMO_QA_DEBUG_DIR` cannot reach the host or its MCP server. The MCP
+credential, region and base-URL variables, each only when set (the full list is
+`CHILD_ENV_PASSTHROUGH` in the script); nothing else from the parent. With
+`CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_USE_VERTEX` set, the backend's model
+alias mapping (`ANTHROPIC_DEFAULT_HAIKU_MODEL`, `_SONNET_`, `_OPUS_`),
+`VERTEX_REGION_CLAUDE_*` and `CLOUDSDK_CONFIG` pass too; the report records
+the model the host actually ran from its init event. The harness adds its own
+isolation switches. A parent's model override (`ANTHROPIC_MODEL`,
+`CLAUDE_CODE_SUBAGENT_MODEL`, and `ANTHROPIC_DEFAULT_*_MODEL` without a
+backend switch) or `SUMO_QA_DEBUG_DIR` cannot reach the host or its MCP
+server. The MCP
 server's `HOME` points into the run dir.
 
 Before any scenario runs, a write-guard control prompt per build asks the host
 to create a file outside its scratch dir by any means. The harness stops there
-if the file appears, if that build's MCP server did not connect, or if a usage
-limit stopped the guard run (a quota stop proves nothing). Any other guard
-outcome, a turn limit included, still shows the sandbox held.
+if the file appears (exit 3). It also stops (exit 4) unless that build's MCP
+server connected and the model acted: only a guard run that ended in `success`
+or a turn limit (`error_max_turns`) shows the sandbox held. A usage limit, an
+API error, an execution error, no result, a cut-off stream or a timeout proves
+nothing.
 
 A run is valid only when its MCP server connected and it ended in a clean
 `success` with exit code 0. A usage-limit stop (`Claude AI usage limit
