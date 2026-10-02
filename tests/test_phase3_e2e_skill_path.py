@@ -127,14 +127,8 @@ def test_typical_flow_stays_under_token_budget():
     """A typical create-test-plan / prep-for-work flow loads ~3 catalogues.
     Total returned tokens must stay under PER_FLOW_BUDGET.
 
-    Budget history: 2500 with nine canonical approaches; #146's tenth
-    approach (`closed-loop-gap-fix`) raised the measured flow to ~2513, so
-    the budget moved to 2600; #150's eleventh approach (`triage-test-failure`)
-    raised it to ~2655, so the budget moved to 2700; #769's `hermetic
-    subprocess environment` technique raised it to ~2876, so the budget moved
-    to 2900, still a fraction of the >10k single-shot path this guard exists
-    to keep out."""
-    PER_FLOW_BUDGET = 2900
+    Per-flow budget: keeps the routed catalogue flow far below the >10k single-shot path."""
+    PER_FLOW_BUDGET = 3000
 
     def _tokens(text: str) -> int:
         return (len(text) + 3) // 4

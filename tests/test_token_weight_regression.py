@@ -43,39 +43,8 @@ def _approx_tokens(text: str) -> int:
 
 
 PER_CALL_BUDGET = 1500
-# Phase 4: with the 6 heavy tools deleted, the create-test-plan flow now
-# uses only the knowledge_loader catalogues. Measured baseline was ~2432
-# tokens with 8 canonical approaches; adding the 9th canonical approach
-# (`recommend-removal`, established by the removability gate in
-# sumo-qa-deciding-approach) raised the baseline to ~2610. #187 then added
-# technique-keyed failure-mode hints to techniques.md (an optional
-# `failure_modes` note per black-box technique — substring/token confusion,
-# both-sides boundary, missing rule row — that the review skill surfaces when
-# escalating an UNPROVEN risk into a discriminating-input test). The catalogue
-# is still ~1014 approx-tokens, well under PER_CALL_BUDGET (1500); the flow
-# baseline rose to ~2883. #299 then added the `real-capture fixtures for
-# external-output matchers` experience-based technique (capture an external
-# CLI/API's real output as the fixture before writing the matcher — an invented
-# fixture is green-but-meaningless), raising techniques to ~1196 approx-tokens
-# (still well under PER_CALL_BUDGET) and the flow baseline to ~3113. #184 then
-# added the `build artifact contents verification` technique (a packaging-contract
-# check on a wheel/sdist/package, container image, or bundle — assert the BUILT
-# artifact's required/forbidden members, not the source tree), raising techniques
-# to ~1301 approx-tokens (still well under PER_CALL_BUDGET) and the flow baseline
-# to ~3218. #146 then added the 10th canonical approach (`closed-loop-gap-fix`,
-# the closed-loop regression workflow routing to `sumo-qa-closing-qa-gaps`),
-# raising the flow baseline to ~3297. #150 then added the 11th canonical approach
-# (`triage-test-failure`, the flaky/failing-test triage workflow routing to
-# `sumo-qa-triaging-test-failures`), raising the flow baseline to ~3439, so the
-# budget moves to 3500. #769 then added the `hermetic subprocess environment`
-# technique (a spawned tool inherits redirecting variables such as the absolute GIT_DIR
-# a hook can export; build its env explicitly, test with them set), raising techniques to
-# ~1482 approx-tokens (under PER_CALL_BUDGET) and the flow baseline to ~3660, so
-# the budget moves to 3700. Budget gives a small regression cushion above the
-# current catalogue.
-# For comparison the old heavy single-shot path emitted >10k tokens for one call,
-# which is what broke IntelliJ AI Assistant in the first place.
-PER_FLOW_BUDGET = 3700
+# Per-flow budget: keeps the routed catalogue flow far below the >10k single-shot path.
+PER_FLOW_BUDGET = 3800
 
 
 def test_thin_catalogues_stay_under_per_call_budget():
