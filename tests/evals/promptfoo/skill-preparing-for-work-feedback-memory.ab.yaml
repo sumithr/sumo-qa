@@ -164,8 +164,6 @@ prompts:
 
       This is the QA-prep turn. Produce EXACTLY this response format:
 
-      Line 1: `Naming risks and the smallest test set.`
-
       ## Risks (each MUST cite a specific line number from the supplied snippet)
 
       1. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor in observable behaviour.
@@ -221,8 +219,6 @@ prompts:
       > {{user_prompt}}
 
       This is the QA-prep turn. Produce EXACTLY this response format:
-
-      Line 1: `Naming risks and the smallest test set.`
 
       ## Risks (each MUST cite a specific line number from the supplied snippet)
 

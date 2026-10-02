@@ -1,8 +1,10 @@
 // Deterministic routing-state leak assertion for
 // skill-deciding-approach-user-facing.yaml (issue #248), which grades both
-// routing hops: the entry router and the approach router are internal, so their
-// routing payload, taxonomy labels, route announcement and checklist
-// bookkeeping must never appear in what the user reads.
+// routing hops, and for the downstream skill evals they route to (#735),
+// which skip route_announcement (a downstream hand-off may name a skill):
+// routing is internal, so its routing payload, taxonomy labels, route
+// announcement and checklist bookkeeping must never appear in what the user
+// reads.
 //
 // Mirrors `find_routing_leaks` in src/sumo_qa/conformance.py family for
 // family; tests/test_eval_no_routing_leak_assert.py runs both over
@@ -15,7 +17,10 @@
 //   * taxonomy_label     a bare `Classification:` / `Approach:` line whose
 //                        value is exactly a catalogue entry name (read from
 //                        knowledge/) or n/a, optionally followed by a second
-//                        label pair (after . , ; a space, or glued);
+//                        label pair (after . , ; a space, or glued); or a
+//                        qualified label ("Approach restated:", "Chosen
+//                        approach:") whose value opens with a whole catalogue
+//                        name, whatever prose follows;
 //   * route_announcement "Picking the QA approach", "Routing this QA intent",
 //                        "Routing/Routed [this|you|it] to [the] sumo-qa-...",
 //                        or a first-person "I'm routing you to" / "I'll route
@@ -225,9 +230,41 @@ function labelRegExp(names) {
   return labelCache.get(key);
 }
 
+// Words that turn a label into self-narration; such a label leaks its
+// catalogue value even when prose follows (#735).
+const LABEL_QUALIFIER = '(?:re-?stated|chosen|selected|picked|identified)';
+const qualifiedLabelCache = new Map();
+
+// A qualified label at line start whose value opens with a whole catalogue
+// name (or n/a), whatever follows it.
+function qualifiedLabelRegExp(names) {
+  const key = names.join('|');
+  if (!qualifiedLabelCache.has(key)) {
+    const alternatives = names.map(escapeRegExp).join('|');
+    const decoChars = escapeRegExp('*_`"\'\u201c\u201d');
+    const deco = `[${decoChars}]*`;
+    const label = '(?:classification|approach)';
+    qualifiedLabelCache.set(
+      key,
+      new RegExp(
+        `^[ \\t]*(?:(?:[-+*]|>+|#{1,6}|\\d{1,3}[.)])[ \\t]+)*${deco}` +
+          `(?:${LABEL_QUALIFIER}[ \\t]+${label}|${label}[ \\t]+${LABEL_QUALIFIER})` +
+          `${deco}[ \\t]*:[ \\t${decoChars}]*(?:${alternatives}|n/a)` +
+          // An underscore closing italic emphasis ends the value; a run of
+          // underscores glued to a further word character or hyphen continues it.
+          '(?![A-Za-z0-9/-]|_+[A-Za-z0-9-])',
+        'im',
+      ),
+    );
+  }
+  return qualifiedLabelCache.get(key);
+}
+
 function hasTaxonomyLabel(text) {
   const names = catalogueNames().sort((a, b) => b.length - a.length);
-  return names.length > 0 && labelRegExp(names).test(text);
+  return (
+    names.length > 0 && (labelRegExp(names).test(text) || qualifiedLabelRegExp(names).test(text))
+  );
 }
 
 const CHECKS = {
@@ -243,8 +280,16 @@ function findRoutingLeaks(text) {
   return Object.keys(CHECKS).filter((family) => CHECKS[family](s));
 }
 
-module.exports = (output) => {
-  const leaks = findRoutingLeaks(output);
+// An optional `config: {skip: [...]}` on the assert leaves those families
+// out; omitted, every family is checked. An unknown name fails the assert, so
+// a typo cannot silently disable a check.
+module.exports = (output, context) => {
+  const skip = (context && context.config && context.config.skip) || [];
+  const unknown = skip.filter((family) => !Object.hasOwn(CHECKS, family));
+  if (unknown.length) {
+    return { pass: false, score: 0, reason: `unknown leak family in config.skip: ${unknown.join(', ')}` };
+  }
+  const leaks = findRoutingLeaks(output).filter((family) => !skip.includes(family));
   if (leaks.length) {
     return {
       pass: false,
@@ -252,7 +297,9 @@ module.exports = (output) => {
       reason: `internal routing state leaked into the user-visible reply: ${leaks.join(', ')}`,
     };
   }
-  return { pass: true, score: 1, reason: 'no routing payload, taxonomy label, announcement or checklist leaked' };
+  const checked = Object.keys(CHECKS).filter((family) => !skip.includes(family));
+  const skipped = skip.length ? `; skipped ${skip.join(', ')}` : '';
+  return { pass: true, score: 1, reason: `no routing leak: checked ${checked.join(', ')}${skipped}` };
 };
 
 // Exposed for offline verification.

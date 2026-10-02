@@ -7,8 +7,6 @@ description: Use after sumo-qa-deciding-approach routes here, when a review, mut
 
 QA evidence — a review's uncovered risk, an unmet acceptance criterion, a mutation survivor, a graded-scenario failure — has named a concrete behaviour with no covering test. This skill drives it to closure one loop at a time (red → minimum change → green → status update), orchestrating the existing disciplines — never replacing them.
 
-**Announce at the start of EVERY turn while this skill is active** — entry, red, green, status-update, refusal, and decline turns all open with: *"Closing one QA gap at a time."* A turn that skips the announce has left the loop discipline.
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: output discipline (no internal taxonomy labels), output economy (findings not framing; one question per turn; no closing pleasantries), knowledge authority hierarchy, specialty-tool fit.
@@ -72,7 +70,7 @@ The Checklist above is the flow.
 
 > Review names three uncovered risks; user: *"close them."*
 >
-> **AI:** *"Closing one QA gap at a time. Starting with R1 — `apply_refund` accepts an over-balance amount. R2 and R3 are parked as later loops — I'll start the next one only when you ask. Test idea: `tests/billing/test_refund.py::test_refund_over_balance_rejected`, refund of 150.00 against a 100.00 remaining balance, expecting `RefundError` — boundary value analysis on the remaining-balance edge. I'll capture the red (failing) run before any production change. **Is `RefundError` the agreed contract for over-balance, or should it clamp to the remaining balance?**"*
+> **AI:** *"Starting with R1 — `apply_refund` accepts an over-balance amount. R2 and R3 are parked as later loops — I'll start the next one only when you ask. Test idea: `tests/billing/test_refund.py::test_refund_over_balance_rejected`, refund of 150.00 against a 100.00 remaining balance, expecting `RefundError` — boundary value analysis on the remaining-balance edge. I'll capture the red (failing) run before any production change. **Is `RefundError` the agreed contract for over-balance, or should it clamp to the remaining balance?**"*
 >
 > On confirm: writes the test, runs it, surfaces the `FAILED … RefundError not raised` output, hands off for the green change.
 
@@ -80,7 +78,7 @@ The Checklist above is the flow.
 
 > mutmut survivor: `subtotal > 10000` → `subtotal >= 10000`, no test fails. User: *"take it through the loop."*
 >
-> **AI:** *"Closing one QA gap at a time. Production stays unchanged — strengthening the test first. The survivor lives at `pricing/discounts.py:42` (`subtotal > 10000` mutated to `>=`). Boundary value analysis at `subtotal = 10000`: the original must NOT qualify (`>` is strict), so the strengthening test `tests/pricing/test_discounts.py::test_no_discount_at_exact_threshold` asserts `qualifies(10000) is False` — the mutant (`>=`) fails it, the original passes. If the strengthened test instead exposes a real defect in `qualifies`, I'll surface that as a separate fix decision."*
+> **AI:** *"Production stays unchanged — strengthening the test first. The survivor lives at `pricing/discounts.py:42` (`subtotal > 10000` mutated to `>=`). Boundary value analysis at `subtotal = 10000`: the original must NOT qualify (`>` is strict), so the strengthening test `tests/pricing/test_discounts.py::test_no_discount_at_exact_threshold` asserts `qualifies(10000) is False` — the mutant (`>=`) fails it, the original passes. If the strengthened test instead exposes a real defect in `qualifies`, I'll surface that as a separate fix decision."*
 
 ### Bad (batch + premature claim)
 

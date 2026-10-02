@@ -785,6 +785,20 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             "route_announcement",
         ),
         ("1. [DONE] Read the user\u2018s intent", "checklist_status"),
+        # A qualified label (before or after the label word) is self-narration
+        # even when its catalogue value runs on into prose (#735).
+        ("**Approach restated:** Regression-first for the payments change.", "taxonomy_label"),
+        ("Approach re-stated: REGRESSION-FIRST", "taxonomy_label"),
+        ("- Chosen approach: `tdd-scaffold`, starting with the boundary.", "taxonomy_label"),
+        ("Selected approach: verify-existing since the suite covers it.", "taxonomy_label"),
+        (
+            "Classification identified: Infrastructure_Change for the load balancer.",
+            "taxonomy_label",
+        ),
+        # An underscore-emphasis-wrapped value still leaks (#735).
+        ("> **Chosen approach:** _regression-first_ for the payments change.", "taxonomy_label"),
+        ("Approach restated: _regression-first_", "taxonomy_label"),
+        ("Chosen approach: __regression-first__ for the payments change.", "taxonomy_label"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -840,6 +854,16 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "Here is a hands-on intro to sumo-qa.",
         "Data classification: n/a here",
         "### Approach:\nregression-first work is not needed; nothing is broken.",
+        # Near-misses for the qualified label (#735): catalogue words in prose,
+        # a qualifier not glued to the colon, a value that is not a whole name.
+        "We take a regression-first approach here.",
+        "The approach restated in plain words: pin the payments path first.",
+        "Approach chosen with the team: regression-first thinking does not fit yet.",
+        "Chosen approach: pin the regression-first cases before refactoring.",
+        "Approach restated: regression-firstish spikes are not a catalogue entry.",
+        "Chosen approach: regression-first_ish spikes are not a catalogue entry.",
+        "Chosen approach: regression-first__ish spikes are not a catalogue entry.",
+        "Chosen approach: regression-first_-ish spikes are not a catalogue entry.",
     ],
 )
 def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:

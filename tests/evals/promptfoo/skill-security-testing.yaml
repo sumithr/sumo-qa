@@ -18,7 +18,11 @@ defaultTest:
     techniques: file://../../../knowledge/techniques.md
   assert:
     - type: javascript
-      value: '/^[\s>*_"'']{0,8}focusing the security test evidence/i.test(output)'
+      # No catalogue approach/classification label reaches the user (#735).
+      # A hand-off may name the next skill, so route_announcement is not checked.
+      value: file://asserts/no-routing-leak.js
+      config:
+        skip: [route_announcement]
       threshold: 1
     - type: llm-rubric
       value: |
@@ -150,6 +154,12 @@ prompts:
 
 tests:
   - description: SEED - explicit password-reset security request chooses native token-lifecycle tests first
+    assert:
+      - &brief
+        type: javascript
+        # Checklist 7: an anchored request returns the Security QA Brief, every
+        # field named.
+        value: '[/grounded risk/i, /source anchor/i, /evidence choice/i, /first action/i, /residual risk/i].every((f) => f.test(output))'
     vars:
       user_prompt: "Security-test the new password-reset flow."
       expected_shape: >-
@@ -175,6 +185,8 @@ tests:
         - No scanner, running app URL, credentials, or live target scope is provided.
 
   - description: SEED - routed endpoint ownership gap stays native before tooling
+    assert:
+      - *brief
     vars:
       user_prompt: "A normal review found a material security gap and routed it here: new document raw endpoint lacks an owner check."
       expected_shape: >-
@@ -199,6 +211,8 @@ tests:
         - Existing tests cover owner success only; no non-owner negative-path test.
 
   - description: SEED - dependency/config surface may need external discovery after native checks
+    assert:
+      - *brief
     vars:
       user_prompt: "Security-test this dependency and config change."
       expected_shape: >-
@@ -226,6 +240,14 @@ tests:
         - Network and package-install permission are not granted in this turn.
 
   - description: SEED - low-evidence prompt asks one scope question instead of fabricating risk
+    assert:
+      - type: javascript
+        # Checklist 1, the deterministic part: a scope question and no brief
+        # (none of the brief's field labels, plain or bold). "Source anchor"
+        # is not among them: a no-anchor reply names the missing anchor. One
+        # question, the no-anchor note and no hypothetical risks are graded by
+        # the judge.
+        value: '/\?/.test(output) && !/\b(?:grounded risk|evidence choice|first action|residual risk)(?:\*\*|__)?\s*:/i.test(output)'
     vars:
       user_prompt: "Do security testing on the app."
       expected_shape: >-
@@ -244,6 +266,8 @@ tests:
         or user-stated security scope were provided.
 
   - description: SEED - explicit checklist/tool-list request is reframed to grounded evidence
+    assert:
+      - *brief
     vars:
       user_prompt: "Give me the full security checklist and best scanner list for this new webhook signature verifier."
       expected_shape: >-

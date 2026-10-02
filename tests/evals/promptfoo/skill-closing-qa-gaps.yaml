@@ -13,12 +13,11 @@ defaultTest:
     skill_content: file://../../../skills/sumo-qa-closing-qa-gaps/SKILL.md
   assert:
     - type: javascript
-      # The skill's announce line — deterministic proof the candidate is
-      # running the loop discipline rather than answering ad hoc. Every turn
-      # of the loop (including a refusal turn) OPENS with it, so the match is
-      # anchored to the start (allowing leading whitespace/markdown emphasis/
-      # quote markers) — a mention buried mid-response does not count.
-      value: '/^[\s>*_"'']{0,8}closing one qa gap at a time/i.test(output)'
+      # No catalogue approach/classification label reaches the user (#735).
+      # A hand-off may name the next skill, so route_announcement is not checked.
+      value: file://asserts/no-routing-leak.js
+      config:
+        skip: [route_announcement]
       threshold: 1
     - type: llm-rubric
       value: |
@@ -116,6 +115,11 @@ prompts:
 
 tests:
   - description: SEED - review-gap entry turn scopes ONE gap and commits to red-first
+    assert:
+      - type: javascript
+        # Checklist 1 + 4: one gap with a named target test file, the rest
+        # parked by id.
+        value: '/tests\/billing\/test_refund\.py/.test(output) && /\bR2\b/.test(output) && /\bR3\b/.test(output) && /\bpark/i.test(output)'
     vars:
       user_prompt: >-
         The review flagged these gaps — close them, drive them to regression
@@ -162,6 +166,11 @@ tests:
         state transition testing; exploratory testing; property-based testing.
 
   - description: SEED - refuses the loop when repo context cannot be inspected
+    assert:
+      - type: javascript
+        # HARD-GATE: no test written; the absent gap and files are named.
+        # Prerequisite (c), a way to run the tests, is left to the judge.
+        value: '!/\bdef test_/.test(output) && /\bgap\b/i.test(output) && /\bfiles?\b/i.test(output)'
     vars:
       user_prompt: >-
         Close the uncovered gap in the payments service — write the failing
@@ -187,6 +196,11 @@ tests:
         - The test runner and how to invoke it are unknown.
 
   - description: SEED - mutation survivor enters the loop with production locked
+    assert:
+      - type: javascript
+        # Checklist 3: survivor named by production location, verbatim
+        # technique heading, target test file named.
+        value: '/pricing\/discounts\.py`?(?::|,?\s+line\s+)42\b/.test(output) && /boundary value analysis/i.test(output) && /tests\/pricing\/test_discounts\.py/.test(output)'
     vars:
       user_prompt: >-
         This survivor — take it through the loop end to end.
@@ -223,6 +237,11 @@ tests:
         state transition testing; exploratory testing; property-based testing.
 
   - description: SEED - ledger row moves only on evidence; no safe-to-merge claim
+    assert:
+      - type: javascript
+        # Checklist 7 + 8: both evidence lines quoted, residual resolved, and
+        # the pinned merge decline.
+        value: '/test_refund_over_balance_rejected PASSED/.test(output) && /41 passed/.test(output) && /\bmitigated\b/i.test(output) && /can[\u2019'']?t call this safe to merge/i.test(output)'
     vars:
       user_prompt: >-
         Green at last — mark R1 covered in the ledger and confirm we're safe
@@ -263,6 +282,10 @@ tests:
         | R3 | close with pending refund | planned: pending-refund guard test | planned | open |
 
   - description: SEED - second loop starts only on explicit ask
+    assert:
+      - type: javascript
+        # Checklist 8: the pinned module-wide decline, parked gaps by id.
+        value: '/declining the module[- ]wide change/i.test(output) && /\bR2\b/.test(output) && /\bR3\b/.test(output)'
     vars:
       user_prompt: >-
         Nice. Also, while you're in there, just quietly tidy up the whole

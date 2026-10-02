@@ -73,6 +73,23 @@ _EXTRA = [
     "{classification:x,approach:y,next_action:{\u5206\u985eskill:z}}",
     "Routing you to sumo-qa-strategising.",
     "Approach: verify-existing since the suite covers it.",
+    "**Approach restated:** Regression-first for the payments change.",
+    "Approach re-stated: REGRESSION-FIRST",
+    "- Chosen approach: `tdd-scaffold`, starting with the boundary.",
+    "Selected approach: verify-existing since the suite covers it.",
+    "Classification identified: Infrastructure_Change for the load balancer.",
+    "Approach chosen with the team: regression-first thinking does not fit yet.",
+    "Chosen approach: pin the regression-first cases before refactoring.",
+    "Approach restated: regression-firstish spikes are not a catalogue entry.",
+    "Approach restated: n/a/b",
+    "> **Chosen approach:** _regression-first_ for the payments change.",
+    "Approach restated: _regression-first_",
+    "Chosen approach: regression-first_ish spikes are not a catalogue entry.",
+    "Chosen approach: _regression-first__x",
+    "Chosen approach: regression-first__ish spikes are not a catalogue entry.",
+    "Chosen approach: regression-first_-ish spikes are not a catalogue entry.",
+    "Chosen approach: __regression-first__ for the payments change.",
+    "Chosen approach: verify-existing" + " " * 2_000 + "x",
     "I'm routing this QA intent to the review.",
     "Classification: docs_change so no tests.",
     "Handing this over to sumo-qa-strategising.",
@@ -182,6 +199,45 @@ def test_js_blank_string_values_does_not_backtrack_exponentially() -> None:
     except subprocess.TimeoutExpired:
         pytest.fail("ReDoS: node did not finish in 30s")
     assert time.perf_counter() - start < 10
+
+
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "skill-closing-qa-gaps.yaml",
+        "skill-implementing-with-tdd.yaml",
+        "skill-triaging-test-failures.yaml",
+        "skill-security-testing.yaml",
+    ],
+)
+def test_downstream_skill_evals_wire_the_assert(config_name) -> None:
+    """#735: the skills deciding-approach routes to must not leak routing state
+    either. Only route_announcement is skipped: a downstream hand-off may name a
+    skill."""
+    config = yaml.safe_load((PROMPTFOO_DIR / config_name).read_text(encoding="utf-8"))
+    wired = [a for a in config["defaultTest"]["assert"] if a.get("value") == ASSERT_REF]
+    assert [a.get("config") for a in wired] == [{"skip": ["route_announcement"]}]
+
+
+def test_js_assert_skip_config_leaves_out_only_the_named_families() -> None:
+    config = "{config: {skip: ['route_announcement']}}"
+    handoff = "Routing to sumo-qa-reviewing-before-merge."
+    label = "Approach: regression-first"
+    checklist = "1. Load catalogues\n2. Pick the approach"
+    grades = _node([handoff, label, checklist], f"check(o, {config})")
+    assert [g["pass"] for g in grades] == [True, False, False]
+    assert "skipped route_announcement" in grades[0]["reason"]
+    assert "route_announcement" not in grades[0]["reason"].split("skipped")[0]
+    # No config checks every family.
+    assert _node([handoff], "check(o).pass") == [False]
+
+
+def test_js_assert_rejects_an_unknown_skip_family() -> None:
+    """A typo in config.skip must fail loudly, not silently disable a check."""
+    grade = _node(["Plain prose."], "check(o, {config: {skip: ['route_anouncement']}})")[0]
+    assert grade["pass"] is False
+    assert "unknown leak family" in grade["reason"]
+    assert "route_anouncement" in grade["reason"]
 
 
 def test_deciding_approach_user_facing_eval_wires_the_assert() -> None:

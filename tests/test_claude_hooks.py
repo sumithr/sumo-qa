@@ -452,6 +452,30 @@ class TestScaffoldScriptSlugValidation:
         assert data["providers"] == ["file://providers/claude-candidate.yaml"]
         assert data["defaultTest"]["options"]["provider"] == "file://providers/claude-judge.yaml"
 
+    def test_scaffolded_skill_has_no_announce_preamble(self, tmp_path: Path) -> None:
+        """#735: a scripted opening line reaches the user verbatim, so the
+        template must not seed one into every new skill."""
+        repo = self._make_tmp_repo(tmp_path)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.SCAFFOLD),
+                "--name",
+                "widget-probe",
+                "--description",
+                "test",
+                "--approach-tag",
+                "widget-probe",
+                "--repo-root",
+                str(repo),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        (skill_md,) = (repo / "skills").glob("*/SKILL.md")
+        assert "announce at start" not in skill_md.read_text(encoding="utf-8").lower()
+
     def test_rejects_name_with_path_separator(self, tmp_path: Path) -> None:
         """A name containing `/` or `..` must be rejected before any file
         is written. Otherwise an attacker (or accidentally-malformed input)

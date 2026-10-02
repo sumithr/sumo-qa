@@ -32,12 +32,11 @@ defaultTest:
     skill_content: file://../../../skills/sumo-qa-triaging-test-failures/SKILL.md
   assert:
     - type: javascript
-      # The skill's announce line — deterministic proof the candidate is running
-      # the triage discipline rather than answering ad hoc. Every turn (including
-      # a refusal turn) OPENS with it, so the match is anchored to the start
-      # (allowing leading whitespace / markdown emphasis / quote markers) — a
-      # mention buried mid-response does not count.
-      value: '/^[\s>*_"'']{0,8}triaging this failure before any fix/i.test(output)'
+      # No catalogue approach/classification label reaches the user (#735).
+      # A hand-off may name the next skill, so route_announcement is not checked.
+      value: file://asserts/no-routing-leak.js
+      config:
+        skip: [route_announcement]
       threshold: 1
     - type: llm-rubric
       value: |
@@ -134,6 +133,13 @@ prompts:
 
 tests:
   - description: SEED - flaky order dependence — isolate before blaming the product
+    assert:
+      - &experiment
+        type: javascript
+        # Triage discipline (Checklist step 4): the isolation step is a stated
+        # `Experiment:` with `If <result> ⇒ <cause>` outcomes, or `Recorded:`
+        # when the supplied output already holds this check's result.
+        value: '/\bexperiment[*_`]*\s*:/i.test(output) && (/\bif\b[^\n]*?(?:⇒|=>|→)/i.test(output) || /\brecorded[*_`]*\s*:/i.test(output))'
     vars:
       user_prompt: >-
         `test_user_cache_hit` keeps failing in the full run but passes when I
@@ -173,6 +179,8 @@ tests:
         - Tests run locally via `pytest tests/users/ -q`.
 
   - description: SEED - fixture/data failure — fix stays out of production
+    assert:
+      - *experiment
     vars:
       user_prompt: >-
         `test_convert_to_gbp` is throwing a KeyError. Fix it.
@@ -221,6 +229,8 @@ tests:
         - Tests run locally via `pytest tests/fx/ -q`.
 
   - description: SEED - real product regression — confirmed gap, hand off to a fix loop
+    assert:
+      - *experiment
     vars:
       user_prompt: >-
         `test_apply_discount` started failing after my last commit. What's going
@@ -262,6 +272,11 @@ tests:
         - Tests run locally via `pytest tests/pricing/ -q`.
 
   - description: SEED - signal too thin to classify — HARD-GATE refusal
+    assert:
+      - type: javascript
+        # HARD-GATE: no experiment on a signal too thin to classify; the reply
+        # names the missing assertion text and traceback / output lines.
+        value: '!/\bexperiment[*_`]*\s*:/i.test(output) && /assertion|error message/i.test(output) && /traceback|output lines?/i.test(output)'
     vars:
       user_prompt: >-
         The `checkout` test is flaky. Just make it pass.
@@ -286,6 +301,8 @@ tests:
         - It is unknown whether the failure is deterministic or intermittent.
 
   - description: SEED - rerun-to-green pressure — a test bug is not fixed in production
+    assert:
+      - *experiment
     vars:
       user_prompt: >-
         Look, it's gone red again. Just retry it a couple of times and if it
@@ -335,6 +352,8 @@ tests:
         - Tests run locally via `pytest tests/fx/ -q`.
 
   - description: SEED - passes locally, fails in CI — environment/dependency, align the env not the code
+    assert:
+      - *experiment
     vars:
       user_prompt: >-
         `test_invoice_total` passes on my machine but fails in CI. Make CI go

@@ -170,3 +170,16 @@ def test_tdd_skill_names_the_hermetic_subprocess_technique():
         "explicitly constructed env",
     ]:
         assert phrase in text, f"TDD SKILL.md lacks {phrase!r}"
+
+
+ANNOUNCE_INSTRUCTION_RE = re.compile(r"\bannounce at (?:the )?start\b", re.IGNORECASE)
+
+
+@pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
+def test_skill_does_not_instruct_an_announce_preamble(skill_path):
+    """#735: a scripted opening line ("Walking the red→green cycle.") is
+    self-narration that reaches the user verbatim; replies open on the work."""
+    text = skill_path.read_text(encoding="utf-8")
+    assert not ANNOUNCE_INSTRUCTION_RE.search(text), (
+        f"{skill_path.relative_to(SKILLS_DIR.parent)} instructs an announce preamble"
+    )

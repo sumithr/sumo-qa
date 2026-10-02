@@ -120,15 +120,13 @@ prompts:
 
     This is the test-data routing turn. Produce EXACTLY this response format, line by line:
 
-    Line 1 (route announcement): `Finding test data — validated fresh.`
-
-    Line 2 (find call):
+    Line 1 (find call):
     **Tool:** `sumo_qa_find_test_data`
     A fenced JSON block representing the `sumo_qa_find_test_data` call with the criteria object (environment, domain, criteria with named fields like customer_tier, promo_code_applied, order_status, line_item_totals_stable).
 
-    Line 3 (data shape): One short paragraph describing the required record shape in plain English (NOT a JSON spec).
+    Line 2 (data shape): One short paragraph describing the required record shape in plain English (NOT a JSON spec).
 
-    Line 4 (validation gate, MANDATORY):
+    Line 3 (validation gate, MANDATORY):
     **Tool:** `sumo_qa_validate_test_data`
     A second fenced JSON block representing the `sumo_qa_validate_test_data` call that MUST be invoked IN THE SAME TURN against the record returned by find. Format: `{"order_id": "<from find result>", "environment": "staging"}` — even though the actual ID isn't known yet, indicate the validate call's shape.
     Any found record must be validated via sumo_qa_validate_test_data before being trusted.

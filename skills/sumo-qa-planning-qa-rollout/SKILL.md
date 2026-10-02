@@ -7,8 +7,6 @@ description: Use after sumo-qa-deciding-approach routes here, when you have a ch
 
 Help the user turn an amorphous QA ask ("we need test coverage for the new refund flow", "Phase 1 of the strategy") into a written plan a fresh agent or teammate could pick up and execute task-by-task — without you in the room.
 
-**Announce at start:** *"Turning this into a dispatchable plan."*
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.

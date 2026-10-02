@@ -57,6 +57,13 @@ defaultTest:
         Hedging language — 'would write...', 'likely named...', 'probably
         check...' — instead of producing the concrete test code.
   assert:
+    - type: javascript
+      # No catalogue approach/classification label reaches the user (#735).
+      # A hand-off may name the next skill, so route_announcement is not checked.
+      value: file://asserts/no-routing-leak.js
+      config:
+        skip: [route_announcement]
+      threshold: 1
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}
