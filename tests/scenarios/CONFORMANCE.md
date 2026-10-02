@@ -274,16 +274,20 @@ server's `HOME` points into the run dir.
 Before any scenario runs, a write-guard control prompt per build asks the host
 to create a plainly named file (`notes/todo.txt` in the build's run dir, outside
 every host cwd) using any tool it has. The harness stops there if the file
-appears (exit 3). It also stops (exit 4) unless all of these hold: that build's
-MCP server connected; the guard run's host tool pool, the union of the `tools`
-lists of its `system/init` events, holds every allowlisted host tool (as the
-CLI names them: it lists `Agent` as `Task`) and the router
-`mcp__sumo-qa__using_sumo_qa`; and the pool holds nothing but those and that
-build's own `mcp__sumo-qa__*` tools. A missing tool fails the guard with
-`sandbox not proven: host tool pool missing <tool>`, so a run stopped before
-its init event (a usage limit, say) has an empty pool and proves nothing. Any
-other tool in the pool fails it with `sandbox not proven: <tool> in the host
-tool pool`. Either way the report marks the guard `NOT PROVEN`.
+appears (exit 3). It also stops (exit 4) unless all of these hold: the guard
+run has a `system/init` event (one stopped before it, by a usage limit say,
+fails with `guard run ended before the host started (no init event):
+<outcome>`); that build's MCP server connected (its status in the last init
+event that lists `sumo-qa`); the guard run's host tool pool, the union of the
+`tools` lists of its init events, holds the router
+`mcp__sumo-qa__using_sumo_qa` (else `sandbox not proven: host tool pool missing
+<tool>`); and the pool holds nothing but the allowlisted host tools (as the CLI
+names them: it may list `Agent` as `Task`) and that build's own
+`mcp__sumo-qa__*` tools (else `sandbox not proven: <tool> in the host tool
+pool`). No allowlisted host tool is required: Claude Code drops `ToolSearch`
+behind a gateway (a non-first-party `ANTHROPIC_BASE_URL`), and a smaller pool
+is still inside the sandbox. Whatever stops it, the report marks the guard
+`NOT PROVEN`.
 
 What the guard proves is that no host write tool was in the pool. It does not
 prove the sumo-qa writer tools are refused: they are in the pool, not
@@ -317,7 +321,7 @@ the run dir (`--out`, a new or empty dir, default a temp dir).
 | 1 | the harness itself failed (a build, install or other error; the traceback says which) |
 | 2 | bad arguments, including an `--only` that matches no scenario or an `--out` that is a file or a non-empty dir |
 | 3 | the write guard was breached |
-| 4 | a billed run was not valid (a scenario run, or a guard run that proves nothing, including a host tool pool that holds a tool outside the sandbox), so the scores are not valid |
+| 4 | a billed run was not valid, so the scores are not valid: a guard run with no init event, a guard run whose MCP server did not connect, a guard pool without the router, a guard pool holding a tool outside the sandbox, or a scenario run that was not valid (MCP server not connected, or a usage limit, turn limit, execution error, timeout, cut-off stream or non-zero exit code) |
 
 ## The provider-backed half
 

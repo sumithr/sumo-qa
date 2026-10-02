@@ -23,11 +23,11 @@ forbid calling one) but a call to one is refused. The MCP server's HOME points
 into the run dir, so sumo-qa's own writes stay there too. Before any scenario
 runs, a write-guard control prompt per build asks the host to create a file
 outside its scratch dir with any tool it has. The run stops (exit 3) if the
-file appears. It also stops (exit 4) unless that build's MCP server connected
-and the guard's host tool pool (every init event's, as a union) holds every
-allowlisted host tool and the router (see `missing_tools`) and nothing but
-those and that build's sumo-qa tools (see `unexpected_tools`). That proves no
-host write tool was in the pool. It does not prove a sumo-qa writer refused:
+file appears. It also stops (exit 4) if the guard run has no init event, unless
+that build's MCP server connected and the guard's host tool pool (every init
+event's, as a union) holds the router (see `missing_tools`) and nothing but the
+allowlisted host tools and that build's sumo-qa tools (see `unexpected_tools`).
+That proves no host write tool was in the pool. It does not prove a sumo-qa writer refused:
 those are in the pool, unapproved, and only the permission mode refuses them.
 The guard's own tool calls are reported, not judged.
 """
@@ -84,9 +84,11 @@ DISALLOWED_TOOLS = ("Bash", "Write", "Edit", "NotebookEdit")
 # external skill is never safe to auto-approve in an unattended run.
 ALWAYS_REFUSED = frozenset({"sumo_qa_install_external_skill", "sumo_qa_execute_external_skill"})
 ROUTER = "using_sumo_qa"
-# What the guard's pool must hold: the allowlist as the CLI names it (Agent as
-# Task) and the router. An empty pool (a run stopped before init) proves nothing.
-REQUIRED_POOL = ("Glob", "Grep", "Read", "Task", "ToolSearch", f"mcp__{SERVER}__{ROUTER}")
+# What the guard's pool must hold: the router, so an empty pool (a run stopped
+# before init) proves nothing. No host tool is required: the CLI drops
+# ToolSearch behind a gateway (a non-first-party ANTHROPIC_BASE_URL), and a
+# pool smaller than the allowlist is still inside the sandbox.
+REQUIRED_POOL = (f"mcp__{SERVER}__{ROUTER}",)
 WRITE_GUARD_ID = "write-guard"
 # Relative to a build's dir, so outside every host cwd. Named plainly, as an
 # ordinary task, not a sandbox probe.
@@ -180,7 +182,10 @@ class HostRun:
     transcript: Transcript
     host_version: str = "unknown"
     model: str = "unknown"
+    # sumo-qa's status in the last init event that lists it; "absent" if none.
     mcp_status: str = "absent"
+    # Whether the stream had an init event at all (the host started).
+    started: bool = False
     # The result event's subtype, or why the run has none worth scoring.
     outcome: str = "no result"
     # The CLI's exit code; None until one is observed (a timeout never has one).
@@ -238,11 +243,13 @@ def parse_stream(text: str, scenario_id: str) -> HostRun:
             continue
         kind = event.get("type")
         if kind == "system" and event.get("subtype") == "init":
+            run.started = True
             run.host_version = event.get("claude_code_version", "unknown")
             run.model = event.get("model", "unknown")
             run.tool_pool += tuple(t for t in event.get("tools", ()) if t not in run.tool_pool)
             servers = {s.get("name"): s.get("status") for s in event.get("mcp_servers", [])}
-            run.mcp_status = servers.get(SERVER) or "absent"
+            if SERVER in servers:
+                run.mcp_status = servers[SERVER] or "absent"
         elif kind == "assistant":
             for block in event.get("message", {}).get("content", []):
                 if block.get("type") == "tool_use":
@@ -378,10 +385,8 @@ def child_env(parent: Mapping[str, str]) -> dict[str, str]:
 
 
 def missing_tools(run: HostRun) -> list[str]:
-    """REQUIRED_POOL tools absent from a run's host tool pool. The CLI may name
-    Agent either way, so Agent stands in for Task."""
-    pool = set(run.tool_pool) | ({"Task"} if "Agent" in run.tool_pool else set())
-    return [t for t in REQUIRED_POOL if t not in pool]
+    """REQUIRED_POOL tools absent from a run's host tool pool."""
+    return [t for t in REQUIRED_POOL if t not in run.tool_pool]
 
 
 def unexpected_tools(run: HostRun, tools: list[dict]) -> list[str]:
@@ -503,8 +508,10 @@ def _list_tools(command: list[str], proc: subprocess.Popen, errors, timeout: flo
         start = max(0, errors.seek(0, os.SEEK_END) - STDERR_TAIL_BYTES)
         errors.seek(start)
         err_lines = errors.read().decode("utf-8", errors="replace").splitlines()
-        # A tail that starts mid-file starts mid-line: drop that partial line.
-        err_tail = [line[:200] for line in err_lines[1 if start else 0 :][-10:]]
+        # A tail that starts mid-file starts mid-line: mark that partial line.
+        if start and err_lines:
+            err_lines[0] = "..." + err_lines[0]
+        err_tail = [line[:200] for line in err_lines[-10:]]
         return RuntimeError(
             f"{command[0]} {cause}"
             + (f"; last output: {tail!r}" if tail else "")
@@ -660,6 +667,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         if breached:
             return finish(EXIT_BREACH, "write guard breached; no scenario was run")
+        if not guard.started:
+            return finish(
+                EXIT_INVALID,
+                f"guard run ended before the host started (no init event): {guard.outcome}; "
+                "no scenario was run",
+            )
         if not connected:
             return finish(
                 EXIT_INVALID,

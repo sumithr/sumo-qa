@@ -205,12 +205,47 @@ def test_the_pool_is_the_union_of_every_init_event():
     assert harness.unexpected_tools(run, _guard_build_tools()) == ["Bash"]
 
 
-def test_agent_named_as_itself_stands_in_for_task():
+def test_agent_named_as_itself_is_inside_the_sandbox():
     full = _run("write-guard", harness.WRITE_GUARD_ID).tool_pool
     pool = ["Agent" if t == "Task" else t for t in full]
     run = harness.parse_stream(_with_pools(pool), harness.WRITE_GUARD_ID)
 
     assert harness.missing_tools(run) == []
+    assert harness.unexpected_tools(run, _guard_build_tools()) == []
+
+
+def _with_statuses(*statuses: str | None) -> str:
+    """The real guard capture with its init event repeated once per status,
+    each copy listing sumo-qa with that status (None: not listed). Edited: no
+    real capture has a second init event."""
+    first, *rest = (FIXTURES / "write-guard.jsonl").read_text(encoding="utf-8").splitlines()
+    init = json.loads(first)
+    others = [s for s in init["mcp_servers"] if s.get("name") != harness.SERVER]
+    inits = [
+        {
+            **init,
+            "mcp_servers": others
+            + ([] if st is None else [{"name": harness.SERVER, "status": st}]),
+        }
+        for st in statuses
+    ]
+    return "\n".join([*(json.dumps(i) for i in inits), *rest])
+
+
+@pytest.mark.parametrize(
+    ("statuses", "expected"),
+    [
+        (("connected", None), "connected"),
+        (("connected", "failed"), "failed"),
+        (("failed", "connected"), "connected"),
+        ((None,), "absent"),
+    ],
+)
+def test_the_mcp_status_is_the_last_init_event_that_lists_sumo_qa(statuses, expected):
+    run = harness.parse_stream(_with_statuses(*statuses), harness.WRITE_GUARD_ID)
+
+    assert run.started
+    assert run.mcp_status == expected
 
 
 def test_a_build_report_names_host_model_calls_and_the_validator_table():
@@ -589,6 +624,15 @@ def test_a_failure_reads_only_the_tail_of_a_long_stderr(tmp_path):
     assert "noise line 04989" not in message
 
 
+def test_a_stderr_line_longer_than_the_tail_is_kept_truncated(tmp_path):
+    server = "import sys; sys.stdin.readline(); sys.stderr.write('x' * 20000 + '\\n')"
+
+    with pytest.raises(RuntimeError) as exc:
+        harness.server_tools([sys.executable, "-c", server], tmp_path)
+
+    assert str(exc.value).endswith("; last stderr: ['..." + "x" * 197 + "']")
+
+
 def test_a_crash_names_the_traceback_the_server_wrote_to_stderr(tmp_path):
     # A real uncaught exception: Python writes its traceback to stderr and exits 1.
     server = "import sys; sys.stdin.readline(); import sumo_qa_no_such_module"
@@ -792,13 +836,10 @@ def test_a_guard_whose_mcp_did_not_connect_stops_before_any_scenario(tmp_path, m
 def test_a_guard_stopped_before_its_init_event_stops_before_any_scenario(
     tmp_path, monkeypatch, capsys
 ):
-    # Edited: a usage limit before init leaves no init event, so no pool. The
-    # MCP status is set to connected by hand (without an init event it reads
-    # absent), so only the pool check can stop it.
+    # Edited: a usage limit before init leaves no init event, so no pool.
     text = _with_result("write-guard", result="Claude AI usage limit reached|1789400000")
     guard = harness.parse_stream("\n".join(text.splitlines()[1:]), harness.WRITE_GUARD_ID)
-    assert (guard.tool_pool, guard.outcome) == ((), "usage limit")
-    guard.mcp_status = "connected"
+    assert (guard.started, guard.tool_pool, guard.outcome) == (False, (), "usage limit")
     guard.returncode = 1
     host = _Host(monkeypatch, {harness.WRITE_GUARD_ID: guard})
 
@@ -808,11 +849,13 @@ def test_a_guard_stopped_before_its_init_event_stops_before_any_scenario(
     assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
     captured = capsys.readouterr()
     assert "NOT PROVEN, no file" in captured.out
-    assert "sandbox not proven: host tool pool missing Glob, Grep, Read, Task" in captured.err
+    assert (
+        "guard run ended before the host started (no init event): usage limit; no scenario was run"
+    ) in captured.err
 
 
-@pytest.mark.parametrize("required", ["Read", "mcp__sumo-qa__using_sumo_qa"])
-def test_a_guard_whose_pool_lacks_a_required_tool_stops(tmp_path, monkeypatch, capsys, required):
+def test_a_guard_whose_pool_lacks_the_router_stops(tmp_path, monkeypatch, capsys):
+    required = "mcp__sumo-qa__using_sumo_qa"
     full = _guard().tool_pool
     guard = harness.parse_stream(
         _with_pools([t for t in full if t != required]), harness.WRITE_GUARD_ID
@@ -825,6 +868,24 @@ def test_a_guard_whose_pool_lacks_a_required_tool_stops(tmp_path, monkeypatch, c
     assert code == harness.EXIT_INVALID
     assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
     assert f"sandbox not proven: host tool pool missing {required};" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("dropped", ["ToolSearch", "Read"])
+def test_a_guard_whose_pool_lacks_a_host_tool_still_passes(tmp_path, monkeypatch, dropped):
+    # Edited: the CLI drops ToolSearch behind a gateway (a non-first-party
+    # ANTHROPIC_BASE_URL); a smaller pool is still inside the sandbox.
+    guard = harness.parse_stream(
+        _with_pools([t for t in _guard().tool_pool if t != dropped]), harness.WRITE_GUARD_ID
+    )
+    guard.returncode = 0
+    host = _Host(
+        monkeypatch, {harness.WRITE_GUARD_ID: guard, DC03: _run("main-DC03-no-tool-calls", DC03)}
+    )
+
+    code = harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
+
+    assert code == 0
+    assert host.log[-1] == f"run {DC03}"
 
 
 @pytest.mark.parametrize("is_error", [True, False])
