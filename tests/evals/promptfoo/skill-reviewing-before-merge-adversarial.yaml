@@ -743,9 +743,8 @@ tests:
         in an existing linked worktree gets an absolute `GIT_DIR`, which
         redirects the `checkout` and `rev-parse` (`-C dest` does not override
         an exported `GIT_DIR`) to the hook's own repository: the checkout
-        runs against the caller's repository instead of the snapshot's
-        (moving the caller's HEAD and re-firing its hook when the ref resolves
-        there). Anchors to `src/toolkit/snapshot.py` `_git` (lines
+        runs against the caller's repository instead of the snapshot's.
+        Anchors to `src/toolkit/snapshot.py` `_git` (lines
         19-26). Requires an explicitly constructed subprocess environment and a
         test that runs with `GIT_DIR` / `GIT_INDEX_FILE` set to a throwaway
         value; notes the green tests ran with no git variables set, so they
@@ -771,8 +770,8 @@ tests:
            3 import subprocess
            4 from pathlib import Path
            5
-        +  6 # A ref is a commit-ish that resolves in the fresh clone (a SHA, tag, HEAD or
-        +  7 # HEAD~N), never an option or a `..` range: it starts with a letter or digit.
+        +  6 # A ref is a commit-ish that resolves in the fresh clone (e.g. a SHA, tag, HEAD
+        +  7 # or HEAD~N), never an option or a `..` range: it starts with a letter or digit.
         +  8 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/~^-]*")
         +  9
           10
