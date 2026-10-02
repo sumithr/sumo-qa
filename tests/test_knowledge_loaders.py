@@ -778,3 +778,18 @@ def test_load_rules_multi_filter_all_four_in_one_call(tmp_path, monkeypatch):
     assert result["test_change"] == {"must_consider": ["tautology"]}
     assert result["config_change"] == {"must_consider": ["env override"]}
     assert result["infrastructure_change"] == {"must_consider": ["env override"]}
+
+
+def test_split_classification_terms_strips_quotes_and_keeps_order():
+    from sumo_qa.knowledge_loaders import split_classification_terms
+
+    value = "`b_change`, 'a_change'; \"b_change\"  c_change"
+    assert split_classification_terms(value) == ["b_change", "a_change", "c_change"]
+    assert split_classification_terms(None) == []
+    assert split_classification_terms(" , ;") == []
+
+
+def test_split_classification_terms_strips_only_quote_chars():
+    from sumo_qa.knowledge_loaders import split_classification_terms
+
+    assert split_classification_terms("XaX,X") == ["XaX", "X"]

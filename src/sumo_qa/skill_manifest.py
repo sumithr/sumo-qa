@@ -32,6 +32,7 @@ from typing import Any
 
 from sumo_qa.knowledge_loaders import (
     list_catalogue_entries,
+    split_classification_terms,
     sumo_qa_load_rules,
     sumo_qa_load_standards,
 )
@@ -426,13 +427,13 @@ def load_skill_context(
         exceeds the per-response token cap (``token_cap`` > env var > default),
         an oversize pointer envelope (``oversize=True``, no ``content``) naming
         the manifest/section/module route is returned instead (#393).
-      * ``"bundle"``   — the skill's working context in ONE call (#512): the
-        body (unless ``include_body=False``), the ``modules`` named
-        (comma-separated ids), and for ``classification`` (one or more
-        canonical ids) its catalogue entries plus the filtered standards and
-        rules. See ``_bundle``.
+      * ``"bundle"``: the skill's working context in ONE call: the body
+        (unless ``include_body=False``), the ``modules`` named (comma-separated
+        ids), and for ``classification`` (one or more ids, case-insensitive)
+        its catalogue entries plus the filtered standards and rules. See
+        ``_bundle``.
 
-    The partial-load modes (``section``/``module``/``full``) each return a
+    The partial-load modes (``section``/``module``/``full``/``bundle``) each return a
     ``content_hash`` (sha256 of exactly the returned slice) and
     ``estimated_tokens``. Pass ``known_hash`` to ask "has this slice changed
     since hash X?": a match returns ``changed=False`` with the body omitted (the
@@ -472,7 +473,9 @@ def load_skill_context(
         )
 
     if mode == "bundle":
-        return _bundle(skill_name, record, classification, modules, include_body, token_cap)
+        return _bundle(
+            skill_name, record, classification, modules, include_body, token_cap, known_hash
+        )
 
     if mode == "full":
         cap = _response_token_cap(token_cap)
@@ -559,12 +562,53 @@ def _find_module(skill_name: str, record: dict[str, Any], module: str) -> dict[s
     return match
 
 
-def _split_ids(value: str | None) -> list[str]:
-    """Split a comma/semicolon/space separated id list, stripping backticks and
-    quotes and dropping duplicates, in the order given (the same separators the
-    catalogue loaders' ``classification`` filter accepts)."""
-    parts = (p.strip("`'\"") for p in re.split(r"[\s,;]+", value or ""))
-    return list(dict.fromkeys(p for p in parts if p))
+def _served(value: Any) -> str:
+    """The JSON text the MCP wrapper returns for *value* (``server.py`` serialises
+    every ``load_skill_context`` result this way)."""
+    return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def _resolve_classifications(requested: list[str]) -> dict[str, Any]:
+    """Resolve requested classification ids to ``{"ids": [...], "entries": {...}}``
+    or an error envelope.
+
+    An id is accepted when the classifications catalogue names it (matched by
+    id or heading, case-insensitively, as ``load_catalogue_entry`` matches) or
+    when the rules or standards loaders return content for it (an id such as
+    ``ui_only_change`` that only ``change_rules.yaml`` declares). ``entries``
+    holds the catalogue text for the ids the catalogue names."""
+    try:
+        catalogue = list_catalogue_entries("classifications")
+        ids: list[str] = []
+        entries: dict[str, str] = {}
+        unknown: list[str] = []
+        for term in requested:
+            needle = term.strip().lower()
+            entry = next(
+                (e for e in catalogue if e["id"] == needle or e["heading"].lower() == needle),
+                None,
+            )
+            if entry is not None:
+                entries[entry["id"]] = entry["text"]
+                ids.append(entry["id"])
+            elif _loaders_accept(needle):
+                ids.append(needle)
+            else:
+                unknown.append(term)
+    except OSError as exc:
+        return _error(f"classification context unreadable: {exc}")
+    if unknown:
+        return _error(
+            f"Unknown classification(s) {unknown}.",
+            {"available_classifications": sorted(e["id"] for e in catalogue)},
+        )
+    return {"ids": list(dict.fromkeys(ids)), "entries": entries}
+
+
+def _loaders_accept(classification: str) -> bool:
+    """True when the rules or standards loader returns content for the id."""
+    rules = sumo_qa_load_rules(classification=classification)
+    return rules.strip() != "{}" or bool(sumo_qa_load_standards(classification=classification))
 
 
 def _bundle(
@@ -574,49 +618,49 @@ def _bundle(
     modules: str | None,
     include_body: bool,
     token_cap: int | None,
+    known_hash: str | None,
 ) -> dict[str, Any]:
-    """mode='bundle': a routed skill's working context in one call (#512).
+    """mode='bundle': a routed skill's working context in one call.
 
     Every part is byte-identical to its separate loader (the full body, the
     module slice, ``load_catalogue_entry``, ``sumo_qa_load_standards`` and
     ``sumo_qa_load_rules`` with the same filter), so the bundle saves turns,
-    never content. An unknown classification or module returns an error
-    envelope rather than a silently empty part. A payload over the
-    per-response token cap returns its per-part sizes instead of the content,
-    so the host can drop a module or pass ``include_body=False``."""
-    classifications = _split_ids(classification)
-    try:
-        entries = {e["id"]: e["text"] for e in list_catalogue_entries("classifications")}
-    except OSError as exc:
-        return _error(f"classifications catalogue unreadable: {exc}")
-    unknown = [c for c in classifications if c not in entries]
-    if unknown:
-        return _error(
-            f"Unknown classification(s) {unknown}.",
-            {"available_classifications": sorted(entries)},
-        )
-    matches = [_find_module(skill_name, record, m) for m in _split_ids(modules)]
+    never content. An unknown classification or module, or an unreadable
+    catalogue, standards or rules source, returns an error envelope.
+
+    ``content_hash`` and ``estimated_tokens`` describe the served JSON of the
+    content fields, and ``known_hash`` works as for the other slices. A payload
+    over the per-response token cap returns its per-part sizes instead of the
+    content, so the host can drop a module or pass ``include_body=False``."""
+    matches = [_find_module(skill_name, record, m) for m in split_classification_terms(modules)]
     failed = next((m for m in matches if "error" in m), None)
     if failed is not None:
         return failed
 
-    payload: dict[str, Any] = {
-        "skill_name": skill_name,
-        "mode": "bundle",
-        "classification": classifications,
-    }
+    requested = split_classification_terms(classification)
+    resolved: dict[str, Any] = {"ids": [], "entries": {}}
+    if requested:
+        resolved = _resolve_classifications(requested)
+        if "error" in resolved:
+            return resolved
+    ids = resolved["ids"]
+
+    payload: dict[str, Any] = {"skill_name": skill_name, "mode": "bundle", "classification": ids}
     if include_body:
         payload["body"] = record["_full"]
     payload["modules"] = [
         {"id": m["id"], "path": m["path"], "content": m["_text"]} for m in matches
     ]
-    if classifications:
-        joined = ",".join(classifications)
-        payload["classifications"] = "".join(entries[c] for c in classifications)
-        payload["standards"] = sumo_qa_load_standards(classification=joined)
-        payload["rules"] = sumo_qa_load_rules(classification=joined)
+    if ids:
+        joined = ",".join(ids)
+        payload["classifications"] = "".join(resolved["entries"].get(c, "") for c in ids)
+        try:
+            payload["standards"] = sumo_qa_load_standards(classification=joined)
+            payload["rules"] = sumo_qa_load_rules(classification=joined)
+        except OSError as exc:
+            return _error(f"classification context unreadable: {exc}")
 
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    text = _served(payload)
     tokens = _approx_tokens(text)
     cap = _response_token_cap(token_cap)
     if tokens > cap:
@@ -627,16 +671,24 @@ def _bundle(
             "oversize": True,
             "estimated_tokens": tokens,
             "token_cap": cap,
-            "part_tokens": {
-                k: _approx_tokens(json.dumps(payload[k], ensure_ascii=False))
-                for k in parts
-                if k in payload
-            },
+            "part_tokens": {k: _approx_tokens(_served(payload[k])) for k in parts if k in payload},
             "error": (
                 f"bundle (~{tokens} est. tokens) exceeds the ~{cap}-token "
                 f"per-response cap; request fewer modules or pass include_body=False."
             ),
         }
-    payload["content_hash"] = _content_hash(text)
+    content_hash = _content_hash(text)
+    if known_hash is not None and known_hash == content_hash:
+        return {
+            "skill_name": skill_name,
+            "mode": "bundle",
+            "classification": ids,
+            "content_hash": content_hash,
+            "estimated_tokens": tokens,
+            "changed": False,
+        }
+    payload["content_hash"] = content_hash
     payload["estimated_tokens"] = tokens
+    if known_hash is not None:
+        payload["changed"] = True
     return payload

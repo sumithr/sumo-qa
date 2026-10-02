@@ -6,6 +6,6 @@ First hop: every QA-shaped request, including a development-framed one such as "
 
 An underspecified QA request still takes the first hop before you ask the user anything; `sumo_qa_deciding_approach`, or the skill it routes to, asks the one clarifying question it needs.
 
-`using_sumo_qa` is a sumo-qa MCP tool; where the host has a Skill tool, the `sumo-qa:using-sumo-qa` skill is the same router. It carries the full rules, so load it rather than answering QA questions from training-data knowledge.
+`using_sumo_qa` is a sumo-qa MCP tool; where the host has a Skill tool, the `sumo-qa:using-sumo-qa` skill is the same router. It carries the full rules, so load it rather than answering QA questions from training-data knowledge. If the `using_sumo_qa` tool is unavailable (the MCP server did not start), use the `using-sumo-qa` Skill, or read `skills/using-sumo-qa/SKILL.md` in the sumo-qa plugin directory.
 
 Not a QA-shaped request? Ignore this note.

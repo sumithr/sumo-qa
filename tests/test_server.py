@@ -325,7 +325,7 @@ def test_filtered_knowledge_loader_args_are_forwarded_via_server_call_tool() -> 
 
 
 def test_bundle_args_are_forwarded_via_server_call_tool() -> None:
-    """The MCP wrapper must pass the #512 bundle arguments through, so one
+    """The MCP wrapper must pass the bundle arguments through, so one
     call returns the modules and the classification's rules without the body."""
     import asyncio
     import json

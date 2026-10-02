@@ -1,8 +1,8 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Deterministic context-cost audit: what sumo-qa puts in a host's context.
 
-Measures, with the repository's canonical estimator (``(chars + 3) // 4``,
-the one ``skill_manifest`` and the token-budget tests use):
+Measures, with the repository's canonical estimator
+(``sumo_qa.skill_manifest._approx_tokens``, ``(chars + 3) // 4``):
 
 * **bootstrap**: the SessionStart ``additionalContext`` the real hook emits on
   a healthy Claude Code session (compact path), plus the full-router fallback
@@ -17,8 +17,7 @@ the one ``skill_manifest`` and the token-budget tests use):
   result on each later turn, so N results cost the sum of their prefixes).
 
 Budgets live in ``[tool.sumo-qa.context-budget]`` in pyproject.toml. A budget
-that is absent is report-only (the root-skill budget stays report-only until
-#798 enforces it). Exit 1 when any configured budget is exceeded.
+that is absent is report-only. Exit 1 when any configured budget is exceeded.
 
 Usage::
 
@@ -38,6 +37,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from sumo_qa.skill_manifest import _approx_tokens as approx_tokens
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - 3.10 only
@@ -50,10 +51,6 @@ ROUTER_CALLS = (
     ("sumo_qa_load_classifications", {}),
     ("sumo_qa_load_approaches", {}),
 )
-
-
-def approx_tokens(text: str) -> int:
-    return (len(text) + 3) // 4
 
 
 def resent_tokens(sizes: list[int]) -> int:

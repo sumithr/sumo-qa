@@ -1,5 +1,5 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
-"""Tests for `load_skill_context(mode="bundle")` (#512).
+"""Tests for `load_skill_context(mode="bundle")`.
 
 The bundle hands a routed skill its working context in ONE call: the body,
 the requested modules, the classification entries, and the standards and
@@ -97,12 +97,55 @@ def test_module_path_traversal_is_rejected():
     assert "traversal" in out["error"]
 
 
-def test_estimated_tokens_and_hash_describe_the_returned_payload():
+def test_estimated_tokens_and_hash_describe_the_served_payload():
     out = _bundle(classification="test_change", modules="test-only-diff")
     payload = {k: v for k, v in out.items() if k not in ("estimated_tokens", "content_hash")}
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
     assert out["estimated_tokens"] == sm._approx_tokens(text)
     assert out["content_hash"] == sm._content_hash(text)
+
+
+def test_known_hash_round_trip_reports_unchanged_without_content():
+    first = _bundle(classification="test_change", modules="test-only-diff")
+    again = _bundle(
+        classification="test_change", modules="test-only-diff", known_hash=first["content_hash"]
+    )
+    assert again["changed"] is False
+    assert again["content_hash"] == first["content_hash"]
+    assert not {"body", "modules", "rules", "standards", "classifications"} & set(again)
+    stale = _bundle(classification="test_change", modules="test-only-diff", known_hash="stale")
+    assert stale["changed"] is True
+    assert stale["rules"] == first["rules"]
+
+
+def test_rules_only_classification_is_accepted():
+    """`ui_only_change` is a key in the change rules but not a catalogue entry."""
+    out = _bundle(classification="ui_only_change")
+    assert "error" not in out, out
+    assert out["classification"] == ["ui_only_change"]
+    assert out["rules"] == sumo_qa_load_rules(classification="ui_only_change")
+    assert out["classifications"] == ""
+
+
+def test_classification_resolves_case_insensitively():
+    out = _bundle(classification="Business_Logic_Change")
+    assert out["classification"] == ["business_logic_change"]
+    assert out["rules"] == sumo_qa_load_rules(classification="business_logic_change")
+
+
+def test_missing_rules_path_returns_envelope_not_raise(monkeypatch, tmp_path):
+    monkeypatch.setenv("QA_RULES_PATH", str(tmp_path / "absent.yaml"))
+    out = _bundle(classification="business_logic_change")
+    assert "unreadable" in out["error"]
+
+
+def test_catalogue_is_not_read_without_a_classification(monkeypatch):
+    def _fail(_catalogue):
+        raise AssertionError("catalogue read without a classification")
+
+    monkeypatch.setattr(sm, "list_catalogue_entries", _fail)
+    out = _bundle(modules="runtime-scope")
+    assert "error" not in out, out
 
 
 def test_over_cap_bundle_returns_sized_envelope_without_content():

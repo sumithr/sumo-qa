@@ -16,6 +16,10 @@
 #   expected_entry_skill     the sumo-qa skill tool the host should route to
 #                            first (null for pure tool-selection scenarios)
 #   required_tool_calls      tools that MUST appear in the transcript
+#   required_one_of          alternatives; at least one call MUST match one.
+#                            An alternative is a tool name, or {tool, args}
+#                            where each arg must equal the given value ("*":
+#                            present and non-empty)
 #   forbidden_tool_calls     tools that MUST NOT appear in the transcript
 #   required_output_markers  substrings that MUST appear in the final output
 #   forbidden_output_markers substrings that MUST NOT appear in the final output
@@ -63,7 +67,10 @@ scenarios:
     expected_entry_skill: sumo_qa_reviewing_before_merge
     required_tool_calls:
       - sumo_qa_load_classifications
-      - sumo_qa_load_skill_context
+    required_one_of:  # the change rules are actually loaded
+      - sumo_qa_load_rules
+      - tool: sumo_qa_load_skill_context
+        args: {mode: bundle, classification: "*"}
     forbidden_output_markers:
       - "Classification: business_logic_change"
 

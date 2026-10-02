@@ -20,7 +20,9 @@ them to the registered tool surface. ``transcript_from_debug_dir`` reconstructs
 a transcript from a ``SUMO_QA_DEBUG_DIR`` capture (see ``debug_capture``).
 
 First-slice matching semantics (documented limits): ``required_tool_calls``
-are checked as a SET (presence, not order or multiplicity), and output markers
+are checked as a SET (presence, not order or multiplicity); ``required_one_of``
+is met by any one call matching one alternative, an alternative naming a tool
+and optionally argument values (``"*"``: present and non-empty); output markers
 match as case-insensitive substrings — pin distinctive phrases in fixtures
 (an id like ``INV-12345`` also matches inside ``INV-123456``).
 """
@@ -86,6 +88,30 @@ class Violation:
 
 
 @dataclass(frozen=True)
+class ToolRequirement:
+    """One alternative of ``required_one_of``: a tool name plus argument values
+    the call must carry (``"*"`` accepts any present, non-empty value)."""
+
+    tool: str
+    args: tuple[tuple[str, str], ...] = ()
+
+    def matches(self, call: ToolCall) -> bool:
+        if call.tool != self.tool:
+            return False
+        for key, want in self.args:
+            got = call.args.get(key)
+            ok = bool(got) if want == "*" else got is not None and str(got) == want
+            if not ok:
+                return False
+        return True
+
+    def __str__(self) -> str:
+        if not self.args:
+            return self.tool
+        return f"{self.tool}({', '.join(f'{k}={v}' for k, v in self.args)})"
+
+
+@dataclass(frozen=True)
 class ConformanceScenario:
     """One machine-readable scenario contract (a row in ``scenarios.yaml``)."""
 
@@ -96,6 +122,7 @@ class ConformanceScenario:
     mode: str
     expected_entry_skill: str | None = None
     required_tool_calls: tuple[str, ...] = ()
+    required_one_of: tuple[ToolRequirement, ...] = ()
     forbidden_tool_calls: tuple[str, ...] = ()
     required_output_markers: tuple[str, ...] = ()
     forbidden_output_markers: tuple[str, ...] = ()
@@ -160,6 +187,13 @@ def _duplicates(items: list[str]) -> set[str]:
     return dupes
 
 
+def _requirement(entry: str | dict[str, Any]) -> ToolRequirement:
+    if isinstance(entry, str):
+        return ToolRequirement(entry)
+    args = entry.get("args") or {}
+    return ToolRequirement(entry["tool"], tuple((str(k), str(v)) for k, v in args.items()))
+
+
 def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
     mode = entry["mode"]
     if mode not in _VALID_MODES:
@@ -174,6 +208,7 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
         mode=mode,
         expected_entry_skill=entry.get("expected_entry_skill"),
         required_tool_calls=tuple(entry.get("required_tool_calls") or ()),
+        required_one_of=tuple(_requirement(r) for r in entry.get("required_one_of") or ()),
         forbidden_tool_calls=tuple(entry.get("forbidden_tool_calls") or ()),
         required_output_markers=tuple(entry.get("required_output_markers") or ()),
         forbidden_output_markers=tuple(entry.get("forbidden_output_markers") or ()),
@@ -187,6 +222,7 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
     if scenario.deterministic and not (
         scenario.expected_entry_skill
         or scenario.required_tool_calls
+        or scenario.required_one_of
         or scenario.forbidden_tool_calls
         or scenario.required_output_markers
         or scenario.forbidden_output_markers
@@ -349,6 +385,16 @@ def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> l
                     f"required tool {required!r} was not called",
                 )
             )
+    if scenario.required_one_of and not any(
+        req.matches(tc) for req in scenario.required_one_of for tc in transcript.tool_calls
+    ):
+        violations.append(
+            Violation(
+                ViolationKind.MISSING_REQUIRED_TOOL,
+                "none of the required alternatives was called: "
+                + " | ".join(str(r) for r in scenario.required_one_of),
+            )
+        )
     if scenario.forbid_sumo_qa_calls:
         called_sumo_qa = sorted(
             {tc.tool for tc in transcript.tool_calls if _is_sumo_qa_tool(tc.tool)}

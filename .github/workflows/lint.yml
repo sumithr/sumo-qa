@@ -128,7 +128,7 @@ jobs:
 
   context-budget:
     name: context token budget
-    # Deterministic audit of what sumo-qa puts in a host's context (#512):
+    # Deterministic audit of what sumo-qa puts in a host's context:
     # the SessionStart bootstrap, the tools/list surface, root skills and the
     # bundled review workflows, against [tool.sumo-qa.context-budget] in
     # pyproject.toml. Prints the full measurement table on every run. Single

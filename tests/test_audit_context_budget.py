@@ -1,9 +1,9 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
-"""Tests for the deterministic context-cost audit (#512).
+"""Tests for the deterministic context-cost audit.
 
 The shipped budgets must pass (so the full suite enforces them as well as the
 CI job), and a config whose budgets are exceeded must fail naming each area.
-The root-skill budget is report-only until #798 configures it.
+An absent budget is report-only.
 """
 
 from __future__ import annotations
@@ -61,8 +61,9 @@ def test_shipped_budgets_pass_and_report_every_area(capsys):
     assert by_area == {"bootstrap", "tools/list", "root skill", "bundle", "workflow"}
     compact = next(r for r in rows if r["name"] == "compact (default)")
     assert compact["tokens"] <= 1000
-    # Root skills over 3,000 exist today and are reported, not failed (#798).
-    assert any(r["area"] == "root skill" and r["tokens"] > 3000 for r in rows)
+    roots = [r for r in rows if r["area"] == "root skill"]
+    assert {r["name"] for r in roots} == {p.parent.name for p in REPO.glob("skills/*/SKILL.md")}
+    assert all(r["budget"] is None for r in roots)  # no root budget shipped: report-only
     flows = [r for r in rows if r["area"] == "workflow"]
     for per_loader, bundled in zip(flows[::2], flows[1::2], strict=True):
         assert bundled["calls"] < per_loader["calls"]
@@ -76,7 +77,7 @@ def test_exceeded_budgets_fail_naming_each_area(tmp_path, capsys):
 [tool.sumo-qa.context-budget]
 bootstrap = 10
 tools_list = 10
-root_skill = 3000
+root_skill = 10
 
 [[tool.sumo-qa.context-budget.workflow]]
 name = "tight"

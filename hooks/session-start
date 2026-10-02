@@ -4,13 +4,13 @@
 # Injects a compact bootstrap (hooks/compact-bootstrap.md: the first-hop rule
 # plus a pointer to the `using_sumo_qa` router) into every conversation, so a
 # QA-shaped request enters sumo-qa's workflow rather than free-styling generic
-# testing advice, while a non-QA session does not carry the ~4k-token router
-# body (#512).
+# testing advice, while a non-QA session does not carry the full router body.
 #
 # Capability fallback: the compact pointer needs a launchable MCP server (or a
 # host Skill tool). When `uvx` is missing the plugin MCP server cannot start,
 # so the full `using-sumo-qa` body is injected instead. SUMO_QA_BOOTSTRAP=full
-# or =compact overrides the detection.
+# or =compact overrides the detection; =auto (or unset) detects. Any other
+# value is reported in the injected context and treated as auto.
 
 set -euo pipefail
 
@@ -18,9 +18,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+uvx_present=0
+if command -v uvx >/dev/null 2>&1; then
+    uvx_present=1
+fi
+
 bootstrap_mode="${SUMO_QA_BOOTSTRAP:-auto}"
-if [ "$bootstrap_mode" != "full" ] && [ "$bootstrap_mode" != "compact" ]; then
-    if command -v uvx >/dev/null 2>&1; then
+bootstrap_notice=""
+case "$bootstrap_mode" in
+    full|compact|auto) ;;
+    *)
+        # Sanitised so the echoed value cannot break the JSON envelope.
+        bootstrap_notice="sumo-qa: SUMO_QA_BOOTSTRAP=${bootstrap_mode//[^[:alnum:]_.-]/?} is not one of auto, compact, full; using auto."
+        bootstrap_mode="auto"
+        ;;
+esac
+if [ "$bootstrap_mode" = "auto" ]; then
+    if [ "$uvx_present" = 1 ]; then
         bootstrap_mode="compact"
     else
         bootstrap_mode="full"
@@ -52,13 +66,13 @@ escape_for_json() {
 
 bootstrap_escaped=$(escape_for_json "$bootstrap_content")
 
-# Detect uvx — if missing, the plugin's MCP server can't launch. Surface
+# Without uvx the plugin's MCP server can't launch (probe above). Surface
 # a high-priority warning so Claude tells the user proactively instead of
 # letting MCP tools fail opaquely on first invocation.
 #
 # Note: printf is used instead of a quoted heredoc (<<'EOF') because bash 3.2
 # (macOS system bash) does not support quoted heredocs inside $() subshells.
-if command -v uvx >/dev/null 2>&1; then
+if [ "$uvx_present" = 1 ]; then
     uvx_warning_escaped=""
     system_message_escaped=""
 else
@@ -94,7 +108,12 @@ fi
 # docs/PERSONA.md and adopt the Sumo-sensei voice"). No skill currently
 # auto-recognises persona toggle phrases. See docs/PERSONA.md.
 
-session_context="${uvx_warning_escaped}<EXTREMELY_IMPORTANT>\n${bootstrap_escaped}\n</EXTREMELY_IMPORTANT>"
+notice_escaped=""
+if [ -n "$bootstrap_notice" ]; then
+    notice_escaped="$(escape_for_json "$bootstrap_notice")\n"
+fi
+
+session_context="${notice_escaped}${uvx_warning_escaped}<EXTREMELY_IMPORTANT>\n${bootstrap_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON.
 # Cursor hooks expect additional_context (snake_case).

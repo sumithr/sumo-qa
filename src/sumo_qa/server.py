@@ -2046,14 +2046,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             existing zero-argument skill tool for `skill_name`; a body over the
             host's per-response token cap is returned as an `oversize` pointer
             to the manifest/section/module slices instead of failing (#393);
-          - "bundle"   — a routed skill's working context in ONE call: the
+          - "bundle": a routed skill's working context in ONE call: the
             body (omit with `include_body=false` when you already hold it),
             the `modules` named (comma-separated ids), and for
-            `classification` (comma-separated canonical ids) its catalogue
-            entries plus the filtered standards and rules. Each part is
-            identical to its single loader, which stays for deeper reads.
+            `classification` (comma-separated ids) its catalogue entries plus
+            the filtered standards and rules. Each part is identical to its
+            single loader, which stays for deeper reads.
 
-        The section/module/full slices each return `content_hash` (sha256 of the
+        The section/module/full/bundle slices each return `content_hash` (sha256 of the
         returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this
         slice changed since hash X?": a match returns `changed=false` with the
         body omitted (saving the re-send), a mismatch returns `changed=true` with

@@ -52,14 +52,18 @@ def _classification_filter_terms(classification: str | None) -> set[str] | None:
     """
     if classification is None:
         return None
+    return set(split_classification_terms(classification))
+
+
+def split_classification_terms(value: str | None) -> list[str]:
+    """Split a comma/semicolon/whitespace separated id list into its terms, in
+    the order given, without duplicates. ``None`` or blank yields ``[]``."""
     # Only backtick/quote chars are stripped; any other edge character is kept.
-    # Both strip calls are pinned by test_classification_filter_strips_backticks_and_quotes
-    # (strip→None) and test_filter_terms_strip_only_quote_chars (XX-quoted variants).
-    return {
-        part.strip("`'\"")
-        for part in re.split(r"[\s,;]+", str(classification))
-        if part.strip("`'\"")
-    }
+    # Pinned by test_split_classification_terms_* (strip and split-regex mutants).
+    parts = (
+        part.strip("`'\"") for part in re.split(r"[\s,;]+", "" if value is None else str(value))
+    )
+    return list(dict.fromkeys(part for part in parts if part))
 
 
 def _metadata_terms(value: Any) -> set[str]:

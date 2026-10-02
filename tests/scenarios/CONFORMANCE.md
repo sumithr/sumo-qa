@@ -38,7 +38,10 @@ against the registered MCP tool surface.
   expected_entry_skill: sumo_qa_reviewing_before_merge
   required_tool_calls:
     - sumo_qa_load_classifications
-    - sumo_qa_load_skill_context   # the one-call bundle: entries, standards, rules, modules
+  required_one_of:                 # the change rules are actually loaded
+    - sumo_qa_load_rules
+    - tool: sumo_qa_load_skill_context   # the one-call bundle with a classification
+      args: {mode: bundle, classification: "*"}
   forbidden_output_markers:
     - "Classification: business_logic_change"   # internal taxonomy leak
 ```
@@ -50,6 +53,7 @@ Field reference:
 | `mode` | `deterministic` (scored here) or `provider-backed` (the validator skips it; promptfoo judges it) |
 | `expected_entry_skill` | the skill tool the router chain must reach (`null` for a pure tool-selection scenario or a non-QA development control); see *The first hop* below |
 | `required_tool_calls` | tools that MUST appear in the transcript (checked as a set: presence, not order or multiplicity, a documented first-slice limit) |
+| `required_one_of` | alternatives, at least one of which MUST match a call: a tool name, or `{tool, args}` where each listed argument must equal its value (`"*"`: present and non-empty), so a requirement can name the arguments that make a call count |
 | `forbidden_tool_calls` | tools that MUST NOT appear |
 | `required_output_markers` | substrings that MUST appear in the final assistant output (case-insensitive) |
 | `forbidden_output_markers` | substrings that MUST NOT appear (anti-pattern claims, leaked internal labels; case-insensitive, so pin distinctive phrases: `INV-12345` also matches inside `INV-123456`) |

@@ -6,7 +6,7 @@ The hook ships in `hooks/session-start` and is registered by
 Its job: emit a host-appropriate JSON envelope carrying the compact
 bootstrap (`hooks/compact-bootstrap.md`, the first-hop rule and a pointer
 to the `using_sumo_qa` router) so a QA-shaped request reliably enters
-sumo-qa, while a non-QA session never pays for the full router body (#512).
+sumo-qa, while a non-QA session never pays for the full router body.
 The full `skills/using-sumo-qa/SKILL.md` body is the fallback: injected
 when the MCP server cannot launch (no `uvx`) or `SUMO_QA_BOOTSTRAP=full`.
 
@@ -237,9 +237,9 @@ def _approx_tokens(text: str) -> int:
     ids=["sdk-default", "claude-code", "cursor"],
 )
 def test_default_bootstrap_is_compact_and_omits_the_router_body(host_env):
-    """#512: a session where the MCP server can launch gets the compact
-    bootstrap (at most 1,000 est. tokens), never the full router body, so a
-    non-QA session does not pay ~4k tokens for QA rules it never uses."""
+    """A session where the MCP server can launch gets the compact bootstrap
+    (within the bootstrap budget), never the full router body, so a non-QA
+    session does not pay for QA rules it never uses."""
     ctx = _extract_additional_context(_run_hook(host_env))
     assert _approx_tokens(ctx) <= BOOTSTRAP_TOKEN_BUDGET
     assert FULL_BODY_MARKER not in ctx
@@ -259,8 +259,8 @@ def test_compact_bootstrap_carries_the_canonical_first_hop_rule():
 
 @_BASH
 def test_full_bootstrap_override_injects_the_router_body():
-    """`SUMO_QA_BOOTSTRAP=full` restores the pre-#512 full-body injection for
-    a host whose model does not follow the compact pointer."""
+    """`SUMO_QA_BOOTSTRAP=full` injects the full router body for a host whose
+    model does not follow the compact pointer."""
     ctx = _extract_additional_context(_run_hook({"SUMO_QA_BOOTSTRAP": "full"}))
     assert FULL_BODY_MARKER in ctx
 
@@ -280,3 +280,38 @@ def test_compact_override_wins_even_without_uvx():
     )
     assert FULL_BODY_MARKER not in ctx
     assert "UVX_WARNING" in ctx
+
+
+@_BASH
+@pytest.mark.parametrize(
+    "host_env",
+    [{}, {"CLAUDE_PLUGIN_ROOT": str(ROOT)}, {"CURSOR_PLUGIN_ROOT": str(ROOT)}],
+    ids=["sdk-default", "claude-code", "cursor"],
+)
+@pytest.mark.parametrize("uvx_present", [True, False], ids=["uvx", "no-uvx"])
+def test_unknown_bootstrap_value_is_reported_and_treated_as_auto(host_env, uvx_present):
+    """An unrecognised SUMO_QA_BOOTSTRAP is named in a one-line diagnostic
+    inside every host envelope (the JSON still parses) and auto-detection
+    decides the payload, rather than a silent fallback."""
+    env = {**host_env, "SUMO_QA_BOOTSTRAP": 'Compact"\\x'}
+    ctx = _extract_additional_context(_run_hook(env, uvx_present=uvx_present))
+    first_line = ctx.splitlines()[0]
+    assert "SUMO_QA_BOOTSTRAP=Compact" in first_line
+    assert "using auto" in first_line
+    assert (FULL_BODY_MARKER in ctx) is not uvx_present
+
+
+@_BASH
+@pytest.mark.parametrize("value", ["auto", "compact", "full", ""])
+def test_recognised_bootstrap_values_emit_no_diagnostic(value):
+    ctx = _extract_additional_context(_run_hook({"SUMO_QA_BOOTSTRAP": value}))
+    assert "SUMO_QA_BOOTSTRAP" not in ctx
+
+
+@_BASH
+def test_compact_bootstrap_names_the_fallback_when_the_router_tool_is_unavailable():
+    """uvx on PATH does not prove the server starts (an offline first launch),
+    so the compact payload names the Skill and the file as fallbacks."""
+    ctx = _extract_additional_context(_run_hook({}))
+    assert "`using-sumo-qa` Skill" in ctx
+    assert "skills/using-sumo-qa/SKILL.md" in ctx
