@@ -204,7 +204,11 @@ def install_external_skill(
     cwd = cwd or Path.cwd()
     home = home or Path.home()
     lock_base = cwd if scope == "project" else home
-    _read_lock(lock_base)  # fail fast on an unreadable lock, before any fetch
+    # Fail fast on an unreadable lock, before any fetch. Read under the guard:
+    # on Windows an open read handle makes a concurrent install's os.replace
+    # onto the lock fail.
+    with _lock_guard(lock_base):
+        _read_lock(lock_base)
     workdir, checkout, resolved_ref = _checkout_commit(remote_url, requested_ref, timeout)
     try:
         _check_checkout_links(checkout)
