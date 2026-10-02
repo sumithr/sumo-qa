@@ -216,12 +216,16 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     - ``malformed_jsonrpc``: a response arrived but failed shape validation
       (missing id, wrong ``jsonrpc`` version, error envelope, non-dict
       ``result``).
-    - ``missing_tools``: ``tools/list`` lacks some of the
-      ``REQUIRED_TOOL_NAMES`` the launch profile serves; names listed in
-      ``details["missing"]``.
-    - ``invalid_profile``: ``mcp_cmd.env`` (merged over the process env, as
-      the host launches it) names an unknown ``SUMO_QA_MCP_PROFILE``; the
-      server would refuse to start, so nothing is launched.
+    - ``missing_tools``: ``tools/list`` lacks some of the tools the launch
+      profile serves; names listed in ``details["missing"]``.
+    - ``invalid_profile``: the launch env names an unknown
+      ``SUMO_QA_MCP_PROFILE``; the server would refuse to start, so nothing
+      is launched.
+
+    A command read from a host entry (``mcp_cmd.env`` not ``None``) launches
+    with that entry's env over this process's env minus
+    ``SUMO_QA_MCP_PROFILE``: a GUI host does not inherit the doctor shell's
+    env, so only the entry may pick the profile.
 
     On success both records carry status ``OK``.
     """
@@ -240,16 +244,21 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     initialized_note = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"})
     tools_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
 
-    # Launch as the host would: its entry's env over ours, and require only
-    # the static tools of the profile that env selects.
-    env = {**os.environ, **mcp_cmd.env}
+    env = dict(os.environ)
+    if mcp_cmd.env is not None:
+        env.pop(PROFILE_ENV, None)
+        env.update(mcp_cmd.env)
     try:
-        profile = resolve_profile(env)
+        required = profile_tool_names(resolve_profile(env))
     except ValueError as exc:
-        handshake, tools = _handshake_fail(summary=f"sumo-qa: {exc}", kind="invalid_profile")
-        fix = f"Set {PROFILE_ENV} in the host's sumo-qa entry to one of: {', '.join(PROFILES)}."
-        return replace(handshake, fix=fix), tools
-    required = [n for n in REQUIRED_TOOL_NAMES if n in profile_tool_names(profile)]
+        handshake, tools = _handshake_fail(
+            summary=(
+                f"sumo-qa: {exc}. Set {PROFILE_ENV} in the host's sumo-qa entry env "
+                f"to one of: {', '.join(PROFILES)}"
+            ),
+            kind="invalid_profile",
+        )
+        return replace(handshake, fix=None), tools
 
     proc = subprocess.Popen(  # noqa: S603 -- argv comes from a trusted McpCommand
         mcp_cmd.as_subprocess_argv(),
@@ -410,7 +419,7 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
             summary="tools/list 'result.tools' is not a list",
         )
     advertised = {t.get("name") for t in tools if isinstance(t, dict)}
-    missing = [n for n in required if n not in advertised]
+    missing = sorted(required - advertised)
     if missing:
         return handshake_ok, CheckResult(
             check_id="tools_list_complete",
@@ -1160,6 +1169,7 @@ def _resolve_mcp_command(
     host: str | None = None,
     system: str | None = None,
     home: _Path | None = None,
+    workspace: _Path | None = None,
 ) -> McpCommand:
     """Mirror ``installer._install_mcp_binary``'s resolution without printing.
 
@@ -1167,51 +1177,46 @@ def _resolve_mcp_command(
     would write — the legacy contract every check downstream of
     ``run_mcp_probe`` depends on.
 
-    With ``host == "claude-desktop"``, reads
-    ``claude_desktop_config.json`` and returns the command stored there.
-    That's the command the macOS Claude.app sandbox will actually launch,
-    and it can diverge from ``shutil.which`` after the user reinstalls or
-    moves their venv (issue #181). If the file is missing, unreadable, or
-    has no sumo-qa entry, falls back to the PATH command so the rest of
-    the diagnostics still run — the missing-config case is surfaced by
-    ``check_claude_desktop_config``.
+    With ``host`` set to ``claude-desktop``, ``claude-code`` or ``vscode``,
+    returns the ``sumo-qa`` entry that host launches, with its ``env``:
+    ``claude_desktop_config.json``, Claude Code's user-scope registry
+    (``~/.claude.json``), or ``<workspace>/.vscode/mcp.json``. That entry can
+    diverge from ``shutil.which`` after the user reinstalls or moves their
+    venv (issue #181), and its env picks the tool profile. If the file is
+    missing, unreadable, or has no sumo-qa entry, falls back to the PATH
+    command so the rest of the diagnostics still run; the missing-config
+    case is surfaced by the host's config check.
 
     The installer prints its choice (good UX during install); doctor
     never prints from the resolver — every line of output goes through
     the renderer, so callers can swap human / JSON without re-coupling.
     """
+    h = home or _Path.home()
+    entry = None
     if host == "claude-desktop":
-        sys_name = system or _platform.system()
-        h = home or _Path.home()
-        configured = _read_configured_claude_desktop_command(h, sys_name)
-        if configured is not None:
-            return configured
+        config_path = _installer._claude_desktop_config_path(h, system or _platform.system())
+        entry = _installer._read_server_entry(config_path, "mcpServers")
+    elif host == "claude-code":
+        entry = _installer._read_server_entry(
+            _installer._claude_code_registry_path(h), "mcpServers"
+        )
+    elif host == "vscode":
+        config_path = (workspace or _Path.cwd()) / ".vscode" / "mcp.json"
+        entry = _installer._read_server_entry(config_path, "servers", "mcpServers")
+    configured = _entry_command(entry)
+    if configured is not None:
+        return configured
     existing = shutil.which("sumo-qa")
     if existing is not None:
         return McpCommand(command=str(_Path(existing).resolve()), args=[])
     return McpCommand(command=_sys.executable, args=["-m", "sumo_qa"])
 
 
-def _read_configured_claude_desktop_command(home: _Path, system: str) -> McpCommand | None:
-    """Return the ``sumo-qa`` server entry stored in
-    ``claude_desktop_config.json`` as an ``McpCommand``, or ``None`` if the
-    config is missing / unreadable / corrupt / has no entry."""
-    config_path = _installer._claude_desktop_config_path(home, system)
-    if not config_path.exists():
-        return None
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    # ``mcpServers`` is normally an object, but a user-edited config could
-    # leave it as ``null``, a list, or a string. ``(x or {}).get`` is not
-    # enough — a non-empty list / string is truthy and would propagate to
-    # ``.get`` and ``AttributeError``. Require dicts at each level.
-    mcp_servers = config.get("mcpServers") if isinstance(config, dict) else None
-    if not isinstance(mcp_servers, dict):
-        return None
-    entry = mcp_servers.get("sumo-qa")
-    if not isinstance(entry, dict):
+def _entry_command(entry: dict | None) -> McpCommand | None:
+    """A host config's ``sumo-qa`` server entry as the ``McpCommand`` the host
+    launches (``env`` is ``{}`` when the entry sets none), or ``None`` when
+    there is no entry or it has no usable ``command``."""
+    if entry is None:
         return None
     command = entry.get("command")
     if not isinstance(command, str) or not command:
@@ -1244,7 +1249,7 @@ def _collect_checks(
         check_binary_discoverable(),
         check_uvx_available(),
     ]
-    handshake, tools = run_mcp_probe(_resolve_mcp_command(host=host_filter))
+    handshake, tools = run_mcp_probe(_resolve_mcp_command(host=host_filter, workspace=workspace))
     out.extend([handshake, tools])
     if host_filter in (None, "claude-code"):
         out.append(check_claude_code_config())

@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from sumo_qa import installer
 
@@ -111,6 +114,21 @@ def _handshake_proc() -> _FakeProc:
     return _FakeProc(_handshake_lines())
 
 
+@pytest.fixture
+def _empty_claude_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A temp HOME with no Claude Code registry, so nothing is read from the real one."""
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    return tmp_path
+
+
+def _add_json_entry(add_args: list[str]) -> dict:
+    assert add_args[:6] == ["/usr/local/bin/claude", "mcp", "add-json", "-s", "user", "sumo-qa"]
+    assert len(add_args) == 7
+    return json.loads(add_args[6])
+
+
+@pytest.mark.usefixtures("_empty_claude_home")
 def test_register_runs_remove_then_add_with_user_scope() -> None:
     mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     with (
@@ -123,22 +141,14 @@ def test_register_runs_remove_then_add_with_user_scope() -> None:
     remove_args = run.call_args_list[0].args[0]
     add_args = run.call_args_list[1].args[0]
     assert remove_args == ["/usr/local/bin/claude", "mcp", "remove", "sumo-qa", "-s", "user"]
-    assert add_args == [
-        "/usr/local/bin/claude",
-        "mcp",
-        "add",
-        "-s",
-        "user",
-        "sumo-qa",
-        "--",
-        mcp_cmd.command,
-    ]
+    assert _add_json_entry(add_args) == {"type": "stdio", "command": mcp_cmd.command}
     assert "registered" in msg
     assert mcp_cmd.command in msg
 
 
-def test_register_includes_module_args_after_double_dash() -> None:
-    """Module-fallback invocation must pass `-m sumo_qa` to claude mcp add via `--`."""
+@pytest.mark.usefixtures("_empty_claude_home")
+def test_register_includes_module_args() -> None:
+    """Module-fallback invocation must register `-m sumo_qa` as the entry's args."""
     import sys
 
     mcp_cmd = installer.McpCommand(command=sys.executable, args=["-m", "sumo_qa"])
@@ -148,19 +158,59 @@ def test_register_includes_module_args_after_double_dash() -> None:
     ):
         installer._register_claude_code_mcp(mcp_cmd)
 
-    add_args = run.call_args_list[1].args[0]
-    assert add_args == [
-        "/usr/local/bin/claude",
-        "mcp",
-        "add",
-        "-s",
-        "user",
-        "sumo-qa",
-        "--",
-        sys.executable,
-        "-m",
-        "sumo_qa",
-    ]
+    assert _add_json_entry(run.call_args_list[1].args[0]) == {
+        "type": "stdio",
+        "command": sys.executable,
+        "args": ["-m", "sumo_qa"],
+    }
+
+
+def test_register_keeps_the_registry_entry_env(_empty_claude_home: Path) -> None:
+    """A re-run removes and re-adds the Claude Code registry entry; the env
+    the user set on it (e.g. a ``core`` profile) must be re-registered."""
+    env = {"SUMO_QA_MCP_PROFILE": "core", "OTHER": "1"}
+    (_empty_claude_home / ".claude.json").write_text(
+        json.dumps({"mcpServers": {"sumo-qa": {"command": "/old/sumo-qa", "env": env}}}),
+        encoding="utf-8",
+    )
+    mcp_cmd = installer.McpCommand(command="/new/sumo-qa", args=[])
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()) as run,
+    ):
+        installer._register_claude_code_mcp(mcp_cmd)
+
+    entry = _add_json_entry(run.call_args_list[1].args[0])
+    assert entry == {"type": "stdio", "command": "/new/sumo-qa", "env": env}
+
+
+@pytest.mark.skipif(shutil.which("claude") is None, reason="the claude CLI is not installed")
+def test_register_keeps_env_through_the_real_claude_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round trip through the installed ``claude`` CLI in a temp HOME: an entry
+    added with an env keeps it after the installer re-registers it."""
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    env = {"SUMO_QA_MCP_PROFILE": "core"}
+    claude = shutil.which("claude")
+    seed = json.dumps({"type": "stdio", "command": "/old/sumo-qa", "env": env})
+    subprocess.run(
+        [claude, "mcp", "add-json", "-s", "user", "sumo-qa", seed],
+        capture_output=True,
+        check=True,
+        cwd=tmp_path,
+    )
+
+    msg = installer._register_claude_code_mcp(installer.McpCommand(command="/new/sumo-qa"))
+
+    assert "registered" in msg, msg
+    registry = json.loads((tmp_path / ".claude.json").read_text(encoding="utf-8"))
+    entry = registry["mcpServers"]["sumo-qa"]
+    assert entry["command"] == "/new/sumo-qa"
+    assert entry["env"] == env
 
 
 def test_register_skips_when_claude_cli_not_on_path() -> None:
@@ -196,7 +246,7 @@ def test_register_tolerates_remove_failure_and_still_adds() -> None:
 
 def test_register_surfaces_add_failure_in_message() -> None:
     def run_side_effect(cmd, **kwargs):
-        if "add" in cmd:
+        if "add-json" in cmd:
             raise subprocess.CalledProcessError(
                 returncode=2, cmd=cmd, stderr=b"some error from claude"
             )
@@ -209,7 +259,7 @@ def test_register_surfaces_add_failure_in_message() -> None:
     ):
         msg = installer._register_claude_code_mcp(mcp_cmd)
 
-    assert "claude mcp add failed" in msg
+    assert "claude mcp add-json failed" in msg
     assert "some error from claude" in msg
 
 

@@ -106,6 +106,13 @@ def _tools_list(profile: str | None) -> list[dict]:
             proc.kill()
             proc.wait(timeout=2)
 
+    stderr = proc.stderr.read()
+    if "has no capability metadata" in stderr:
+        raise SystemExit(
+            f"regen: the sumo-qa server (profile {profile or 'default'}) serves a tool with "
+            "no registry entry, likely from a stale src/sumo_qa/_data/skills copy; "
+            f"refusing to pin it. Server stderr:\n{stderr}"
+        )
     return response["result"]["tools"]
 
 

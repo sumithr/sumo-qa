@@ -35,6 +35,31 @@ Any other value stops the server at launch with an error naming the valid
 profiles. Each tool's capability group and profile membership live in
 `src/sumo_qa/tool_registry.py`.
 
+Set the profile in the host's `sumo-qa` entry `env`. Re-running
+`sumo-qa-install` refreshes the entry's `command` and `args` and keeps its
+`env` and `envFile` as they are, in every host it writes:
+`claude_desktop_config.json` (Claude Desktop, and the copy written for
+Claude Code), `.vscode/mcp.json`, and Claude Code's own MCP registry
+(user scope in `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`), which
+it re-registers through `claude mcp add-json` with the old entry's `env`.
+Any other key you added to an entry is replaced.
+
+`sumo-qa-doctor --host <host>` probes the entry that host launches, with that
+entry's `env`:
+
+| `--host` | Entry probed |
+|---|---|
+| `claude-code` | Claude Code's user-scope registry (`~/.claude.json`) |
+| `claude-desktop` | `claude_desktop_config.json` |
+| `vscode` | `<workspace>/.vscode/mcp.json` `servers` |
+
+The probe drops `SUMO_QA_MCP_PROFILE` from the doctor's own shell env, so
+only the entry picks the profile, as when a GUI host launches it. An invalid
+profile in the entry is a FAIL; otherwise the probe requires every tool that
+entry's profile serves. The doctor does not read `envFile`. With no `--host`,
+or when the host has no `sumo-qa` entry, the doctor probes the `sumo-qa` on
+`PATH` with its own shell env.
+
 ```json
 {
   "mcpServers": {

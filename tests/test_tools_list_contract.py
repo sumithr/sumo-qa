@@ -366,9 +366,7 @@ def test_schema_drift_warns(snapshot, live_tools) -> None:
             warnings.warn(f"{name}: outputSchema changed since snapshot", UserWarning, stacklevel=1)
 
 
-def test_regen_script_surfaces_the_server_stderr_when_the_server_fails_to_start() -> None:
-    """A server that dies at launch must stop the regen script with a clear
-    message and the server's own stderr, not a BrokenPipe/JSON traceback."""
+def _load_regen_script():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
@@ -376,8 +374,51 @@ def test_regen_script_surfaces_the_server_stderr_when_the_server_fails_to_start(
     )
     regen = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(regen)
+    return regen
+
+
+def test_regen_script_surfaces_the_server_stderr_when_the_server_fails_to_start() -> None:
+    """A server that dies at launch must stop the regen script with a clear
+    message and the server's own stderr, not a BrokenPipe/JSON traceback."""
+    regen = _load_regen_script()
     with pytest.raises(SystemExit) as exc:
         regen._tools_list("bogus")
     message = str(exc.value)
     assert "did not answer tools/list" in message
     assert f"{PROFILE_ENV}='bogus' is not a valid MCP tool profile" in message
+
+
+# Answers initialize and tools/list like the real server, after printing the
+# warning the real server prints for a tool with no registry entry.
+_STALE_TOOL_SERVER = """
+import json, sys
+print("sumo-qa: warning: tool 'stale_tool' has no capability metadata in "
+      "sumo_qa.tool_registry.TOOLS; serving it under the full profile only",
+      file=sys.stderr, flush=True)
+sys.stdin.readline()
+print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}), flush=True)
+sys.stdin.readline()
+sys.stdin.readline()
+print(json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "stale_tool"}]}}),
+      flush=True)
+"""
+
+
+def test_regen_script_refuses_to_pin_a_tool_without_capability_metadata(monkeypatch) -> None:
+    """A stale ``_data/skills`` tool makes the server warn on stderr but still
+    answer; the regen script must fail instead of pinning it in the snapshot."""
+    regen = _load_regen_script()
+    monkeypatch.setattr(
+        regen,
+        "_spawn",
+        lambda _profile: subprocess.Popen(
+            [sys.executable, "-c", _STALE_TOOL_SERVER],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ),
+    )
+    with pytest.raises(SystemExit) as exc:
+        regen._tools_list(None)
+    assert "'stale_tool' has no capability metadata" in str(exc.value)

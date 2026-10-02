@@ -96,11 +96,11 @@ def test_register_claude_code_mcp_second_run_still_removes_then_adds() -> None:
     # First call: remove
     assert "remove" in calls[0].args[0], "Call 0 should be 'mcp remove'"
     # Second call: add
-    assert "add" in calls[1].args[0], "Call 1 should be 'mcp add'"
+    assert "add-json" in calls[1].args[0], "Call 1 should be 'mcp add-json'"
     # Third call (second invocation): remove again
     assert "remove" in calls[2].args[0], "Call 2 should be 'mcp remove' (second run)"
     # Fourth call (second invocation): add again
-    assert "add" in calls[3].args[0], "Call 3 should be 'mcp add' (second run)"
+    assert "add-json" in calls[3].args[0], "Call 3 should be 'mcp add-json' (second run)"
 
 
 # ---------------------------------------------------------------------------
@@ -468,10 +468,13 @@ def test_rerun_keeps_an_existing_entry_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str
 ) -> None:
     """A re-run refreshes command/args but must not drop a configured ``env``
-    such as ``SUMO_QA_MCP_PROFILE=core`` (docs/CONFIGURATION.md)."""
+    such as ``SUMO_QA_MCP_PROFILE=core`` (docs/CONFIGURATION.md). For Claude
+    Code that means both the file it writes and its own MCP registry, which it
+    re-registers through ``claude mcp add-json``."""
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     env = {"SUMO_QA_MCP_PROFILE": "core", "OTHER": "1"}
     mcp_cmd = installer.McpCommand(command="/new/sumo-qa", args=[])
 
@@ -486,15 +489,15 @@ def test_rerun_keeps_an_existing_entry_env(
         (home / ".claude").mkdir()
         config_path = home / ".config" / "claude" / "claude_desktop_config.json"
         key = "mcpServers"
+    old_entries = json.dumps({key: {"sumo-qa": {"command": "/old/sumo-qa", "env": env}}})
     config_path.parent.mkdir(parents=True)
-    config_path.write_text(
-        json.dumps({key: {"sumo-qa": {"command": "/old/sumo-qa", "env": env}}}),
-        encoding="utf-8",
-    )
+    config_path.write_text(old_entries, encoding="utf-8")
+    if host == "claude-code":
+        (home / ".claude.json").write_text(old_entries, encoding="utf-8")
 
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
-        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()) as run,
     ):
         if host == "vscode":
             installer._setup_vscode_copilot(mcp_cmd, tmp_path)
@@ -506,3 +509,26 @@ def test_rerun_keeps_an_existing_entry_env(
     entry = json.loads(config_path.read_text(encoding="utf-8"))[key]["sumo-qa"]
     assert entry["command"] == "/new/sumo-qa"
     assert entry["env"] == env
+    if host == "claude-code":
+        add_json = next(c.args[0] for c in run.call_args_list if "add-json" in c.args[0])
+        registered = json.loads(add_json[-1])
+        assert registered["command"] == "/new/sumo-qa"
+        assert registered["env"] == env
+
+
+def test_vscode_rerun_keeps_an_existing_entry_env_file(tmp_path: Path) -> None:
+    """VS Code stdio entries may load env from ``envFile``; a re-run keeps it."""
+    (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+    config_path = tmp_path / ".vscode" / "mcp.json"
+    config_path.parent.mkdir()
+    env_file = "${workspaceFolder}/.env"
+    config_path.write_text(
+        json.dumps({"servers": {"sumo-qa": {"command": "/old/sumo-qa", "envFile": env_file}}}),
+        encoding="utf-8",
+    )
+
+    installer._setup_vscode_copilot(installer.McpCommand(command="/new/sumo-qa"), tmp_path)
+
+    entry = json.loads(config_path.read_text(encoding="utf-8"))["servers"]["sumo-qa"]
+    assert entry["command"] == "/new/sumo-qa"
+    assert entry["envFile"] == env_file

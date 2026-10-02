@@ -16,7 +16,7 @@ What this script does:
   package manager (no uv fallback) — the installer trusts the interpreter
   that was used to launch it.
 - Claude Code: symlinks skills/ into ``~/.claude/skills/``, registers the
-  MCP server via ``claude mcp add -s user``, and writes
+  MCP server via ``claude mcp add-json -s user``, and writes
   ``claude_desktop_config.json`` (the latter is a no-op for Claude Code
   itself but harmless if Claude Desktop is also installed).
 - VS Code + Copilot: writes ``.vscode/mcp.json`` in the current workspace.
@@ -188,9 +188,10 @@ class McpCommand:
 
     command: str
     args: list[str] = field(default_factory=list)
-    # Env the host sets on launch (a config entry's ``env``); doctor's probe
-    # launches with it. Never written by ``to_config_entry``.
-    env: dict[str, str] = field(default_factory=dict)
+    # A host config entry's ``env`` (``{}`` when the entry sets none); ``None``
+    # when the command does not come from a host entry. Doctor's probe launches
+    # with it. Never written by ``to_config_entry``.
+    env: dict[str, str] | None = None
 
     def to_config_entry(self, *, include_empty_args: bool = False) -> dict:
         """Return the dict shape MCP host configs expect.
@@ -253,7 +254,7 @@ def main() -> int:
         action="store_true",
         help=(
             "Configure Claude Code only (symlink skills + register MCP server "
-            "via `claude mcp add` + write claude_desktop_config.json)."
+            "via `claude mcp add-json` + write claude_desktop_config.json)."
         ),
     )
     parser.add_argument(
@@ -588,11 +589,36 @@ def _install_mcp_binary() -> McpCommand:
 # ----------------------------------------------------------------------
 
 
+_KEPT_ENTRY_KEYS = ("env", "envFile")  # envFile: VS Code's stdio dotenv path
+
+
 def _refreshed_entry(existing: object, fresh: dict) -> dict:
-    """``fresh`` plus ``existing``'s ``env`` block, so a refresh keeps the
-    user's server env (e.g. ``SUMO_QA_MCP_PROFILE``)."""
-    env = existing.get("env") if isinstance(existing, dict) else None
-    return {**fresh, "env": env} if isinstance(env, dict) else fresh
+    """``fresh`` plus ``existing``'s ``env`` and ``envFile``, so a refresh
+    keeps the user's server env (e.g. ``SUMO_QA_MCP_PROFILE``)."""
+    if not isinstance(existing, dict):
+        return fresh
+    return {**fresh, **{k: existing[k] for k in _KEPT_ENTRY_KEYS if k in existing}}
+
+
+def _claude_code_registry_path(home: Path) -> Path:
+    """Claude Code's own config file, whose top-level ``mcpServers`` is the
+    user-scope registry ``claude mcp add -s user`` writes."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or home) / ".claude.json"
+
+
+def _read_server_entry(config_path: Path, *keys: str) -> dict | None:
+    """The ``sumo-qa`` entry under the first of ``keys`` that holds one, or
+    ``None`` when the file is missing, unreadable, corrupt, or has no entry."""
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    for key in keys:
+        servers = config.get(key) if isinstance(config, dict) else None
+        entry = servers.get(PLUGIN_METADATA.mcp_server_name) if isinstance(servers, dict) else None
+        if isinstance(entry, dict):
+            return entry
+    return None
 
 
 def _setup_claude_code(mcp_cmd: McpCommand, system: str) -> HostResult:
@@ -651,7 +677,7 @@ def _setup_claude_code(mcp_cmd: McpCommand, system: str) -> HostResult:
     servers[name] = _refreshed_entry(servers.get(name), mcp_cmd.to_config_entry())
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
-    # 3. Register with Claude Code's own MCP registry via `claude mcp add`.
+    # 3. Register with Claude Code's own MCP registry via `claude mcp add-json`.
     #    Claude Code (the CLI) does NOT read claude_desktop_config.json — it
     #    keeps its own MCP server list managed via the `claude mcp` subcommand.
     #    Without this step the MCP tools (sumo_qa_load_*, etc.) never surface
@@ -669,8 +695,8 @@ def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
 
     Removes any existing ``sumo-qa`` entry first (covers the case where a
     previous install registered a stale invocation — e.g. a binary path that
-    no longer exists after a venv move), then re-adds. Returns a one-line
-    summary for the install output.
+    no longer exists after a venv move), then re-adds it with the removed
+    entry's ``env`` kept. Returns a one-line summary for the install output.
 
     No-ops gracefully when the ``claude`` CLI isn't on PATH — users running
     sumo-qa-install on a machine without Claude Code installed only get the
@@ -681,30 +707,23 @@ def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
         return "claude CLI not on PATH — skipped MCP-registry registration"
     # Remove first; ignore failure (entry may not exist). Idempotent re-add.
     server_name = PLUGIN_METADATA.mcp_server_name
+    existing = _read_server_entry(_claude_code_registry_path(Path.home()), "mcpServers")
     subprocess.run(
         [claude, "mcp", "remove", server_name, "-s", "user"],
         capture_output=True,
         check=False,
     )
-    # `claude mcp add [options] NAME -- COMMAND [ARGS...]` — `--` terminates
-    # option parsing so subprocess flags (e.g. `-m sumo_qa`) reach the MCP
-    # server intact rather than being intercepted as claude CLI options.
-    add_argv = [
-        claude,
-        "mcp",
-        "add",
-        "-s",
-        "user",
-        server_name,
-        "--",
-        mcp_cmd.command,
-        *mcp_cmd.args,
-    ]
+    # `add-json` re-registers the whole entry, so the existing entry's env
+    # (e.g. SUMO_QA_MCP_PROFILE) survives the remove. The CLI takes the JSON
+    # only as an argument (not stdin or a file), so env values are briefly
+    # visible in the process list, as they would be with `add -e`.
+    entry = _refreshed_entry(existing, {"type": "stdio", **mcp_cmd.to_config_entry()})
+    add_argv = [claude, "mcp", "add-json", "-s", "user", server_name, json.dumps(entry)]
     try:
         subprocess.run(add_argv, capture_output=True, check=True)
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode("utf-8", errors="replace").strip() if exc.stderr else ""
-        return f"claude mcp add failed ({exc.returncode}): {stderr or 'no stderr'}"
+        return f"claude mcp add-json failed ({exc.returncode}): {stderr or 'no stderr'}"
     return f"registered with claude mcp as `{mcp_cmd.display()}`"
 
 

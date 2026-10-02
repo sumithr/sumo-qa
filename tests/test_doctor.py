@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from sumo_qa import doctor
-from sumo_qa.tool_registry import PROFILE_ENV
+from sumo_qa.tool_registry import PROFILE_ENV, profile_tool_names
 
 # mutmut-subprocess-spawning: spawns ``python -m sumo_qa.doctor`` from a fresh
 # interpreter, so it MUST be excluded from the mutmut gate via
@@ -165,7 +165,7 @@ def _mcp_cmd() -> doctor.McpCommand:
 
 
 def test_run_mcp_probe_ok(monkeypatch) -> None:
-    proc = _FakeProc([_ok_initialize_line(), _tools_list_line(list(doctor.REQUIRED_TOOL_NAMES))])
+    proc = _FakeProc([_ok_initialize_line(), _tools_list_line(sorted(profile_tool_names("full")))])
     monkeypatch.setattr(doctor.subprocess, "Popen", lambda *a, **k: proc)
 
     handshake, tools = doctor.run_mcp_probe(_mcp_cmd())
@@ -173,7 +173,7 @@ def test_run_mcp_probe_ok(monkeypatch) -> None:
     assert handshake.status == "OK"
     assert tools.check_id == "tools_list_complete"
     assert tools.status == "OK"
-    assert str(len(doctor.REQUIRED_TOOL_NAMES)) in tools.summary
+    assert str(len(profile_tool_names("full"))) in tools.summary
 
 
 def test_run_mcp_probe_timeout(monkeypatch) -> None:
@@ -1722,44 +1722,94 @@ def test_installer_and_doctor_exit_cleanly_on_unknown_profile(module) -> None:
     )
 
 
-def _probe_claude_desktop_entry(tmp_path: Path, env: dict) -> tuple:
-    """Probe the server the way ``--host claude-desktop`` does, against a temp
-    HOME whose config entry launches this interpreter with ``env``."""
-    import platform
+_PROBE_HOSTS = ("claude-desktop", "claude-code", "vscode")
 
+
+def _probe_host_entry(tmp_path: Path, host: str, env: dict) -> tuple:
+    """Probe the server the way ``--host <host>`` does, against a temp HOME /
+    workspace whose ``sumo-qa`` entry launches this interpreter with ``env``.
+    Claude Desktop uses the Darwin path so no test writes Windows' real
+    ``%APPDATA%``."""
     from sumo_qa.installer import _claude_desktop_config_path
 
-    system = platform.system()
-    config_path = _claude_desktop_config_path(tmp_path, system)
-    config_path.parent.mkdir(parents=True)
     # PYTHONPATH: the pre-push hook venv imports sumo_qa from src/, not an install.
-    env = {**env, "PYTHONPATH": str(_REPO_ROOT / "src")}
-    entry = {"command": sys.executable, "args": ["-m", "sumo_qa"], "env": env}
-    config_path.write_text(json.dumps({"mcpServers": {"sumo-qa": entry}}), encoding="utf-8")
-    cmd = doctor._resolve_mcp_command(host="claude-desktop", system=system, home=tmp_path)
+    entry = {
+        "command": sys.executable,
+        "args": ["-m", "sumo_qa"],
+        "env": {**env, "PYTHONPATH": str(_REPO_ROOT / "src")},
+    }
+    key = "mcpServers"
+    if host == "claude-desktop":
+        config_path = _claude_desktop_config_path(tmp_path, "Darwin")
+    elif host == "claude-code":
+        config_path = tmp_path / ".claude.json"
+    else:
+        config_path = tmp_path / ".vscode" / "mcp.json"
+        key = "servers"
+        entry["type"] = "stdio"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps({key: {"sumo-qa": entry}}), encoding="utf-8")
+    cmd = doctor._resolve_mcp_command(host=host, system="Darwin", home=tmp_path, workspace=tmp_path)
+    assert cmd.command == sys.executable, "the probe must launch the host entry's command"
     return doctor.run_mcp_probe(cmd)
 
 
-def test_probe_fails_on_an_invalid_profile_in_the_host_entry_env(tmp_path: Path) -> None:
+@pytest.fixture
+def _no_claude_config_dir(monkeypatch) -> None:
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize("host", _PROBE_HOSTS)
+def test_probe_fails_on_an_invalid_profile_in_the_host_entry_env(tmp_path: Path, host) -> None:
     """The host launches with the entry's env, so a bogus profile there must
-    fail the probe with the server's one-line message, not report healthy."""
-    handshake, tools = _probe_claude_desktop_entry(tmp_path, {PROFILE_ENV: "bogus"})
+    fail the probe with the server's message, not report healthy. There is no
+    single shell command that edits a host entry, so ``fix`` stays empty."""
+    handshake, tools = _probe_host_entry(tmp_path, host, {PROFILE_ENV: "bogus"})
     assert handshake.status == "FAIL"
-    assert handshake.summary == (
+    assert handshake.summary.startswith(
         f"sumo-qa: {PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
-        "expected one of: core, full"
+        "expected one of: core, full. "
     )
+    assert handshake.details["kind"] == "invalid_profile"
+    assert handshake.fix is None
     assert tools.status == "FAIL"
 
 
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize("host", _PROBE_HOSTS)
 def test_probe_launches_with_the_host_entry_profile_and_checks_its_tools(
-    tmp_path: Path,
+    tmp_path: Path, host
 ) -> None:
     """A ``core`` entry must be probed as core (its env reaches the launch) and
-    pass against core's required tools, not full's."""
-    from sumo_qa.tool_registry import profile_tool_names
-
-    handshake, tools = _probe_claude_desktop_entry(tmp_path, {PROFILE_ENV: "core"})
+    pass against core's tools, not full's."""
+    handshake, tools = _probe_host_entry(tmp_path, host, {PROFILE_ENV: "core"})
     assert handshake.status == "OK", handshake
     assert tools.status == "OK", tools
     assert tools.details["advertised_count"] == len(profile_tool_names("core"))
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+def test_probe_ignores_the_shell_profile_when_the_host_entry_sets_none(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A GUI host does not inherit the doctor shell's env: an entry with no
+    profile launches ``full`` even when the shell exports ``core``."""
+    monkeypatch.setenv(PROFILE_ENV, "core")
+    handshake, tools = _probe_host_entry(tmp_path, "claude-code", {})
+    assert handshake.status == "OK", handshake
+    assert tools.details["advertised_count"] == len(profile_tool_names("full"))
+
+
+def test_probe_requires_the_entry_profile_tools_not_the_import_time_set(monkeypatch) -> None:
+    """``REQUIRED_TOOL_NAMES`` is computed at import from the shell's profile; a
+    full entry probed from a core shell must still be checked for every full
+    tool, so a server advertising only core's tools fails."""
+    core = sorted(profile_tool_names("core"))
+    monkeypatch.setattr(doctor, "REQUIRED_TOOL_NAMES", tuple(core))
+    proc = _FakeProc([_ok_initialize_line(), _tools_list_line(core)])
+    monkeypatch.setattr(doctor.subprocess, "Popen", lambda *a, **k: proc)
+
+    _, tools = doctor.run_mcp_probe(doctor.McpCommand(command="/fake/sumo-qa", env={}))
+    assert tools.status == "FAIL"
+    assert tools.details["missing"] == sorted(profile_tool_names("full") - set(core))
