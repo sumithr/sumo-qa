@@ -66,6 +66,8 @@ ROUTER_CALLS = (
     ("sumo_qa_load_classifications", {}),
     ("sumo_qa_load_approaches", {}),
 )
+# The ``sumo_qa_load_<name>`` catalogue loaders a workflow's ``loaders`` may name.
+LOADERS = ("approaches", "classifications", "principles", "rules", "standards", "techniques")
 
 
 # Absent on mcp 2.0.x; a crash inside a tool is told apart from a rejected call only where it exists.
@@ -145,7 +147,11 @@ def _workflow_calls(wf: dict[str, Any], bundled: bool) -> list[tuple[str, dict[s
             "include_body": handoff,
         }
         return [*calls, ("sumo_qa_load_skill_context", bundle)]
-    for loader in wf.get("loaders", "classifications,standards,rules").split(","):
+    for loader in (
+        n.strip() for n in wf.get("loaders", "classifications,standards,rules").split(",")
+    ):
+        if loader not in LOADERS:
+            raise ValueError(f"unknown loader {loader!r} (known: {', '.join(LOADERS)})")
         args = {"classification": wf["classification"]} if loader in ("standards", "rules") else {}
         calls.append((f"sumo_qa_load_{loader}", args))
     for module in filter(None, wf.get("modules", "").split(",")):
@@ -294,9 +300,14 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
     failures: list[str] = []
     for wf in config.get("workflow", []):
         try:
+            chains = {bundled: _workflow_calls(wf, bundled) for bundled in (False, True)}
+        except ValueError as exc:  # an unknown loader name
+            failures.append(f"workflow {wf['name']}: {exc}")
+            continue
+        try:
             core_bundle: list[str] = []
             for bundled in (False, True):
-                texts = _run(servers["core"], _workflow_calls(wf, bundled), "core")
+                texts = _run(servers["core"], chains[bundled], "core")
                 if bundled:
                     core_bundle = texts
                     _check_bundle(wf, texts[-1], failures)
@@ -314,7 +325,7 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
                 if profile == "core":
                     texts = core_bundle  # already run and checked above
                 else:
-                    texts = _run(server, _workflow_calls(wf, bundled=True), profile)
+                    texts = _run(server, chains[True], profile)
                     _check_bundle(wf, texts[-1], failures, profile)
                 row(
                     "end-to-end",

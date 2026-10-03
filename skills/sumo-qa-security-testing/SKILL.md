@@ -26,7 +26,7 @@ Use after `sumo-qa-deciding-approach` routes an explicit security-testing reques
 ## Checklist
 
 1. Confirm the source anchor: file, flow, config, dependency, data path, or explicit user-stated scope. If none exists, note no anchor, ask one scope question; stop. No hypothetical risks/actions.
-2. Use the security standards, rules and techniques from the routing bundle (else load `sumo_qa_load_standards(classification="security_change")`, `sumo_qa_load_rules(classification="security_change")`, and `sumo_qa_load_techniques()`). Use repo-map or file reads when available to verify the path.
+2. If this skill's context arrived in one bundle call, use its security standards, rules and techniques. Otherwise (another skill's handoff, the Skill tool, the symlinked skill) load `sumo_qa_load_standards(classification="security_change")`, `sumo_qa_load_rules(classification="security_change")`, and `sumo_qa_load_techniques()`. Use repo-map or file reads when available to verify the path.
 3. State the grounded failure mode in concrete terms: who/what can do something they should not, which token/secret/input/config can fail, or which security control can regress. For account-recovery or lookup flows, include account enumeration when the request path can reveal user existence.
 4. Choose the smallest evidence type that fits: native test, review, static check, dynamic check, config check, dependency check, fuzz/property check, or external tool/skill.
 5. Name the first concrete action: test to add, file/config to inspect, command or safe local check to run, or external skill to request.

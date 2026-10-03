@@ -528,7 +528,10 @@ trigger = "startup|clear|compact"
 # tools_list: the compact JSON of every advertised MCP tool, per profile.
 # core's budget is a ratchet set just above its measurement.
 # Each workflow's `bundle` caps its one-call sumo_qa_load_skill_context
-# result (include_body=false, as the review skill calls it).
+# result: include_body=false, as a skill loads its own context, unless the
+# workflow sets `handoff`, where the router enters the skill through the
+# bundle and the body is included. `loaders` names the per-loader chain it is
+# compared against; `catalogues` names whole catalogues the bundle carries.
 bootstrap = 1000
 # full 12100: the external-skill preview and rollback tools (#520), outside core.
 tools_list = { core = 9400, full = 12100 }
@@ -554,8 +557,7 @@ classification = "test_change"
 modules = "test-only-diff"
 bundle = 2250
 
-# security-testing is entered through its bundle (handoff: body included),
-# replacing its skill tool and three loaders (#802).
+# security-testing is entered through its bundle (handoff: body included).
 [[tool.sumo-qa.context-budget.workflow]]
 name = "security testing"
 skill = "sumo-qa-security-testing"

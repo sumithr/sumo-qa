@@ -1051,3 +1051,144 @@ def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
     start = time.perf_counter()
     assert find_routing_leaks("[DONE] " * 16_000) == ()
     assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
+
+
+# --------------------------------------------------------------------------- #
+# A bundled handoff enters the routed skill                                    #
+# --------------------------------------------------------------------------- #
+_SECURITY_ENTRY = ConformanceScenario(
+    id="security-entry",
+    source_doc="SCENARIOS.md",
+    source_heading="Security testing",
+    user_prompt="security-test the password reset flow",
+    mode="deterministic",
+    expected_entry_skill="sumo_qa_security_testing",
+)
+
+
+def _bundle_route(**args: object) -> Transcript:
+    return Transcript(
+        scenario_id=_SECURITY_ENTRY.id,
+        tool_calls=(
+            *(ToolCall(t) for t in ROUTER_CHAIN),
+            ToolCall("sumo_qa_load_skill_context", dict(args)),
+        ),
+        output_text="clean",
+    )
+
+
+def test_a_bundle_carrying_the_skill_body_is_entry_into_that_skill() -> None:
+    transcript = _bundle_route(
+        skill_name="sumo-qa-security-testing",
+        mode="bundle",
+        classification="security_change",
+        catalogues="techniques",
+    )
+    assert validate_transcript(_SECURITY_ENTRY, transcript).passed
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"skill_name": "sumo-qa-reviewing-before-merge", "mode": "bundle"},
+        {"skill_name": "sumo-qa-security-testing", "mode": "manifest"},
+        {"skill_name": "sumo-qa-security-testing", "mode": "module", "module": "x"},
+        {"skill_name": "sumo-qa-security-testing", "mode": "bundle", "include_body": False},
+        {"skill_name": "sumo-qa-security-testing", "mode": "bundle", "include_body": "false"},
+    ],
+)
+def test_other_context_loads_are_not_entry_into_the_skill(args) -> None:
+    result = validate_transcript(_SECURITY_ENTRY, _bundle_route(**args))
+    assert any(v.kind is ViolationKind.WRONG_SKILL_ROUTING for v in result.violations)
+
+
+def test_a_router_bundle_does_not_stand_in_for_the_router_tool() -> None:
+    """Only a routed skill is entered through a bundle; the first hop still
+    needs the router's own tool."""
+    routed = ConformanceScenario(
+        id="router-entry",
+        source_doc="SCENARIOS.md",
+        source_heading="Router invocation",
+        user_prompt="qa this",
+        mode="deterministic",
+        expected_entry_skill="using_sumo_qa",
+    )
+    transcript = Transcript(
+        scenario_id=routed.id,
+        tool_calls=(
+            ToolCall(
+                "sumo_qa_load_skill_context", {"skill_name": "using-sumo-qa", "mode": "bundle"}
+            ),
+            ToolCall("sumo_qa_deciding_approach"),
+        ),
+    )
+    assert not validate_transcript(routed, transcript).passed
+
+
+def test_a_bundle_for_another_skill_ahead_of_the_expected_one_is_a_misroute() -> None:
+    transcript = Transcript(
+        scenario_id=_SECURITY_ENTRY.id,
+        tool_calls=(
+            *(ToolCall(t) for t in ROUTER_CHAIN),
+            ToolCall(
+                "sumo_qa_load_skill_context",
+                {"skill_name": "sumo-qa-reviewing-before-merge", "mode": "bundle"},
+            ),
+            ToolCall("sumo_qa_security_testing"),
+        ),
+        output_text="clean",
+    )
+    result = validate_transcript(_SECURITY_ENTRY, transcript)
+    assert [v.kind for v in result.violations] == [ViolationKind.WRONG_SKILL_ROUTING]
+    assert "sumo_qa_reviewing_before_merge" in result.violations[0].detail
+
+
+def test_a_captured_bundle_handoff_satisfies_the_entry_contract(tmp_path, monkeypatch) -> None:
+    """The server captures a load_skill_context call with its args, so a real
+    debug capture of a bundled handoff scores as entry into the routed skill."""
+    import asyncio
+
+    monkeypatch.setenv("SUMO_QA_DEBUG_DIR", str(tmp_path))
+    server = build_mcp_server()
+    bundle = {
+        "skill_name": "sumo-qa-security-testing",
+        "mode": "bundle",
+        "classification": "security_change",
+    }
+
+    async def call() -> None:
+        for tool in ROUTER_CHAIN:
+            await server.call_tool(tool, {})
+        await server.call_tool("sumo_qa_load_skill_context", bundle)
+
+    asyncio.run(call())
+    transcript = transcript_from_debug_dir(tmp_path, scenario_id=_SECURITY_ENTRY.id)
+    captured = transcript.tool_calls[-1]
+    assert captured.tool == "sumo_qa_load_skill_context"
+    assert {k: captured.args[k] for k in bundle} == bundle
+    assert captured.args["include_body"] is True
+    assert validate_transcript(_SECURITY_ENTRY, transcript).passed
+
+
+def test_a_bundle_entry_counts_as_the_skill_tool_for_tool_clauses() -> None:
+    entry = {"skill_name": "sumo-qa-security-testing", "mode": "bundle"}
+    forbids = ConformanceScenario(
+        id="no-security",
+        source_doc="SCENARIOS.md",
+        source_heading="Security testing",
+        user_prompt="x",
+        mode="deterministic",
+        forbidden_tool_calls=("sumo_qa_security_testing",),
+    )
+    requires = ConformanceScenario(
+        id="needs-both",
+        source_doc="SCENARIOS.md",
+        source_heading="Security testing",
+        user_prompt="x",
+        mode="deterministic",
+        required_tool_calls=("sumo_qa_security_testing", "sumo_qa_load_skill_context"),
+    )
+    transcript = _bundle_route(**entry)
+    forbidden = validate_transcript(forbids, transcript)
+    assert [v.kind for v in forbidden.violations] == [ViolationKind.FORBIDDEN_TOOL_CALLED]
+    assert validate_transcript(requires, transcript).passed
