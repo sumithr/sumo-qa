@@ -39,6 +39,7 @@ from sumo_qa.knowledge_loaders import (
     sumo_qa_load_standards,
 )
 from sumo_qa.skill_prompts import _parse_frontmatter, _response_token_cap, _skills_dir
+from sumo_qa.tool_registry import unavailable_capability
 
 # Heading line: 1-6 leading '#', a space, then the heading text. Matched only
 # on lines OUTSIDE fenced code blocks (see _iter_headings).
@@ -462,6 +463,9 @@ def load_skill_context(
             {"available_skills": sorted(records)},
         )
     record = records[skill_name]
+    unavailable = unavailable_capability(skill_name)
+    if unavailable is not None:
+        return _error(unavailable)
 
     if mode is None:
         return _error(

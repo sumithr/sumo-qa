@@ -1083,10 +1083,12 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     @mcp.tool(annotations=_read_only_local)
     def sumo_qa_capabilities() -> CapabilitiesOutput:
         """Return a compact, read-only map of sumo-qa's core QA workflows — each
-        with a sample prompt, the skill it routes to, and a one-line outcome. A
-        discovery aid for "what can sumo-qa do?"; does NOT replace the
-        using-sumo-qa entry router or sumo_qa_deciding_approach."""
-        return build_capabilities()
+        with a sample prompt, the skill it routes to, and a one-line outcome —
+        plus the active tool profile, its enabled capability groups, and how to
+        enable the groups it leaves out. A discovery aid for "what can sumo-qa
+        do?"; does NOT replace the using-sumo-qa entry router or
+        sumo_qa_deciding_approach."""
+        return build_capabilities(profile)
 
     @mcp.tool(annotations=_writer_local)
     def sumo_qa_scan_repo(

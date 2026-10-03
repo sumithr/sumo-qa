@@ -29,7 +29,19 @@ bundled defaults.
   `sumo_qa_export_test_cases`, `sumo_qa_ingest_knowledge_pack`) and the
   external-skill tools. The `sumo-qa-suggesting-external-skill` workflow is
   listed, but the search, check, install and execute tools it drives are
-  absent, so it cannot run under `core`; set `full` to use it.
+  absent, so it cannot run under `core`: calling it, or loading it through
+  `sumo_qa_load_skill_context` or the skill resources, returns one activation
+  path instead of the skill:
+
+  ```text
+  capability unavailable in core profile
+  required group: external
+  activate: SUMO_QA_MCP_PROFILE=full
+  ```
+
+`sumo_qa_capabilities` reports the active profile, the capability groups it
+serves, and each group it leaves out with its open-world flag and the setting
+that enables it.
 
 Any other value stops the server at launch with an error naming the valid
 profiles. Each tool's capability group and profile membership live in

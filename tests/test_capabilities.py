@@ -12,9 +12,12 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from sumo_qa.capabilities import build_capabilities
 from sumo_qa.server import build_mcp_server
 from sumo_qa.server_schemas import CapabilitiesOutput
+from sumo_qa.tool_registry import GROUPS, PROFILE_ENV, PROFILES, TOOLS
 
 SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 
@@ -72,3 +75,52 @@ def test_tool_registered_and_body_reachable_via_server() -> None:
     assert "sumo_qa_capabilities" in server._tool_manager._tools
     result = asyncio.run(server.call_tool("sumo_qa_capabilities", {}))
     assert result is not None
+
+
+# Profile discovery. Technique: equivalence partitioning over the profile
+# (each public profile is one class), with parity against the tools the built
+# server actually lists, so discovery cannot drift from tools/list.
+
+
+def _served(profile: str, monkeypatch) -> tuple[set[str], CapabilitiesOutput]:
+    monkeypatch.setenv(PROFILE_ENV, profile)
+    server = build_mcp_server()
+    names = {t.name for t in server._tool_manager.list_tools()}
+    result = asyncio.run(server.call_tool("sumo_qa_capabilities", {}))
+    return names, CapabilitiesOutput.model_validate_json(result.content[0].text)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_discovery_matches_the_served_tools_list(monkeypatch, profile) -> None:
+    served, out = _served(profile, monkeypatch)
+    assert out.active_profile == profile
+    assert out.enabled_groups == [
+        g for g in GROUPS if any(t.group == g and t.name in served for t in TOOLS)
+    ]
+    missing = [g for g in GROUPS if any(t.group == g and t.name not in served for t in TOOLS)]
+    assert [u.group for u in out.unavailable_groups] == missing
+    for unavailable in out.unavailable_groups:
+        group_tools = [t for t in TOOLS if t.group == unavailable.group]
+        assert unavailable.open_world is any(t.open_world for t in group_tools)
+        assert unavailable.activate == f"{PROFILE_ENV}=full"
+
+
+def test_core_reports_specialist_and_external_as_opt_in(monkeypatch) -> None:
+    _served_names, out = _served("core", monkeypatch)
+    assert {u.group: u.open_world for u in out.unavailable_groups} == {
+        "specialist": False,
+        "external": True,
+    }
+    assert "external" not in out.enabled_groups
+
+
+def test_full_reports_every_group_enabled_and_nothing_unavailable(monkeypatch) -> None:
+    _served_names, out = _served("full", monkeypatch)
+    assert out.enabled_groups == list(GROUPS)
+    assert out.unavailable_groups == []
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_output_stays_under_500_approx_tokens_in_each_profile(profile) -> None:
+    approx = _approx_tokens(build_capabilities(profile).model_dump_json())
+    assert approx < 500, f"{profile} capabilities output is ~{approx} approx tokens"
