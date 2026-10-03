@@ -35,11 +35,24 @@ import yaml
 from sumo_qa.knowledge_loaders import (
     _classification_filter_terms,
     list_catalogue_entries,
+    sumo_qa_load_approaches,
+    sumo_qa_load_classifications,
+    sumo_qa_load_principles,
     sumo_qa_load_rules,
     sumo_qa_load_standards,
+    sumo_qa_load_techniques,
 )
 from sumo_qa.skill_prompts import _parse_frontmatter, _response_token_cap, _skills_dir
 from sumo_qa.tool_registry import unavailable_capability
+
+# Whole catalogues a bundle can carry (``catalogues=``), each part returned
+# exactly as its single loader returns it.
+_CATALOGUE_LOADERS = {
+    "approaches": sumo_qa_load_approaches,
+    "classifications": sumo_qa_load_classifications,
+    "principles": sumo_qa_load_principles,
+    "techniques": sumo_qa_load_techniques,
+}
 
 # Heading line: 1-6 leading '#', a space, then the heading text. Matched only
 # on lines OUTSIDE fenced code blocks (see _iter_headings).
@@ -419,6 +432,7 @@ def load_skill_context(
     modules: str | None = None,
     include_body: bool = True,
     profile: str | None = None,
+    catalogues: str | None = None,
 ) -> dict[str, Any]:
     """Load a slice of one skill's context.
 
@@ -435,7 +449,10 @@ def load_skill_context(
         (unless ``include_body=False``), the ``modules`` named (comma-separated
         ids), and for ``classification`` (one or more ids, matched exactly)
         its catalogue entries (exact id, request order) plus the standards and
-        rules exactly as the single loaders return them. See ``_bundle``.
+        rules exactly as the single loaders return them, plus the whole
+        ``catalogues`` named (comma-separated: approaches, classifications,
+        principles, techniques), each exactly as its loader returns it. See
+        ``_bundle``.
 
     The partial-load modes (``section``/``module``/``full``/``bundle``) each return a
     ``content_hash`` (sha256 of exactly the returned slice) and
@@ -486,7 +503,14 @@ def load_skill_context(
 
     if mode == "bundle":
         return _bundle(
-            skill_name, record, classification, modules, include_body, token_cap, known_hash
+            skill_name,
+            record,
+            classification,
+            modules,
+            include_body,
+            token_cap,
+            known_hash,
+            catalogues,
         )
 
     if mode == "full":
@@ -644,6 +668,7 @@ def _bundle(
     include_body: bool,
     token_cap: int | None,
     known_hash: str | None,
+    catalogues: str | None = None,
 ) -> dict[str, Any]:
     """mode='bundle': a routed skill's working context in one call.
 
@@ -651,9 +676,11 @@ def _bundle(
     (ids split on commas and matched exactly, as in mode='module'), and the
     classification parts (see ``_classification_parts``: ids split as the
     loaders split them, kept in request order, catalogue entries looked up by
-    exact id, rules and standards equal to their single loaders). An unknown
-    module, any classification id that matches nothing, or a loader
-    exception returns an error envelope.
+    exact id, rules and standards equal to their single loaders), and the
+    ``catalogues`` named (split on commas, matched exactly, request order),
+    each equal to its single loader. An unknown module or catalogue name, any
+    classification id that matches nothing, or a loader exception returns an
+    error envelope.
 
     ``content_hash`` and ``estimated_tokens`` describe the served JSON of the
     content fields, and ``known_hash`` works as for the other slices. A payload
@@ -672,6 +699,18 @@ def _bundle(
         if "error" in parts:
             return parts
 
+    names = list(dict.fromkeys(c.strip() for c in (catalogues or "").split(",") if c.strip()))
+    unknown = [c for c in names if c not in _CATALOGUE_LOADERS]
+    if unknown:
+        return _error(
+            f"Unknown catalogue(s) {unknown}.",
+            {"available_catalogues": sorted(_CATALOGUE_LOADERS)},
+        )
+    try:
+        whole = {c: _CATALOGUE_LOADERS[c]() for c in names}
+    except Exception as exc:  # noqa: BLE001 -- load_skill_context never raises
+        return _error(f"catalogue unreadable: {exc}")
+
     payload: dict[str, Any] = {"skill_name": skill_name, "mode": "bundle", "classification": ids}
     if include_body:
         payload["body"] = record["_full"]
@@ -679,19 +718,21 @@ def _bundle(
         {"id": m["id"], "path": m["path"], "content": m["_text"]} for m in matches
     ]
     payload.update(parts)
+    if whole:
+        payload["catalogues"] = whole
 
     text = _served(payload)
     tokens = _approx_tokens(text)
     cap = _response_token_cap(token_cap)
     if tokens > cap:
-        names = ("body", "modules", "classifications", "standards", "rules")
+        sized = ("body", "modules", "classifications", "standards", "rules", "catalogues")
         return {
             "skill_name": skill_name,
             "mode": "bundle",
             "oversize": True,
             "estimated_tokens": tokens,
             "token_cap": cap,
-            "part_tokens": {k: _approx_tokens(_served(payload[k])) for k in names if k in payload},
+            "part_tokens": {k: _approx_tokens(_served(payload[k])) for k in sized if k in payload},
             "error": (
                 f"bundle (~{tokens} est. tokens) exceeds the ~{cap}-token "
                 f"per-response cap; request fewer modules or pass include_body=False."

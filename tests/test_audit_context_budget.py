@@ -314,3 +314,24 @@ def test_end_to_end_workflow_costs_less_under_core(shipped_rows):
         assert by_profile["core"]["calls"] == by_profile["full"]["calls"]
         assert by_profile["core"]["tokens"] < by_profile["full"]["tokens"]
         assert by_profile["core"]["resent"] < by_profile["full"]["resent"]
+
+
+def test_a_handoff_workflow_enters_through_the_bundle_with_the_body():
+    wf = {
+        "skill": "sumo-qa-security-testing",
+        "classification": "security_change",
+        "loaders": "standards,rules,techniques",
+        "catalogues": "techniques",
+        "handoff": True,
+    }
+    per_loader = [name for name, _ in audit_mod._workflow_calls(wf, bundled=False)]
+    assert per_loader[-4:] == [
+        "sumo_qa_security_testing",
+        "sumo_qa_load_standards",
+        "sumo_qa_load_rules",
+        "sumo_qa_load_techniques",
+    ]
+    bundled = audit_mod._workflow_calls(wf, bundled=True)
+    assert "sumo_qa_security_testing" not in [name for name, _ in bundled]
+    assert bundled[-1][1]["include_body"] is True
+    assert bundled[-1][1]["catalogues"] == "techniques"

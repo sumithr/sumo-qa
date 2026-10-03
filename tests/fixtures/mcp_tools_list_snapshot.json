@@ -765,6 +765,17 @@
     "sumo_qa_load_skill_context": {
       "inputSchema": {
         "properties": {
+          "catalogues": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "classification": {
             "anyOf": [
               {

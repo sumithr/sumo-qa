@@ -14,8 +14,9 @@ Measures, with the repository's canonical estimator
 * **root skills**: every ``skills/*/SKILL.md``;
 * **workflows**: the MCP tool results a routed skill loads, through the real
   server's ``call_tool``. Each workflow is reported twice: the per-loader
-  chain (classifications, standards, rules, one call per module) and the
-  bundled path (one ``sumo_qa_load_skill_context(mode="bundle")`` call), with
+  chain (its ``loaders``, by default classifications, standards, rules, then
+  one call per module) and the bundled path (one
+  ``sumo_qa_load_skill_context(mode="bundle")`` call), with
   call counts and a re-sent estimate (an agent loop re-sends every earlier
   result on each later turn, so N results cost the sum of their prefixes).
   The workflows run on the ``core`` server, so every audited workflow is
@@ -125,22 +126,28 @@ def _text(result: Any) -> str:
 
 
 def _workflow_calls(wf: dict[str, Any], bundled: bool) -> list[tuple[str, dict[str, Any]]]:
+    """A workflow's MCP calls after routing. ``loaders`` names its per-loader
+    chain (default: the review chain); ``catalogues`` rides in its bundle; with
+    ``handoff`` the router enters the skill through the bundle, body included,
+    so the bundled path skips the skill's own tool."""
     skill = wf["skill"]
-    calls = [*ROUTER_CALLS, (skill.replace("-", "_"), {})]
+    handoff = wf.get("handoff", False)
+    calls = [*ROUTER_CALLS]
+    if not (bundled and handoff):
+        calls.append((skill.replace("-", "_"), {}))
     if bundled:
         bundle = {
             "skill_name": skill,
             "mode": "bundle",
             "classification": wf["classification"],
             "modules": wf.get("modules", ""),
-            "include_body": False,
+            "catalogues": wf.get("catalogues", ""),
+            "include_body": handoff,
         }
         return [*calls, ("sumo_qa_load_skill_context", bundle)]
-    calls += [
-        ("sumo_qa_load_classifications", {}),
-        ("sumo_qa_load_standards", {"classification": wf["classification"]}),
-        ("sumo_qa_load_rules", {"classification": wf["classification"]}),
-    ]
+    for loader in wf.get("loaders", "classifications,standards,rules").split(","):
+        args = {"classification": wf["classification"]} if loader in ("standards", "rules") else {}
+        calls.append((f"sumo_qa_load_{loader}", args))
     for module in filter(None, wf.get("modules", "").split(",")):
         args = {"skill_name": skill, "mode": "module", "module": module.strip()}
         calls.append(("sumo_qa_load_skill_context", args))
