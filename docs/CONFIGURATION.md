@@ -27,9 +27,10 @@ bundled defaults.
   report tools, and `sumo_qa_capabilities`. It leaves out the specialist tools
   (`sumo_qa_load_catalogue_entry`, `sumo_qa_list_skill_manifests`,
   `sumo_qa_export_test_cases`, `sumo_qa_ingest_knowledge_pack`) and the
-  external-skill tools. The `sumo-qa-suggesting-external-skill` workflow tool
-  stays in the tool list, but the search, check, install and execute tools it drives are
-  absent, so it cannot run under `core`: calling it, or loading it through
+  external-skill tools. The external-skill workflow's tool,
+  `sumo_qa_suggesting_external_skill`, stays in the tool list, but the
+  search, check, install and execute tools it drives are absent, so it cannot
+  run under `core`: calling it, or loading it through
   `sumo_qa_load_skill_context` or the skill resources, returns one activation
   path instead of the skill:
 
@@ -40,8 +41,8 @@ bundled defaults.
   ```
 
   A host-local copy of the skill (the `~/.claude/skills` link the installer
-  writes for Claude Code) has no server in front of it, so when a call to one
-  of its tools fails as not served, the skill sends the host to
+  writes for Claude Code) has no server in front of it, so when one of its
+  tools cannot be found or called, the skill sends the host to
   `sumo_qa_capabilities` for the same setting.
 
 Any other value stops the server at launch with an error naming the valid
