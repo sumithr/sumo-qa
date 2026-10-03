@@ -115,7 +115,7 @@ Capability fallback: the compact pointer needs a launchable MCP server. When `uv
 
 Hosts with no SessionStart hook and no native skill discovery (VS Code + Copilot, JetBrains, Junie) keep their own compact fallback: the MCP server's `initialize` instructions and `.github/copilot-instructions.md` carry the same first-hop rule, and `tests/test_first_hop.py` pins every one of these surfaces to the same text.
 
-`scripts/audit_context_budget.py` (CI job `context token budget`) measures the bootstrap, the tools/list surface, every root skill and the bundled review workflows against `[tool.sumo-qa.context-budget]` in `pyproject.toml`, and fails when a configured budget is exceeded.
+`scripts/audit_context_budget.py` (CI job `context token budget`) measures the bootstrap, the tools/list surface, every root skill and the bundled review and security-testing workflows against `[tool.sumo-qa.context-budget]` in `pyproject.toml`, and fails when a configured budget is exceeded. Each workflow names its per-loader chain (`loaders`), the whole catalogues its bundle carries (`catalogues`), and whether the router enters the skill through that bundle, body included (`handoff`), as it does for security testing.
 
 ## Host delivery
 

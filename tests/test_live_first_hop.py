@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from sumo_qa.conformance import load_scenarios, validate_all
+from sumo_qa.conformance import ROUTER_CHAIN, ConformanceScenario, load_scenarios, validate_all
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
@@ -1127,3 +1127,73 @@ def test_a_relative_out_dir_is_resolved_before_use(tmp_path, monkeypatch):
 
     assert harness.main(["a.whl", "--only", DC03, "--out", "run"]) == 0
     assert host.install_dirs == [tmp_path.resolve() / "run" / "build-0"]
+
+
+_ENTRY = "sumo_qa_security_testing"
+_BUNDLE_INPUT = {"skill_name": "sumo-qa-security-testing", "mode": "bundle"}
+
+
+def _bundle_stream(result_content, *, is_error: bool = False, with_result: bool = True) -> str:
+    """A minimal stream-json run: the router chain, then one bundle call whose
+    tool_result (a `user` event) carries `result_content`."""
+    events = [
+        {
+            "type": "system",
+            "subtype": "init",
+            "mcp_servers": [{"name": "sumo-qa", "status": "connected"}],
+        }
+    ]
+    for i, tool in enumerate((*ROUTER_CHAIN, "sumo_qa_load_skill_context")):
+        use = {"type": "tool_use", "id": f"t{i}", "name": f"mcp__sumo-qa__{tool}", "input": {}}
+        if tool == "sumo_qa_load_skill_context":
+            use["input"] = _BUNDLE_INPUT
+        events.append({"type": "assistant", "message": {"content": [use]}})
+        if with_result:
+            block = {"type": "tool_result", "tool_use_id": f"t{i}", "content": "{}"}
+            if tool == "sumo_qa_load_skill_context":
+                block.update(content=result_content, is_error=is_error)
+            events.append({"type": "user", "message": {"content": [block]}})
+    events.append({"type": "result", "subtype": "success", "result": "done"})
+    return "\n".join(json.dumps(e) for e in events)
+
+
+def _entry_scenario() -> ConformanceScenario:
+    return ConformanceScenario(
+        id="entry",
+        source_doc="SCENARIOS.md",
+        source_heading="Security testing",
+        user_prompt="security-test it",
+        mode="deterministic",
+        expected_entry_skill=_ENTRY,
+    )
+
+
+def _passes(run) -> bool:
+    return validate_all([_entry_scenario()], [run.transcript], frozenset({_ENTRY}))[0].passed
+
+
+@pytest.mark.parametrize(
+    ("content", "is_error"),
+    [
+        ('{"error": "unknown skill"}', False),
+        ([{"type": "text", "text": '{"error": "too big"}'}], False),
+        ("anything", True),
+    ],
+)
+def test_a_failed_bundle_result_sets_error_and_is_not_entry(content, is_error) -> None:
+    run = harness.parse_stream(_bundle_stream(content, is_error=is_error), "entry")
+    assert run.transcript.tool_calls[-1].error is True
+    assert not _passes(run)
+
+
+@pytest.mark.parametrize("content", ['{"skill": "x", "body": "text"}', "plain markdown body"])
+def test_a_successful_bundle_result_is_not_an_error_and_is_entry(content) -> None:
+    run = harness.parse_stream(_bundle_stream(content), "entry")
+    assert run.transcript.tool_calls[-1].error is False
+    assert _passes(run)
+    assert all(c.error is None for c in run.transcript.tool_calls[:-1])
+
+
+def test_a_bundle_call_without_a_result_has_unknown_error() -> None:
+    run = harness.parse_stream(_bundle_stream("{}", with_result=False), "entry")
+    assert run.transcript.tool_calls[-1].error is None
