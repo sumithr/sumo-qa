@@ -39,13 +39,18 @@ bundled defaults.
   activate: SUMO_QA_MCP_PROFILE=full
   ```
 
-`sumo_qa_capabilities` reports the active profile, the capability groups it
-serves, and each group it leaves out with its open-world flag and the setting
-that enables it.
+  A host-local copy of the skill (the `~/.claude/skills` link the installer
+  writes for Claude Code) has no server in front of it, so the skill itself
+  sends the host to `sumo_qa_capabilities` for the same setting when its
+  tools are missing.
 
 Any other value stops the server at launch with an error naming the valid
 profiles. Each tool's capability group and profile membership live in
 `src/sumo_qa/tool_registry.py`.
+
+`sumo_qa_capabilities` reports the active profile, the capability groups it
+serves, and each group it leaves out with its open-world flag and the setting
+that enables it. It lists only the workflows the profile can run.
 
 Set the profile in the host's `sumo-qa` entry `env`. Re-running
 `sumo-qa-install` refreshes the entry's `command` and `args` and keeps its

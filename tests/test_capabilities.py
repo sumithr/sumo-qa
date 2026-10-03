@@ -82,12 +82,17 @@ def test_tool_registered_and_body_reachable_via_server() -> None:
 # server actually lists, so discovery cannot drift from tools/list.
 
 
-def _served(profile: str, monkeypatch) -> tuple[set[str], CapabilitiesOutput]:
+def _served_text(profile: str, monkeypatch) -> tuple[set[str], str]:
     monkeypatch.setenv(PROFILE_ENV, profile)
     server = build_mcp_server()
     names = {t.name for t in server._tool_manager.list_tools()}
     result = asyncio.run(server.call_tool("sumo_qa_capabilities", {}))
-    return names, CapabilitiesOutput.model_validate_json(result.content[0].text)
+    return names, result.content[0].text
+
+
+def _served(profile: str, monkeypatch) -> tuple[set[str], CapabilitiesOutput]:
+    names, text = _served_text(profile, monkeypatch)
+    return names, CapabilitiesOutput.model_validate_json(text)
 
 
 @pytest.mark.parametrize("profile", PROFILES)
@@ -121,6 +126,19 @@ def test_full_reports_every_group_enabled_and_nothing_unavailable(monkeypatch) -
 
 
 @pytest.mark.parametrize("profile", PROFILES)
-def test_output_stays_under_500_approx_tokens_in_each_profile(profile) -> None:
-    approx = _approx_tokens(build_capabilities(profile).model_dump_json())
+def test_served_output_stays_under_500_approx_tokens_in_each_profile(monkeypatch, profile) -> None:
+    """Measures the text the host receives, not a re-serialisation of it."""
+    _names, text = _served_text(profile, monkeypatch)
+    approx = _approx_tokens(text)
     assert approx < 500, f"{profile} capabilities output is ~{approx} approx tokens"
+
+
+def test_core_lists_no_workflow_it_cannot_run(monkeypatch) -> None:
+    """A workflow whose required group core leaves out is reported through
+    its unavailable group, not offered as a workflow."""
+    _names, core = _served("core", monkeypatch)
+    _names, full = _served("full", monkeypatch)
+    external = "sumo-qa-suggesting-external-skill"
+    assert external in [w.target_skill for w in full.workflows]
+    assert external not in [w.target_skill for w in core.workflows]
+    assert [w for w in full.workflows if w.target_skill != external] == core.workflows
