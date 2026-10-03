@@ -76,11 +76,13 @@
     "sumo_qa_measuring_coverage",
     "sumo_qa_planning_qa_rollout",
     "sumo_qa_preparing_for_work",
+    "sumo_qa_preview_external_skill",
     "sumo_qa_query_repo_map",
     "sumo_qa_record_coverage",
     "sumo_qa_record_mutation",
     "sumo_qa_register_known_good_test_data",
     "sumo_qa_reviewing_before_merge",
+    "sumo_qa_rollback_external_skill",
     "sumo_qa_scan_repo",
     "sumo_qa_search_external_skills",
     "sumo_qa_security_testing",
@@ -648,7 +650,15 @@
             "default": "codex",
             "type": "string"
           },
+          "approved_digest": {
+            "default": "",
+            "type": "string"
+          },
           "confirmed": {
+            "default": false,
+            "type": "boolean"
+          },
+          "elevated_trust": {
             "default": false,
             "type": "boolean"
           },
@@ -888,6 +898,28 @@
       },
       "outputSchema": null
     },
+    "sumo_qa_preview_external_skill": {
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "default": "codex",
+            "type": "string"
+          },
+          "skill": {
+            "type": "string"
+          },
+          "source": {
+            "default": "https://github.com/vercel-labs/skills",
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "type": "object"
+      },
+      "outputSchema": null
+    },
     "sumo_qa_query_repo_map": {
       "inputSchema": {
         "properties": {
@@ -1013,6 +1045,28 @@
     "sumo_qa_reviewing_before_merge": {
       "inputSchema": {
         "properties": {},
+        "type": "object"
+      },
+      "outputSchema": null
+    },
+    "sumo_qa_rollback_external_skill": {
+      "inputSchema": {
+        "properties": {
+          "confirmed": {
+            "default": false,
+            "type": "boolean"
+          },
+          "scope": {
+            "default": "project",
+            "type": "string"
+          },
+          "skill": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill"
+        ],
         "type": "object"
       },
       "outputSchema": null

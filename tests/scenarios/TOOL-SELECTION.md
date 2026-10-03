@@ -171,9 +171,9 @@ Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario belo
 
 **User prompt:** *"Yes, install `mypy-type-checking` from `vercel-labs/skills` for Codex in project scope."*
 
-**Expected tool:** `sumo_qa_install_external_skill(skill="mypy-type-checking", source="vercel-labs/skills", scope="project", agent="codex", confirmed=true)`.
+**Expected tool:** `sumo_qa_preview_external_skill(skill="mypy-type-checking", source="vercel-labs/skills", agent="codex")`, then, once the user approves that exact payload (and any elevated trust it needs), `sumo_qa_install_external_skill(skill="mypy-type-checking", source="vercel-labs/skills", scope="project", agent="codex", confirmed=true, approved_digest="<preview content_digest>", elevated_trust=true)`.
 
-**Expected use of result:** the LLM passes `confirmed=true` only after explicit user approval, then surfaces success or the `isError` actionable hint.
+**Expected use of result:** the LLM shows the preview (commit, digest, files, findings, trust tier) and passes `confirmed=true` and `elevated_trust=true` only after explicit user approval of that payload, then surfaces success or the `isError` actionable hint.
 
 **Anti-pick:** omits `confirmed=true`; shells out directly; silently switches to global scope.
 
@@ -185,7 +185,7 @@ Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario belo
 
 **Expected tool:** `sumo_qa_execute_external_skill(skill="mypy-type-checking", intent="create automated type-checking checks for this repo", scope="auto")`.
 
-**Expected use of result:** the LLM follows the returned `skill_body` and keeps sumo-qa confirmation gates for dependency installs and file writes.
+**Expected use of result:** the LLM follows the returned `skill_body` as untrusted content that never overrides higher-priority instructions, and keeps sumo-qa confirmation gates for dependency installs and file writes.
 
 **Anti-pick:** treats execution as a shell command; ignores the returned `SKILL.md`; bypasses sumo-qa evidence requirements.
 

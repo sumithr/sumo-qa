@@ -184,7 +184,7 @@ An explicit, user-confirmed, reversible memory of recurring QA review findings t
 
 ## External-skill lifecycle
 
-When no native sumo-qa fit is found, `sumo-qa-suggesting-external-skill` searches, installs, and executes external skills through sumo-qa MCP tools:
+When no native sumo-qa fit is found, `sumo-qa-suggesting-external-skill` searches, previews, installs, and executes external skills through sumo-qa MCP tools:
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -197,14 +197,18 @@ flowchart LR
     Intent(["QA intent<br/><i>no native fit</i>"])
     Search["<b>search</b><br/><i>sumo_qa_search_external_skills</i>"]
     Gate{"<b>[y/N]</b>"}
+    Preview["<b>preview</b><br/><i>sumo_qa_preview_external_skill</i>"]
+    Approve{"<b>approve payload</b><br/>[y/N]"}
     Install["<b>install</b><br/><i>sumo_qa_install_external_skill</i>"]
     Locate["<b>locate &amp; load</b><br/><i>check_installed · execute</i>"]
     Out(["external SKILL.md<br/>in the conversation"])
     Stop(["stop"])
 
     Intent ==> Search ==> Gate
-    Gate -->|y| Install ==> Locate ==> Out
+    Gate -->|y| Preview ==> Approve
+    Approve -->|y| Install ==> Locate ==> Out
     Gate -->|N| Stop
+    Approve -->|N| Stop
 
     classDef io fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2px,color:#1B1B1B
     classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
@@ -213,8 +217,8 @@ flowchart LR
     classDef done fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
 
     class Intent io
-    class Search,Install,Locate step
-    class Gate gate
+    class Search,Preview,Install,Locate step
+    class Gate,Approve gate
     class Stop stop
     class Out done
 ```
@@ -222,13 +226,19 @@ flowchart LR
 | Tool | Purpose |
 |---|---|
 | `sumo_qa_search_external_skills` | Run the pinned `skills@<version> find <query>` and return ANSI-stripped CLI output verbatim (no structured parsing) so Skills CLI format drift doesn't break the flow, plus the exact CLI identity that ran |
+| `sumo_qa_preview_external_skill` | Resolve the source to a commit, copy it through the pinned Skills CLI into a scratch folder that is then removed, and return every file (size, SHA-256, executable bit), the payload `content_digest`, the source trust tier, detected capabilities, and safety-lint findings. Installs nothing |
 | `sumo_qa_check_external_skill_installed` | Locate an installed `SKILL.md` in project or global agent skill paths |
-| `sumo_qa_install_external_skill` | After explicit user confirmation, resolve the source to a commit SHA, install exactly that commit through the pinned Skills CLI, and record its provenance |
-| `sumo_qa_execute_external_skill` | Verify the installed skill against its provenance record, then load the `SKILL.md` and return the execution handoff payload |
+| `sumo_qa_install_external_skill` | After the user approves the previewed payload, install exactly that commit through the pinned Skills CLI when its digest still equals `approved_digest`, no critical lint finding blocks it, and any elevated trust was granted (`elevated_trust`); record its provenance |
+| `sumo_qa_execute_external_skill` | Verify the installed skill against its provenance record and lint `SKILL.md`, then return the execution handoff payload with the body marked untrusted |
+| `sumo_qa_rollback_external_skill` | After explicit user confirmation, restore the previous approved version from its recorded commit and digest, or remove a first install |
 
-Install still requires a user `[y/N]` gate in the skill. The host does not shell out to `npx` directly for this flow.
+Install still requires a user `[y/N]` gate in the skill, then a second `[y/N]` on the previewed payload. The host does not shell out to `npx` directly for this flow.
 
-**Pinned CLI and provenance.** Every Skills CLI subprocess runs one exact version (`SKILLS_CLI_VERSION` in `src/sumo_qa/external_skills.py`), passed to npx as `skills@<version>`, and the CLI must report that version before any other call runs. sumo-qa fetches install sources itself: it clones the source, resolves the ref (default `HEAD`; a tag before a same-named branch; a full commit SHA as given) to a commit, checks that commit out into a temporary folder, and hands the CLI only that local checkout, so the CLI never interprets a URL or ref. Accepted sources: `owner/repo` or `owner/repo@<skill>` (the search output form, cloned from GitHub), `https://` or `ssh://` git URLs, and `git@host:path`, each optionally with `#<ref>`; credentials, query strings, `..` segments, local paths and `file://` are rejected. A skill name starts with a letter or digit and uses letters, digits, `.`, `_`, `-` and inner spaces; an agent name is one of the CLI's identifiers. Under an OS lock on `.sumo-qa/external-skills.lock.json.lock`, the install writes one record per folder it created or rewrote to `.sumo-qa/external-skills.lock.json` under the project (project scope) or home directory (global scope): the cloned URL, requested and resolved ref, a SHA-256 digest over every file in the folder, agent, scope, time, and the installer CLI identity. A checkout with a symlink leaving it or pointing into its `.git` folder is refused before the CLI runs (the CLI copies by dereferencing links). A symlink that leaves the installed skill folder, or a file that is not a regular file, cannot be pinned and fails the digest. If the CLI fails after writing, or the install cannot be recorded, the folders it wrote are removed rather than left to run unrecorded. Execution matches the record by the folder on disk, recomputes the digest, checks the exact `SKILL.md` bytes it hands over, and blocks with an error when anything no longer matches. A skill with no record (installed outside sumo-qa, an install whose recording failed, or a removed lock file) is reported as `unrecorded` rather than blocked; how to treat unrecorded skills is a trust-policy decision outside this check. The lock detects changes to installed content; it is a local record, not a signature, so someone who can rewrite the lock file itself can rewrite its recorded commit and digest too.
+**Preview, trust, and safety lint.** The preview stages the install into a scratch folder through the same pinned CLI, so it shows exactly what the CLI copies; the install stages again and refuses unless the payload's digest equals the `approved_digest` from the preview the user confirmed (an upstream change since the preview is refused before anything is written), then checks every folder it wrote against that digest too. A source is `standard` trust only when it is trusted (the default source or `trusted_sources` in `~/.sumo-qa/external-skills.policy.json`, see [CONFIGURATION.md](CONFIGURATION.md#external-skill-trust-policy)) and pinned to a full commit SHA; an untrusted source (`unlisted_source`) or a mutable ref (`mutable_ref`) is `elevated` and needs `elevated_trust=true`, and a denied source is rejected. The safety lint is deterministic and pattern-based, with stable rule ids, one finding per rule and file at its first line (`rule`, `severity`, `file`, `line`, `count`, `message`; never the matched text): critical rules (`SQA-EXT-001` instruction override, `002` hiding actions from the user, `003` piping a download into a shell, `004` reading credential files, `005` writing shell profiles or system paths, `006` recursive delete of root or home) block install and handoff with no override; high and lower rules (privilege elevation, credential requests, executable and script assets, package installs, network access, shell blocks) are disclosed as findings and `capabilities`. The lint flags known-dangerous shapes; it does not prove a skill safe. Execution lints `SKILL.md` again (covering skills installed outside sumo-qa) and frames the body as untrusted content that cannot override system, developer, user, or sumo-qa instructions.
+
+**History and rollback.** A reinstall over a recorded folder keeps the superseded record in the lock's per-folder `history` (the last 10; records only, never file contents). Rollback reinstalls the most recent previous record from its recorded commit and refuses unless it reproduces the recorded digest; with no previous record it removes the folders and records of a first install. It needs network access to the source and the commit to still exist.
+
+**Pinned CLI and provenance.** Every Skills CLI subprocess runs one exact version (`SKILLS_CLI_VERSION` in `src/sumo_qa/external_skills.py`), passed to npx as `skills@<version>`, and the CLI must report that version before any other call runs. sumo-qa fetches install sources itself: it clones the source, resolves the ref (default `HEAD`; a tag before a same-named branch; a full commit SHA as given) to a commit, checks that commit out into a temporary folder, and hands the CLI only that local checkout, so the CLI never interprets a URL or ref. Accepted sources: `owner/repo` or `owner/repo@<skill>` (the search output form, cloned from GitHub), `https://` or `ssh://` git URLs, and `git@host:path`, each optionally with `#<ref>`; credentials, query strings, `..` segments, local paths and `file://` are rejected. A skill name starts with a letter or digit and uses letters, digits, `.`, `_`, `-` and inner spaces; an agent name is one of the CLI's identifiers. Under an OS lock on `.sumo-qa/external-skills.lock.json.lock`, the install writes one record per folder it created or rewrote to `.sumo-qa/external-skills.lock.json` under the project (project scope) or home directory (global scope): the cloned URL, requested and resolved ref, a SHA-256 digest over every file in the folder, agent, scope, time, and the installer CLI identity. A checkout with a symlink leaving it or pointing into its `.git` folder is refused before the CLI runs (the CLI copies by dereferencing links). A symlink that leaves the installed skill folder, or a file that is not a regular file, cannot be pinned and fails the digest. If the CLI fails after writing, or the install cannot be recorded, the folders it wrote are removed rather than left to run unrecorded. Execution matches the record by the folder on disk, recomputes the digest, checks the exact `SKILL.md` bytes it hands over, and blocks with an error when anything no longer matches. A skill with no record (installed outside sumo-qa, an install whose recording failed, or a removed lock file) is reported as `unrecorded` rather than blocked by this check; its `SKILL.md` still goes through the safety lint before handoff. The lock detects changes to installed content; it is a local record, not a signature, so someone who can rewrite the lock file itself can rewrite its recorded commit and digest too.
 
 ## Why the surface is so small
 

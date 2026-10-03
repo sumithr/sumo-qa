@@ -417,6 +417,7 @@ _PROVENANCE = {
     "path": ".codex/skills/mypy-type-checking",
     "installed_at": "2026-09-29T12:00:00+00:00",
     "installer": {"package": "skills", "version": "1.7.0", "spec": "skills@1.7.0"},
+    "trust": {"tier": "elevated", "reasons": ["mutable_ref"]},
 }
 
 

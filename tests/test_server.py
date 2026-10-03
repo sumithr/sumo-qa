@@ -119,6 +119,8 @@ _EXTERNAL_SKILL_TOOL_NAMES = {
     "sumo_qa_check_external_skill_installed",
     "sumo_qa_install_external_skill",
     "sumo_qa_execute_external_skill",
+    "sumo_qa_preview_external_skill",
+    "sumo_qa_rollback_external_skill",
 }
 
 # Skills registered as MCP tools (parallel to their MCP-prompt registration).

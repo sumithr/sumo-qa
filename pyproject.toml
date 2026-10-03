@@ -530,7 +530,8 @@ trigger = "startup|clear|compact"
 # Each workflow's `bundle` caps its one-call sumo_qa_load_skill_context
 # result (include_body=false, as the review skill calls it).
 bootstrap = 1000
-tools_list = { core = 9400, full = 11900 }
+# full 12100: the external-skill preview and rollback tools (#520), outside core.
+tools_list = { core = 9400, full = 12100 }
 
 [[tool.sumo-qa.context-budget.workflow]]
 name = "review: business logic change"
