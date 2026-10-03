@@ -46,6 +46,8 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
+from mcp.server.mcpserver.exceptions import ToolError
+
 from sumo_qa.skill_manifest import _approx_tokens as approx_tokens
 from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, TOOLS
 
@@ -135,8 +137,38 @@ def _compact(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
 
-def _run(server: Any, calls: list[tuple[str, dict[str, Any]]]) -> list[str]:
-    return [_text(asyncio.run(server.call_tool(n, a))) for n, a in calls]
+def _run(server: Any, calls: list[tuple[str, dict[str, Any]]], profile: str) -> list[str]:
+    """Run ``calls`` on ``server``; a tool the profile does not serve raises
+    ``LookupError`` naming the tool and the profile."""
+    texts = []
+    for name, args in calls:
+        try:
+            texts.append(_text(asyncio.run(server.call_tool(name, args))))
+        except ToolError as exc:
+            raise LookupError(f"tool {name} failed under profile {profile}: {exc}") from exc
+    return texts
+
+
+def validate_tools_list(budgets: Any) -> None:
+    """Raise ``ValueError`` unless ``tools_list`` maps registry profiles to budgets."""
+    if not isinstance(budgets, dict):
+        raise ValueError(
+            "context-budget tools_list must be a table keyed by profile "
+            f"({', '.join(PROFILES)}), got {type(budgets).__name__}"
+        )
+    unknown = sorted(set(budgets) - set(PROFILES))
+    if unknown:
+        raise ValueError(
+            f"context-budget tools_list names unknown profile(s) {', '.join(unknown)}; "
+            f"valid profiles: {', '.join(PROFILES)}"
+        )
+
+
+def _check_bundle(wf: dict[str, Any], text: str, failures: list[str], profile: str = "") -> None:
+    bundle = json.loads(text)
+    if "error" in bundle:
+        where = f" ({profile})" if profile else ""
+        failures.append(f"workflow {wf['name']}{where}: bundle failed: {bundle['error']}")
 
 
 def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any]], list[str]]:
@@ -161,6 +193,7 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
     row("bootstrap", "full fallback", measure_bootstrap(repo, "full"))
 
     list_budgets = config.get("tools_list", {})
+    validate_tools_list(list_budgets)
     tools_json: dict[str, str] = {}
     entries: dict[str, list[dict[str, Any]]] = {}
     for profile, server in servers.items():
@@ -177,9 +210,10 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
             profile=profile,
         )
     by_name = {e["name"]: e for e in entries["full"]}
+    meta = {t.name: t for t in TOOLS}
     for group in dict.fromkeys(t.group for t in TOOLS):
-        members = [t for t in TOOLS if t.group == group]
-        group_entries = [by_name[t.name] for t in members if t.name in by_name]
+        members = [meta[n] for n in by_name if n in meta and meta[n].group == group]
+        group_entries = [by_name[t.name] for t in members]
         core = sum(t.core for t in members)
         row(
             "tool group",
@@ -205,33 +239,35 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
 
     failures: list[str] = []
     for wf in config.get("workflow", []):
-        for bundled in (False, True):
-            texts = _run(servers["core"], _workflow_calls(wf, bundled))
-            if bundled:
-                bundle = json.loads(texts[-1])
-                if "error" in bundle:
-                    failures.append(f"workflow {wf['name']}: bundle failed: {bundle['error']}")
-                row("bundle", wf["name"], texts[-1], wf.get("bundle"))
-            sizes = [approx_tokens(t) for t in texts]
-            row(
-                "workflow",
-                f"{wf['name']} ({'bundled' if bundled else 'per-loader'})",
-                "".join(texts),
-                calls=len(texts),
-                resent=resent_tokens(sizes),
-            )
-        for profile, server in servers.items():
-            prefix = bootstrap + tools_json[profile]
-            texts = _run(server, _workflow_calls(wf, bundled=True))
-            row(
-                "end-to-end",
-                f"{wf['name']} ({profile})",
-                prefix + "".join(texts),
-                workflow=wf["name"],
-                profile=profile,
-                calls=len(texts),
-                resent=resent_tokens([approx_tokens(t) for t in (prefix, *texts)]),
-            )
+        try:
+            for bundled in (False, True):
+                texts = _run(servers["core"], _workflow_calls(wf, bundled), "core")
+                if bundled:
+                    _check_bundle(wf, texts[-1], failures)
+                    row("bundle", wf["name"], texts[-1], wf.get("bundle"))
+                sizes = [approx_tokens(t) for t in texts]
+                row(
+                    "workflow",
+                    f"{wf['name']} ({'bundled' if bundled else 'per-loader'})",
+                    "".join(texts),
+                    calls=len(texts),
+                    resent=resent_tokens(sizes),
+                )
+            for profile, server in servers.items():
+                prefix = bootstrap + tools_json[profile]
+                texts = _run(server, _workflow_calls(wf, bundled=True), profile)
+                _check_bundle(wf, texts[-1], failures, profile)
+                row(
+                    "end-to-end",
+                    f"{wf['name']} ({profile})",
+                    prefix + "".join(texts),
+                    workflow=wf["name"],
+                    profile=profile,
+                    calls=len(texts),
+                    resent=resent_tokens([approx_tokens(t) for t in (prefix, *texts)]),
+                )
+        except LookupError as exc:
+            failures.append(f"workflow {wf['name']}: {exc}")
 
     failures += [
         f"{r['area']} {r['name']}: ~{r['tokens']} est. tokens > budget {r['budget']}"
@@ -266,7 +302,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, default=REPO / "pyproject.toml")
     args = parser.parse_args(argv)
-    rows, failures = audit(load_config(args.config))
+    try:
+        rows, failures = audit(load_config(args.config))
+    except ValueError as exc:
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
     print(render(rows))
     for failure in failures:
         print(f"FAIL {failure}")

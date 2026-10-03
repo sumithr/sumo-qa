@@ -8,6 +8,7 @@ An absent budget is report-only.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import shutil
 import sys
@@ -152,20 +153,59 @@ def test_core_budget_fails_one_token_below_its_measurement(shipped_rows, tmp_pat
         assert not any(f.startswith("tools/list full:") for f in failures)
 
 
-def test_groups_attribute_every_full_tool_once(shipped_rows):
+def test_groups_partition_the_served_full_list(shipped_rows):
     groups = {r["group"]: r for r in shipped_rows if r["area"] == "tool group"}
     assert set(groups) == set(GROUPS)
-    for group, r in groups.items():
-        members = [t for t in TOOLS if t.group == group]
-        assert r["tools"] == len(members)
-        assert r["core"] == sum(t.core for t in members)
+    for r in groups.values():
+        assert r["name"] == f"{r['group']}: {r['tools']} tools ({r['core']} core)"
         assert 0 < r["desc"] < r["tokens"]
         assert 0 < r["schema"] < r["tokens"]
+    from sumo_qa.server import build_mcp_server
+
+    served = [t.name for t in asyncio.run(build_mcp_server().list_tools())]
+    group_of = {t.name: t.group for t in TOOLS}
+    for group, r in groups.items():
+        assert r["tools"] == sum(group_of.get(n) == group for n in served)
+    assert all(group_of.get(n) in groups for n in served)  # each served tool in one group
+    assert sum(r["tools"] for r in groups.values()) == len(served)
     full = next(r for r in shipped_rows if r["area"] == "tools/list" and r["profile"] == "full")
-    assert sum(r["tools"] for r in groups.values()) == len(profile_tool_names("full"))
     # the groups partition the full list: their costs sum to it, give or take
     # one token of rounding per group
     assert abs(sum(r["tokens"] for r in groups.values()) - full["tokens"]) <= len(GROUPS)
+
+
+def test_workflow_calling_a_tool_not_served_under_core_fails_a_named_row(capsys):
+    full_only = next(t.name for t in TOOLS if not t.core)
+    wf = {
+        "name": "unservable",
+        "skill": full_only.removeprefix("sumo_qa_").replace("_", "-"),
+        "classification": "test_change",
+    }
+    # the skill chain's own tool is the full-only one
+    _, failures = audit_mod.audit({"workflow": [wf]}, REPO)
+    assert any(
+        f.startswith("workflow unservable:") and "profile core" in f and "failed" in f
+        for f in failures
+    )
+
+
+@pytest.mark.parametrize(
+    ("budgets", "message"),
+    [
+        (9400, "must be a table keyed by profile"),
+        ({"core": 1, "huge": 2}, r"unknown profile\(s\) huge"),
+    ],
+)
+def test_invalid_tools_list_config_is_a_clear_error(budgets, message):
+    with pytest.raises(ValueError, match=message):
+        audit_mod.audit({"tools_list": budgets}, REPO)
+
+
+def test_invalid_tools_list_config_exits_with_a_config_error(tmp_path, capsys):
+    config = tmp_path / "budget.toml"
+    config.write_text("[tool.sumo-qa.context-budget]\ntools_list = 9400\n", encoding="utf-8")
+    assert audit_mod.main(["--config", str(config)]) == 2
+    assert "config error: context-budget tools_list must be a table" in capsys.readouterr().err
 
 
 def test_end_to_end_workflow_costs_less_under_core(shipped_rows):
