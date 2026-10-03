@@ -39,6 +39,7 @@ def fresh_repo(tmp_path: Path) -> Path:
             "__pycache__",
             ".pytest_cache",
             ".mutmut-cache",
+            ".hypothesis",
             "mutants",
             "htmlcov",
             ".coverage*",
