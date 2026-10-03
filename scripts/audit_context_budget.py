@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
 from sumo_qa.skill_manifest import _approx_tokens as approx_tokens
 from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, TOOLS
@@ -147,15 +147,21 @@ def _compact(value: Any) -> str:
 
 
 def _run(server: Any, calls: list[tuple[str, dict[str, Any]]], profile: str) -> list[str]:
-    """Run ``calls`` on ``server``; any ``ToolError`` raised calling a tool under
-    ``profile`` (an unknown tool or a call failure) raises ``UnservableTool``
-    naming the tool and the profile."""
+    """Run ``calls`` on ``server``; a ``ToolError`` raised calling a tool under
+    ``profile`` (an unknown tool or a rejected call) raises ``UnservableTool``
+    naming the tool, the profile and the error. ``UnexpectedToolError`` (a crash
+    inside the tool) propagates unchanged."""
     texts = []
     for name, args in calls:
         try:
             texts.append(_text(asyncio.run(server.call_tool(name, args))))
+        except UnexpectedToolError:
+            raise
         except ToolError as exc:
-            raise UnservableTool(f"tool {name} failed under profile {profile}: {exc}") from exc
+            cause = f" (cause: {exc.__cause__!r})" if exc.__cause__ else ""
+            raise UnservableTool(
+                f"tool {name} failed under profile {profile}: {exc}{cause}"
+            ) from exc
     return texts
 
 
@@ -334,7 +340,14 @@ def render(rows: list[dict[str, Any]]) -> str:
 
 def load_config(path: Path) -> dict[str, Any]:
     with path.open("rb") as fh:
-        return tomllib.load(fh)["tool"]["sumo-qa"]["context-budget"]
+        try:
+            data = tomllib.load(fh)
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigError(f"{path} is not valid TOML: {exc}") from exc
+    try:
+        return data["tool"]["sumo-qa"]["context-budget"]
+    except KeyError as exc:
+        raise ConfigError(f"{path} has no [tool.sumo-qa.context-budget] table") from exc
 
 
 def main(argv: list[str] | None = None) -> int:

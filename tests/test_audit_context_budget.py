@@ -10,13 +10,17 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
+import re
 import shutil
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
+from mcp.server.mcpserver.exceptions import UnexpectedToolError
 
-from sumo_qa.tool_registry import GROUPS, PROFILES, TOOLS, profile_tool_names
+from sumo_qa.tool_registry import GROUPS, PROFILE_ENV, PROFILES, TOOLS, profile_tool_names
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32" or shutil.which("bash") is None,
@@ -175,8 +179,12 @@ def test_groups_partition_the_served_full_list(shipped_rows):
 
 
 def test_workflow_calling_a_tool_not_served_under_core_fails_a_named_row():
+    from sumo_qa.server import build_mcp_server
+
     full_only = sorted(profile_tool_names("full") - profile_tool_names("core"))[0]
-    assert full_only in profile_tool_names("full")  # real tool, so the failure is the profile
+    with mock.patch.dict(os.environ, {PROFILE_ENV: "full"}):
+        full_served = {t.name for t in asyncio.run(build_mcp_server().list_tools())}
+    assert full_only in full_served  # the live full server serves it, so the failure is the profile
     assert full_only not in profile_tool_names("core")
     wf = {
         "name": "unservable",
@@ -188,6 +196,7 @@ def test_workflow_calling_a_tool_not_served_under_core_fails_a_named_row():
         f.startswith("workflow unservable:")
         and f"tool {full_only} failed" in f
         and "profile core" in f
+        and "Unknown tool" in f
         for f in failures
     )
 
@@ -205,10 +214,26 @@ def test_workflow_calling_a_tool_not_served_under_core_fails_a_named_row():
             r"workflow\[0\] bundle must be a positive integer",
         ),
         ({"workflow": [{"name": "w", "skill": "s"}]}, "requires a non-empty string classification"),
+        ({"workflow": {"name": "w"}}, "workflow must be an array of tables"),
+        ({"workflow": ["w"]}, r"workflow\[0\] must be a table"),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "modules": ["m"]}]},
+            r"workflow\[0\] modules must be a string",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "", "classification": "c"}]},
+            "requires a non-empty string skill",
+        ),
+        ({"workflow": [{"name": "w", "classification": "c"}]}, "requires a non-empty string skill"),
         ({"workflow": [{"skill": "s", "classification": "c"}]}, "requires a non-empty string name"),
     ],
 )
-def test_invalid_config_is_a_clear_error_before_anything_runs(config, message):
+def test_invalid_config_is_a_clear_error_before_anything_runs(config, message, monkeypatch):
+    def must_not_run(*_args, **_kwargs):
+        pytest.fail("validation must run before anything is measured or built")
+
+    monkeypatch.setattr(audit_mod, "measure_bootstrap", must_not_run)
+    monkeypatch.setattr("sumo_qa.server.build_mcp_server", must_not_run)
     with pytest.raises(audit_mod.ConfigError, match=message):
         audit_mod.audit(config, REPO)
 
@@ -218,6 +243,31 @@ def test_invalid_config_exits_with_a_config_error(tmp_path, capsys):
     config.write_text('[tool.sumo-qa.context-budget]\ntools_list = { core = "9400" }\n')
     assert audit_mod.main(["--config", str(config)]) == 2
     assert "config error: context-budget tools_list core must be" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("tools_list = {", "is not valid TOML"),
+        ("[tool.other]\nx = 1\n", r"no \[tool.sumo-qa.context-budget\] table"),
+    ],
+)
+def test_unreadable_config_file_exits_with_a_config_error(text, message, tmp_path, capsys):
+    config = tmp_path / "budget.toml"
+    config.write_text(text)
+    assert audit_mod.main(["--config", str(config)]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("config error:")
+    assert re.search(message, err)
+
+
+def test_a_crash_inside_a_tool_is_not_reported_as_unservable():
+    class Crashing:
+        async def call_tool(self, name, args):
+            raise UnexpectedToolError("boom")
+
+    with pytest.raises(UnexpectedToolError):
+        audit_mod._run(Crashing(), [("t", {})], "core")
 
 
 def test_a_non_config_value_error_propagates(monkeypatch):
