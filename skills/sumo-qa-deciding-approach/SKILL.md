@@ -79,8 +79,9 @@ This router loads ONLY `load_classifications` + `load_approaches` (step 2). Ever
 - `sumo-qa-preparing-for-work` → `load_standards` + `load_rules` + `load_techniques`.
 - `sumo-qa-strategising` → `load_principles` + `load_classifications`.
 - `sumo-qa-answering-testing-question` → `load_principles` + `load_techniques`.
+- `sumo-qa-security-testing` → ONE call for its body and catalogues, `sumo_qa_load_skill_context(skill_name="sumo-qa-security-testing", mode="bundle", classification="security_change", catalogues="techniques")`, not its own tool plus loaders.
 
-This router does NOT load `load_principles` — the routing payload's `rationale` is internal scratch (not user output), and the sub-skill that cites a principle in its user-facing output is the one that loads it.
+The router never loads principles: the skill citing one loads it.
 
 ## Fallback to external skills
 
@@ -110,7 +111,7 @@ When **no canonical approach fits**, decide whether the intent involves a tool, 
 
 User: "create a test plan for refactoring the pricing pipeline".
 - Internally: refactor of pricing logic — behaviour-preserving, so characterization tests pin behaviour before any code moves.
-- Route to `sumo-qa-creating-test-plan` (which loads its own catalogues — `standards`, `rules`, `techniques`, `principles` — and is the place to ground any principle citation in user-facing output).
+- Route to `sumo-qa-creating-test-plan` (which loads its own catalogues and grounds any principle citation in user-facing output).
 
 User: "audit our test coverage across the repo and design where to invest QA effort next quarter".
 - Internally return `{classification: "n/a", approach: "strategy-orchestration", rationale: "Repo-wide QA strategy ask, not a single change-shaped intent.", next_action: {skill: "sumo-qa-strategising"}}`.

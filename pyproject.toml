@@ -551,3 +551,14 @@ skill = "sumo-qa-reviewing-before-merge"
 classification = "test_change"
 modules = "test-only-diff"
 bundle = 2250
+
+# security-testing is entered through its bundle (handoff: body included),
+# replacing its skill tool and three loaders (#802).
+[[tool.sumo-qa.context-budget.workflow]]
+name = "security testing"
+skill = "sumo-qa-security-testing"
+classification = "security_change"
+loaders = "standards,rules,techniques"
+catalogues = "techniques"
+handoff = true
+bundle = 4600

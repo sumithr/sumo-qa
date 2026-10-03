@@ -114,3 +114,24 @@ modules = "no-such-module"
     assert "FAIL bundle tight" in out
     assert "FAIL workflow broken: bundle failed" in out
     assert "context budget: FAILED" in out
+
+
+def test_a_handoff_workflow_enters_through_the_bundle_with_the_body():
+    wf = {
+        "skill": "sumo-qa-security-testing",
+        "classification": "security_change",
+        "loaders": "standards,rules,techniques",
+        "catalogues": "techniques",
+        "handoff": True,
+    }
+    per_loader = [name for name, _ in audit_mod._workflow_calls(wf, bundled=False)]
+    assert per_loader[-4:] == [
+        "sumo_qa_security_testing",
+        "sumo_qa_load_standards",
+        "sumo_qa_load_rules",
+        "sumo_qa_load_techniques",
+    ]
+    bundled = audit_mod._workflow_calls(wf, bundled=True)
+    assert "sumo_qa_security_testing" not in [name for name, _ in bundled]
+    assert bundled[-1][1]["include_body"] is True
+    assert bundled[-1][1]["catalogues"] == "techniques"

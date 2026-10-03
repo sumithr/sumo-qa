@@ -2046,6 +2046,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         classification: str | None = None,
         modules: str | None = None,
         include_body: bool = True,
+        catalogues: str | None = None,
     ) -> str:
         """Load just one slice of a skill's context as a JSON string, instead of
         the whole SKILL.md body.
@@ -2069,7 +2070,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             by heading), plus the standards and rules, which equal
             `sumo_qa_load_standards` / `sumo_qa_load_rules` called with the
             same argument and are returned exactly as those loaders return
-            them. Any id that matches nothing returns an error envelope; an
+            them, plus the whole `catalogues` named (comma-separated:
+            techniques, principles, classifications, approaches), each
+            exactly as its `sumo_qa_load_<name>` loader returns it. Any id
+            or name that matches nothing returns an error envelope; an
             exception from a loader returns an unreadable envelope.
 
         The section/module/full/bundle slices each return `content_hash` (sha256 of the
@@ -2092,6 +2096,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 classification=classification,
                 modules=modules,
                 include_body=include_body,
+                catalogues=catalogues,
             ),
             ensure_ascii=False,
             indent=2,
