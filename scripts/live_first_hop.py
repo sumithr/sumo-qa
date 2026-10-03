@@ -48,7 +48,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from sumo_qa.conformance import (
@@ -247,6 +247,8 @@ def parse_stream(text: str, scenario_id: str) -> HostRun:
     and the run is a success only if every result is."""
     calls: list[ToolCall] = []
     nested: list[bool] = []
+    call_ids: list[str | None] = []
+    bundle_errors: dict[str, bool] = {}
     run = HostRun(Transcript(scenario_id, ()))
     results: list[dict] = []
     last_bad = False
@@ -276,6 +278,12 @@ def parse_stream(text: str, scenario_id: str) -> HostRun:
                         ToolCall(normalise_tool_name(block["name"]), block.get("input") or {})
                     )
                     nested.append(event.get("parent_tool_use_id") is not None)
+                    call_ids.append(block.get("id"))
+        elif kind == "user":
+            content = event.get("message", {}).get("content", [])
+            for block in content if isinstance(content, list) else ():
+                if block.get("type") == "tool_result" and block.get("tool_use_id"):
+                    bundle_errors[block["tool_use_id"]] = _result_is_error(block)
         elif kind == "result":
             results.append(event)
     texts = [e.get("result") or "" for e in results]
@@ -288,9 +296,30 @@ def parse_stream(text: str, scenario_id: str) -> HostRun:
         run.outcome = "truncated stream"
     elif outcomes:
         run.outcome = next((o for o in outcomes if o != "success"), "success")
+    calls = [
+        replace(c, error=bundle_errors.get(i))
+        if c.tool == "sumo_qa_load_skill_context" and i
+        else c
+        for c, i in zip(calls, call_ids, strict=True)
+    ]
     run.transcript = Transcript(scenario_id, tuple(calls), "\n".join(t for t in texts if t))
     run.from_subagent = tuple(nested)
     return run
+
+
+def _result_is_error(block: dict) -> bool:
+    """A tool_result is an error when the host marks it so or its text is a
+    JSON object carrying an `error` key."""
+    if block.get("is_error"):
+        return True
+    content = block.get("content")
+    if isinstance(content, list):
+        content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    try:
+        parsed = json.loads(content) if isinstance(content, str) else None
+    except ValueError:
+        return False
+    return isinstance(parsed, dict) and "error" in parsed
 
 
 def _result_outcome(event: dict) -> str:

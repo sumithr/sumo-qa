@@ -1350,3 +1350,17 @@ def test_only_a_boolean_captured_error_becomes_the_call_error(tmp_path, monkeypa
     maybe_capture(tool="sumo_qa_load_skill_context", args={}, output={"error": False})
     calls = transcript_from_debug_dir(tmp_path, scenario_id="x").tool_calls
     assert [c.error for c in calls] == [None, None, False]
+
+
+def test_a_truncated_output_json_never_raises_and_leaves_error_unknown(tmp_path) -> None:
+    for name, tool in (("a", "sumo_qa_load_rules"), ("b", "sumo_qa_load_skill_context")):
+        run_dir = tmp_path / f"20260101-00000{name}-{tool}"
+        run_dir.mkdir()
+        (run_dir / "input.json").write_text("{}", encoding="utf-8")
+        (run_dir / "output.json").write_text('{"error": tr', encoding="utf-8")
+    missing = tmp_path / "20260101-000009-sumo_qa_load_skill_context"
+    missing.mkdir()
+    (missing / "input.json").write_text("{}", encoding="utf-8")
+    transcript = transcript_from_debug_dir(tmp_path, scenario_id="partial")
+    assert len(transcript.tool_calls) == 3
+    assert all(call.error is None for call in transcript.tool_calls)
