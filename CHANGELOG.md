@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.72.0](https://github.com/sumithr/sumo-qa/compare/v0.71.1...v0.72.0) (2026-10-03)
+
+
+### Features
+
+* **context:** compact the session bootstrap, bundle a routed skill's context into one call, and audit context budgets in CI ([#812](https://github.com/sumithr/sumo-qa/issues/812)) ([99bf3ad](https://github.com/sumithr/sumo-qa/commit/99bf3addffd8f67fe69343ad710e1b4ac4116539))
+* **server:** report the active profile and opt-in groups in capability discovery ([#826](https://github.com/sumithr/sumo-qa/issues/826)) ([db73841](https://github.com/sumithr/sumo-qa/commit/db738414fa3d62aa0f6995acb09ff229e29745e4))
+
 ## [0.71.1](https://github.com/sumithr/sumo-qa/compare/v0.71.0...v0.71.1) (2026-10-03)
 
 
