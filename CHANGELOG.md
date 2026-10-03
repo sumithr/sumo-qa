@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.71.1](https://github.com/sumithr/sumo-qa/compare/v0.71.0...v0.71.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **skills:** decide executable-ness by behaviour, not path, in routing and review ([#818](https://github.com/sumithr/sumo-qa/issues/818)) ([4f5e3c4](https://github.com/sumithr/sumo-qa/commit/4f5e3c474ec8dc5a81608ec15efe0b547a2933b8))
+* **tests:** keep Hypothesis temp files out of the repo-mirror fixtures ([#824](https://github.com/sumithr/sumo-qa/issues/824)) ([9c77462](https://github.com/sumithr/sumo-qa/commit/9c77462f0a0e082c703edad87f561aa5cedd49de))
+
 ## [0.71.0](https://github.com/sumithr/sumo-qa/compare/v0.70.1...v0.71.0) (2026-10-02)
 
 
