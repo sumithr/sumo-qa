@@ -159,6 +159,7 @@ class ToolCall:
 
 
 _BOOL = TypeAdapter(bool)
+_LOAD_CONTEXT = "sumo_qa_load_skill_context"
 
 
 def _includes_body(args: dict[str, Any]) -> bool:
@@ -181,7 +182,7 @@ def _entry_name(call: ToolCall) -> str:
     args = call.args
     skill = args.get("skill_name")
     if (
-        call.tool != "sumo_qa_load_skill_context"
+        call.tool != _LOAD_CONTEXT
         or call.error
         or args.get("mode") != "bundle"
         or not isinstance(skill, str)
@@ -862,8 +863,10 @@ def transcript_from_debug_dir(
     """Reconstruct a transcript from a ``SUMO_QA_DEBUG_DIR`` capture directory.
 
     Each per-tool subdirectory ``debug_capture`` wrote (``{ts}-{tool}`` with its
-    ``input.json``) becomes one ordered ``ToolCall``; a boolean ``error`` in its
-    ``output.json`` becomes the call's ``error``. The debug capture records
+    ``input.json``) becomes one ordered ``ToolCall``; for a
+    ``sumo_qa_load_skill_context`` capture a boolean ``error`` in its
+    ``output.json`` becomes the call's ``error`` (a missing or undecodable
+    output.json leaves it ``None``). The debug capture records
     only tool exchanges, not the final assistant text, so ``output_text`` is
     supplied by the caller (the human running the manual conformance check).
 
@@ -878,19 +881,27 @@ def transcript_from_debug_dir(
     for run_dir in sorted((p for p in base.iterdir() if p.is_dir()), key=_run_dir_sort_key):
         input_path = run_dir / "input.json"
         args = json.loads(input_path.read_text(encoding="utf-8")) if input_path.is_file() else {}
-        output_path = run_dir / "output.json"
-        output = (
-            json.loads(output_path.read_text(encoding="utf-8")) if output_path.is_file() else {}
-        )
-        error = output.get("error") if isinstance(output, dict) else None
+        tool = _tool_name_from_run_dir(run_dir.name)
+        error = _captured_bundle_error(run_dir / "output.json") if tool == _LOAD_CONTEXT else None
         calls.append(
             ToolCall(
-                tool=_tool_name_from_run_dir(run_dir.name),
+                tool=tool,
                 args=args,
-                error=error if isinstance(error, bool) else None,
+                error=error,
             )
         )
     return Transcript(scenario_id=scenario_id, tool_calls=tuple(calls), output_text=output_text)
+
+
+def _captured_bundle_error(output_path: Path) -> bool | None:
+    """The boolean ``error`` a ``sumo_qa_load_skill_context`` capture recorded;
+    ``None`` when output.json is missing, undecodable or carries no boolean."""
+    try:
+        output = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    error = output.get("error") if isinstance(output, dict) else None
+    return error if isinstance(error, bool) else None
 
 
 def _run_dir_sort_key(run_dir: Path) -> tuple[int, str]:
