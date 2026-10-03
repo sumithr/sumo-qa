@@ -460,9 +460,7 @@ class CapabilitiesOutput(_StrictBase):
     workflows: list[CapabilityWorkflow] = Field(
         description="Core QA workflows, each with a sample prompt and the skill it routes to."
     )
-    active_profile: Literal["core", "full"] = Field(
-        description="The MCP tool profile being served."
-    )
+    active_profile: str = Field(description="The MCP tool profile being served: core or full.")
     enabled_groups: list[str] = Field(description="Capability groups the profile serves.")
     unavailable_groups: list[UnavailableGroup] = Field(
         description="Capability groups the profile leaves out, each with its activation."
