@@ -261,16 +261,24 @@ def test_unreadable_config_file_exits_with_a_config_error(text, message, tmp_pat
 
 
 @pytest.mark.parametrize(
-    "text",
-    [None, "tool = 1\n", "[tool]\nsumo-qa = 1\n", "[tool.sumo-qa]\ncontext-budget = 5\n"],
-    ids=["missing-file", "tool-not-table", "sumo-qa-not-table", "budget-not-table"],
+    ("text", "key"),
+    [
+        ("tool = 1\n", "tool"),
+        ("[tool]\nsumo-qa = 1\n", "tool.sumo-qa"),
+        ("[tool.sumo-qa]\ncontext-budget = 5\n", "tool.sumo-qa.context-budget"),
+        (None, None),
+    ],
+    ids=["tool-not-table", "sumo-qa-not-table", "budget-not-table", "missing-file"],
 )
-def test_malformed_config_shape_exits_with_a_config_error(text, tmp_path, capsys):
+def test_malformed_config_shape_exits_with_a_config_error(text, key, tmp_path, capsys):
     config = tmp_path / "budget.toml"
     if text is not None:
         config.write_text(text)
     assert audit_mod.main(["--config", str(config)]) == 2
-    assert capsys.readouterr().err.startswith("config error:")
+    err = capsys.readouterr().err
+    assert err.startswith("config error:")
+    if key:
+        assert f": {key} must be a table" in err
 
 
 @pytest.mark.skipif(

@@ -354,14 +354,14 @@ def load_config(path: Path) -> dict[str, Any]:
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"{path} is not valid TOML: {exc}") from exc
     node: Any = data
+    dotted = ""
     for key in ("tool", "sumo-qa", "context-budget"):
-        if not isinstance(node, dict):
-            raise ConfigError(f"{path}: {key} must be a table")
         if key not in node:
             raise ConfigError(f"{path} has no [tool.sumo-qa.context-budget] table")
         node = node[key]
-    if not isinstance(node, dict):
-        raise ConfigError(f"{path}: context-budget must be a table")
+        dotted = f"{dotted}.{key}" if dotted else key
+        if not isinstance(node, dict):
+            raise ConfigError(f"{path}: {dotted} must be a table")
     return node
 
 
