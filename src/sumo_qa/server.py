@@ -2086,7 +2086,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         Never raises: an unknown skill_name/mode/section/module, a missing
         required arg, or a path-traversal attempt returns a JSON error envelope
         listing the valid choices. Read-only and local-only."""
-        options = {
+        options: dict[str, Any] = {
             "section": section,
             "module": module,
             "known_hash": known_hash,
@@ -2095,18 +2095,16 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             "include_body": include_body,
             "catalogues": catalogues,
         }
-        text = json.dumps(
-            _load_skill_context(skill_name, mode, **options),
-            ensure_ascii=False,
-            indent=2,
-        )
-        # Captured with its args: a bundle carrying a routed skill's body is
-        # entry into that skill, which conformance reads from these args. The
-        # output is a summary, not the served slice.
+        result = _load_skill_context(skill_name, mode, **options)
+        text = json.dumps(result, ensure_ascii=False, indent=2)
+        # Captured with its args and whether it returned an error envelope: a
+        # bundle carrying a routed skill's body that did not error is entry into
+        # that skill, which conformance reads from this capture. The output is
+        # a summary, not the served slice.
         maybe_capture(
             tool="sumo_qa_load_skill_context",
             args={"skill_name": skill_name, "mode": mode, **options},
-            output={"served_chars": len(text)},
+            output={"served_chars": len(text), "error": "error" in result},
         )
         return text
 
