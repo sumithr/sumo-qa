@@ -227,6 +227,30 @@ def test_workflow_calling_a_tool_not_served_under_core_fails_a_named_row():
             r"workflow\[0\] modules must be a string",
         ),
         (
+            {
+                "workflow": [
+                    {"name": "w", "skill": "s", "classification": "c", "loaders": ["rules"]}
+                ]
+            },
+            r"workflow\[0\] loaders must be a string",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "loaders": " "}]},
+            r"workflow\[0\] loaders must name at least one loader",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "loaders": " , "}]},
+            r"workflow\[0\] loaders must name at least one loader",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "catalogues": 5}]},
+            r"workflow\[0\] catalogues must be a string",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "handoff": "false"}]},
+            r"workflow\[0\] handoff must be true or false",
+        ),
+        (
             {"workflow": [{"name": "w", "skill": "", "classification": "c"}]},
             "requires a non-empty string skill",
         ),

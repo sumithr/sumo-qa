@@ -16,7 +16,9 @@ Measures, with the repository's canonical estimator
   server's ``call_tool``. Each workflow is reported twice: the per-loader
   chain (its ``loaders``, by default classifications, standards, rules, then
   one call per module) and the bundled path (one
-  ``sumo_qa_load_skill_context(mode="bundle")`` call), with
+  ``sumo_qa_load_skill_context(mode="bundle")`` call carrying any whole
+  ``catalogues``; with ``handoff`` the router enters the skill through that
+  bundle, body included, instead of the skill's own tool), with
   call counts and a re-sent estimate (an agent loop re-sends every earlier
   result on each later turn, so N results cost the sum of their prefixes).
   The workflows run on the ``core`` server, so every audited workflow is
@@ -219,8 +221,13 @@ def validate_config(config: dict[str, Any]) -> None:
         for key in ("name", "skill", "classification"):
             if not isinstance(wf.get(key), str) or not wf[key]:
                 raise ConfigError(f"{where} requires a non-empty string {key}")
-        if not isinstance(wf.get("modules", ""), str):
-            raise ConfigError(f"{where} modules must be a string")
+        for key in ("modules", "loaders", "catalogues"):
+            if not isinstance(wf.get(key, ""), str):
+                raise ConfigError(f"{where} {key} must be a string")
+        if "loaders" in wf and not any(n.strip() for n in wf["loaders"].split(",")):
+            raise ConfigError(f"{where} loaders must name at least one loader")
+        if not isinstance(wf.get("handoff", False), bool):
+            raise ConfigError(f"{where} handoff must be true or false")
         _positive_int(wf, "bundle", where)
 
 
