@@ -11,7 +11,7 @@ The full `skills/using-sumo-qa/SKILL.md` body is the fallback: injected
 when the MCP server cannot launch (no `uvx`) or `SUMO_QA_BOOTSTRAP=full`.
 
 These tests don't exercise the host runtime — they verify that the script
-itself produces well-formed JSON containing the skill body, and that the
+itself produces well-formed JSON containing the bootstrap, and that the
 plugin/hook manifests reference the right paths.
 """
 
@@ -62,8 +62,8 @@ BOOTSTRAP_TOKEN_BUDGET = 1000
 def test_session_start_emits_valid_json_with_skill_content() -> None:
     """Default (no host env vars) → SDK-standard `additionalContext` envelope.
 
-    The agent's first turn relies on the hook embedding the full
-    using-sumo-qa skill body — without it the Iron Law enforcement is gone.
+    The agent's first turn relies on the hook embedding the first-hop
+    pointer to the `using_sumo_qa` router.
     """
     payload = _run_hook({})
     assert "additionalContext" in payload
