@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.72.1](https://github.com/sumithr/sumo-qa/compare/v0.72.0...v0.72.1) (2026-10-03)
+
+
+### Miscellaneous Chores
+
+* **evals:** run the judge on claude-opus-5-5 ([#831](https://github.com/sumithr/sumo-qa/issues/831)) ([f70b7fb](https://github.com/sumithr/sumo-qa/commit/f70b7fb5c5d25f3fa8ffe36f45bdd631b80307b2)), closes [#830](https://github.com/sumithr/sumo-qa/issues/830)
+
 ## [0.72.0](https://github.com/sumithr/sumo-qa/compare/v0.71.1...v0.72.0) (2026-10-03)
 
 
