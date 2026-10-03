@@ -18,7 +18,6 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from mcp.server.mcpserver.exceptions import UnexpectedToolError
 
 from sumo_qa.tool_registry import GROUPS, PROFILE_ENV, PROFILES, TOOLS, profile_tool_names
 
@@ -261,12 +260,29 @@ def test_unreadable_config_file_exits_with_a_config_error(text, message, tmp_pat
     assert re.search(message, err)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [None, "tool = 1\n", "[tool]\nsumo-qa = 1\n", "[tool.sumo-qa]\ncontext-budget = 5\n"],
+    ids=["missing-file", "tool-not-table", "sumo-qa-not-table", "budget-not-table"],
+)
+def test_malformed_config_shape_exits_with_a_config_error(text, tmp_path, capsys):
+    config = tmp_path / "budget.toml"
+    if text is not None:
+        config.write_text(text)
+    assert audit_mod.main(["--config", str(config)]) == 2
+    assert capsys.readouterr().err.startswith("config error:")
+
+
+@pytest.mark.skipif(
+    audit_mod.UnexpectedToolError is None,
+    reason="mcp.server.mcpserver.exceptions has no UnexpectedToolError on this mcp version",
+)
 def test_a_crash_inside_a_tool_is_not_reported_as_unservable():
     class Crashing:
         async def call_tool(self, name, args):
-            raise UnexpectedToolError("boom")
+            raise audit_mod.UnexpectedToolError("boom")
 
-    with pytest.raises(UnexpectedToolError):
+    with pytest.raises(audit_mod.UnexpectedToolError):
         audit_mod._run(Crashing(), [("t", {})], "core")
 
 

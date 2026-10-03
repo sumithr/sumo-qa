@@ -47,7 +47,8 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+import mcp.server.mcpserver.exceptions as mcp_exceptions
+from mcp.server.mcpserver.exceptions import ToolError
 
 from sumo_qa.skill_manifest import _approx_tokens as approx_tokens
 from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, TOOLS
@@ -64,6 +65,10 @@ ROUTER_CALLS = (
     ("sumo_qa_load_classifications", {}),
     ("sumo_qa_load_approaches", {}),
 )
+
+
+# Absent on mcp 2.0.x; a crash inside a tool is told apart from a rejected call only where it exists.
+UnexpectedToolError = getattr(mcp_exceptions, "UnexpectedToolError", None)
 
 
 class ConfigError(ValueError):
@@ -155,9 +160,9 @@ def _run(server: Any, calls: list[tuple[str, dict[str, Any]]], profile: str) -> 
     for name, args in calls:
         try:
             texts.append(_text(asyncio.run(server.call_tool(name, args))))
-        except UnexpectedToolError:
-            raise
         except ToolError as exc:
+            if UnexpectedToolError is not None and isinstance(exc, UnexpectedToolError):
+                raise
             cause = f" (cause: {exc.__cause__!r})" if exc.__cause__ else ""
             raise UnservableTool(
                 f"tool {name} failed under profile {profile}: {exc}{cause}"
@@ -173,6 +178,8 @@ def _positive_int(config: dict[str, Any], key: str, where: str = "context-budget
 
 def validate_config(config: dict[str, Any]) -> None:
     """Raise ``ConfigError`` naming the offending key unless the whole config is valid."""
+    if not isinstance(config, dict):
+        raise ConfigError(f"context-budget must be a table, got {type(config).__name__}")
     budgets = config.get("tools_list", {})
     if not isinstance(budgets, dict):
         raise ConfigError(
@@ -339,15 +346,23 @@ def render(rows: list[dict[str, Any]]) -> str:
 
 
 def load_config(path: Path) -> dict[str, Any]:
-    with path.open("rb") as fh:
-        try:
-            data = tomllib.load(fh)
-        except tomllib.TOMLDecodeError as exc:
-            raise ConfigError(f"{path} is not valid TOML: {exc}") from exc
     try:
-        return data["tool"]["sumo-qa"]["context-budget"]
-    except KeyError as exc:
-        raise ConfigError(f"{path} has no [tool.sumo-qa.context-budget] table") from exc
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except OSError as exc:
+        raise ConfigError(f"cannot read {path}: {exc}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{path} is not valid TOML: {exc}") from exc
+    node: Any = data
+    for key in ("tool", "sumo-qa", "context-budget"):
+        if not isinstance(node, dict):
+            raise ConfigError(f"{path}: {key} must be a table")
+        if key not in node:
+            raise ConfigError(f"{path} has no [tool.sumo-qa.context-budget] table")
+        node = node[key]
+    if not isinstance(node, dict):
+        raise ConfigError(f"{path}: context-budget must be a table")
+    return node
 
 
 def main(argv: list[str] | None = None) -> int:
