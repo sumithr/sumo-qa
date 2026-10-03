@@ -15,7 +15,7 @@ skill, plus each tool a core skill names (pinned by tests/test_tool_registry.py)
 and ``sumo_qa_capabilities`` for discovery. The external-skill workflow body is
 core so the router never points at a missing tool, but the open-world and
 external-skill tools it drives (search, check, install, execute) are not: under
-``core`` that workflow is listed, and its entry declares ``requires`` on that
+``core`` that workflow's tool is in ``tools/list``, and its entry declares ``requires`` on that
 group, so calling it (or loading it through ``sumo_qa_load_skill_context``)
 returns ``unavailable_capability``'s activation path instead of the skill body.
 """

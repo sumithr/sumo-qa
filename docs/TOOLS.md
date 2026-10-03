@@ -90,7 +90,7 @@ Specialty-tool picks are intentionally NOT catalogued; the discipline (in `using
 
 ## Capabilities discovery
 
-A compact, read-only "what can sumo-qa do?" map: the core QA workflows, each with a sample prompt, the skill it routes to, and a one-line outcome, plus the active tool profile, its enabled capability groups, and each unavailable group with its open-world flag and activation setting (see [Tool profiles](CONFIGURATION.md#tool-profiles)). Typed output (`CapabilitiesOutput`), under 500 approximate tokens. Discovery only: it does **not** replace the `using-sumo-qa` entry router or `sumo_qa_deciding_approach`, and carries no internal classification labels.
+A compact, read-only "what can sumo-qa do?" map: the core QA workflows, each with a sample prompt, the skill it routes to, and a one-line outcome, plus the active tool profile, its enabled capability groups, and each unavailable group with its open-world flag and activation setting (see [Tool profiles](CONFIGURATION.md#tool-profiles)). A workflow the active profile cannot run is left out of `workflows`. Returns compact JSON in the `CapabilitiesOutput` shape, under 500 approximate tokens. Discovery only: it does **not** replace the `using-sumo-qa` entry router or `sumo_qa_deciding_approach`, and carries no internal classification labels.
 
 | Tool | What it returns |
 |---|---|

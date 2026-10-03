@@ -27,8 +27,8 @@ bundled defaults.
   report tools, and `sumo_qa_capabilities`. It leaves out the specialist tools
   (`sumo_qa_load_catalogue_entry`, `sumo_qa_list_skill_manifests`,
   `sumo_qa_export_test_cases`, `sumo_qa_ingest_knowledge_pack`) and the
-  external-skill tools. The `sumo-qa-suggesting-external-skill` workflow is
-  listed, but the search, check, install and execute tools it drives are
+  external-skill tools. The `sumo-qa-suggesting-external-skill` workflow tool
+  stays in the tool list, but the search, check, install and execute tools it drives are
   absent, so it cannot run under `core`: calling it, or loading it through
   `sumo_qa_load_skill_context` or the skill resources, returns one activation
   path instead of the skill:
@@ -40,9 +40,9 @@ bundled defaults.
   ```
 
   A host-local copy of the skill (the `~/.claude/skills` link the installer
-  writes for Claude Code) has no server in front of it, so the skill itself
-  sends the host to `sumo_qa_capabilities` for the same setting when its
-  tools are missing.
+  writes for Claude Code) has no server in front of it, so when a call to one
+  of its tools fails as not served, the skill sends the host to
+  `sumo_qa_capabilities` for the same setting.
 
 Any other value stops the server at launch with an error naming the valid
 profiles. Each tool's capability group and profile membership live in
@@ -50,7 +50,8 @@ profiles. Each tool's capability group and profile membership live in
 
 `sumo_qa_capabilities` reports the active profile, the capability groups it
 serves, and each group it leaves out with its open-world flag and the setting
-that enables it. It lists only the workflows the profile can run.
+that enables it. Its `workflows` list leaves out any workflow the profile
+cannot run.
 
 Set the profile in the host's `sumo-qa` entry `env`. Re-running
 `sumo-qa-install` refreshes the entry's `command` and `args` and keeps its

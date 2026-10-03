@@ -11,7 +11,7 @@ Inherits the global discipline from `using-sumo-qa`: **output discipline** (neve
 
 ## The Iron Law
 
-**The sumo-qa MCP server owns external-skill lifecycle.** Search, install, local lookup, and execution handoff go through `sumo_qa_search_external_skills`, `sumo_qa_install_external_skill`, `sumo_qa_check_external_skill_installed`, and `sumo_qa_execute_external_skill`. Install is always gated on the user's explicit `y`. Never run `sudo` from this flow. If these tools are not in your tool list, the active profile leaves them out: call `sumo_qa_capabilities`, give the user the `external` group's `activate` setting, and stop; another tool or a remembered answer would bypass this gated flow.
+**The sumo-qa MCP server owns external-skill lifecycle.** Search, install, local lookup, and execution handoff go through `sumo_qa_search_external_skills`, `sumo_qa_install_external_skill`, `sumo_qa_check_external_skill_installed`, and `sumo_qa_execute_external_skill`. Install is always gated on the user's explicit `y`. Never run `sudo` from this flow. When a call to one of them fails because the server does not serve it, call `sumo_qa_capabilities`; if it lists the `external` group as unavailable, give the user that group's `activate` setting and stop, since another tool or a remembered answer would bypass this gated flow.
 
 ## When to Use
 
