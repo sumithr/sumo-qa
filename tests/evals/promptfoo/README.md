@@ -626,6 +626,11 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   verdict and hands promptfoo an object. promptfoo's own text extractor counts braces
   without reading strings: a `}` inside the judge's `reason` dropped the grade as
   unparseable, and a `{` there could turn a failing verdict into a silent pass.
+  The verdict is the reply's one top-level object with a `"pass"` key, wherever it sits;
+  other objects and prose around it are ignored, and two different verdicts are an
+  error. A reply with no valid verdict is asked once more; when the second has none
+  either, both replies are written in full, redacted, to
+  `tests/evals/results/judge-replies/` (gitignored), and the error names that file.
 
 ### Claude-pair baseline
 

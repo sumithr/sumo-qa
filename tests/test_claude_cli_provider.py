@@ -37,11 +37,20 @@ SUCCESS = {
 }
 
 
-def _fake_cli(monkeypatch, stdout, returncode=0):
+@pytest.fixture(autouse=True)
+def _reply_dir(tmp_path, monkeypatch):
+    """Unparsed judge replies land in a temp dir, never in tests/evals/results."""
+    monkeypatch.setattr(provider, "REPLY_DIR", tmp_path / "judge-replies", raising=False)
+    return tmp_path / "judge-replies"
+
+
+def _fake_cli(monkeypatch, *stdouts, returncode=0):
+    """Each call answers with the next stdout; the last one repeats."""
     calls = []
 
     def run(argv, **kwargs):
         calls.append((argv, kwargs))
+        stdout = stdouts[min(len(calls), len(stdouts)) - 1]
         return subprocess.CompletedProcess(argv, returncode, stdout=stdout, stderr="")
 
     monkeypatch.setattr(provider.subprocess, "run", run)
@@ -69,6 +78,7 @@ def test_a_successful_call_returns_the_answer_with_all_prompt_tokens_counted(mon
     ]
     assert "--strict-mcp-config" in argv and argv[argv.index("--tools") + 1] == ""
     assert kwargs["input"] == "the prompt"
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -110,7 +120,7 @@ def test_a_successful_call_returns_the_answer_with_all_prompt_tokens_counted(mon
     ],
 )
 def test_a_failed_call_is_an_error_never_graded_output(monkeypatch, stdout, returncode):
-    _fake_cli(monkeypatch, stdout, returncode)
+    _fake_cli(monkeypatch, stdout, returncode=returncode)
 
     response = provider.call_api("the prompt", OPTIONS)
 
@@ -206,14 +216,6 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
 @pytest.mark.parametrize(
     ("reply", "verdict"),
     [
-        # The system prompt's format line quoted back before the real verdict: the last
-        # verdict in the reply is the one graded.
-        pytest.param(
-            'The format is {"pass": true, "score": 1.0, "reason": "example"}. Mine: '
-            + json.dumps(_VERDICT),
-            _VERDICT,
-            id="a-quoted-example-verdict-before-the-real-one",
-        ),
         # A "pass" key nested inside a verdict's field is not a second verdict.
         pytest.param(
             '{"pass": false, "score": 0.2, "reason": "r", "detail": {"pass": true}}',
@@ -226,9 +228,33 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
             {"pass": True, "score": 1, "reason": "integer score"},
             id="integer-score",
         ),
+        # The verdict need not close the reply (#796): an object or prose after it is not
+        # a grade.
+        pytest.param(
+            json.dumps(_VERDICT) + ' {"error": "grading unavailable"}',
+            _VERDICT,
+            id="an-object-without-pass-after-the-verdict",
+        ),
+        pytest.param(
+            json.dumps(_VERDICT) + '\n\nNote: the test asserts `{"total": 7.99}`.',
+            _VERDICT,
+            id="trailing-prose-with-an-object-after-the-verdict",
+        ),
+        # A raw newline or tab inside the reason string is not valid strict JSON.
+        pytest.param(
+            '{"pass": true, "score": 0.9, "reason": "A SHAPE: PASS.\nB GROUNDING:\tPASS."}',
+            {"pass": True, "score": 0.9, "reason": "A SHAPE: PASS.\nB GROUNDING:\tPASS."},
+            id="raw-control-characters-in-the-reason",
+        ),
+        # The same verdict twice is one grade.
+        pytest.param(
+            json.dumps(_VERDICT) + " Restated: " + json.dumps(_VERDICT),
+            _VERDICT,
+            id="the-same-verdict-repeated",
+        ),
     ],
 )
-def test_the_graded_verdict_is_the_last_top_level_one(monkeypatch, reply, verdict):
+def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, verdict):
     _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
 
     assert provider.call_api("the prompt", JUDGE_OPTIONS)["output"] == verdict
@@ -257,18 +283,23 @@ def test_the_graded_verdict_is_the_last_top_level_one(monkeypatch, reply, verdic
         pytest.param('{"pass": true, "score": true}', '"score"', id="score-boolean"),
         pytest.param('{"pass": true, "score": NaN}', '"score"', id="score-nan"),
         pytest.param('{"pass": true, "reason": 5}', '"reason"', id="reason-not-a-string"),
-        # The last verdict is the one graded, so a valid example before it cannot rescue it.
+        # Two different verdicts leave the grade ambiguous, whichever comes last.
+        pytest.param(
+            'The format is {"pass": true, "score": 1.0, "reason": "example"}. Mine: '
+            + json.dumps(_VERDICT),
+            "2 different verdict objects",
+            id="a-quoted-example-verdict-before-the-real-one",
+        ),
         pytest.param(
             json.dumps(_VERDICT) + ' then {"pass": null}',
-            '"pass"',
-            id="an-invalid-last-verdict-after-a-valid-one",
+            "2 different verdict objects",
+            id="an-invalid-verdict-after-a-valid-one",
         ),
-        # The verdict must be the reply's last JSON object: a later object without "pass"
-        # means the reply did not end in a grade, so the earlier verdict is not graded.
         pytest.param(
-            '{"pass": true, "score": 1, "reason": "r"} {"error": "grading unavailable"}',
-            "no verdict",
-            id="an-object-without-pass-after-the-verdict",
+            '{"pass": true, "score": 0.9, "reason": "r"} On reflection: '
+            '{"pass": false, "score": 0.4, "reason": "r"}',
+            "2 different verdict objects",
+            id="a-changed-mind",
         ),
         # A score too large for a float must be an error, never an OverflowError.
         pytest.param('{"pass": true, "score": 1' + "0" * 400 + "}", '"score"', id="score-huge-int"),
@@ -285,14 +316,139 @@ def test_a_json_reply_without_a_boolean_verdict_is_an_error(monkeypatch, reply, 
     assert reply[:40] in response["error"]
 
 
-def test_the_error_excerpt_of_a_long_reply_is_truncated(monkeypatch):
-    reply = "no verdict here " + "x" * 5000
-    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
+# Real judge replies (tests/fixtures/judge_replies.json). The replies the old parser
+# rejected were never stored past a 400-character excerpt, so each failure shape the
+# excerpts point at is built from a real reply here.
+_REPLIES = json.loads(
+    (Path(__file__).parent / "fixtures" / "judge_replies.json").read_text(encoding="utf-8")
+)
+_REAL_VERDICTS = list(_REPLIES["verdicts"].values())
+_REAL_IDS = list(_REPLIES["verdicts"])
+_SHAPES = {
+    "as-captured": lambda reply: reply,
+    "trailing-object": lambda reply: reply + '\n\n{"note": "graded on axis A only"}',
+    "trailing-prose-with-braces": lambda reply: reply + "\n\nThe test's dict `{a: 1}` is fine.",
+    "raw-newline-between-sections": lambda reply: reply.replace(" B GROUNDING", "\nB GROUNDING", 1),
+    "verdict-repeated": lambda reply: reply + "\n\n" + reply,
+}
+
+
+@pytest.mark.parametrize("shape", list(_SHAPES))
+@pytest.mark.parametrize("reply", _REAL_VERDICTS, ids=_REAL_IDS)
+def test_a_real_judge_verdict_is_graded_in_every_captured_shape(monkeypatch, reply, shape):
+    shaped = _SHAPES[shape](reply)
+    # The newline shape is the reply's own verdict with a raw newline in its reason.
+    verdict = json.loads(shaped if shape == "raw-newline-between-sections" else reply, strict=False)
+    calls = _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": shaped}))
+
+    response = provider.call_api("the prompt", JUDGE_OPTIONS)
+
+    assert response["output"] == verdict
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("reply", _REAL_VERDICTS, ids=_REAL_IDS)
+def test_a_real_verdict_contradicted_later_in_the_reply_is_an_error(monkeypatch, reply):
+    verdict = json.loads(reply)
+    flipped = json.dumps({**verdict, "pass": not verdict["pass"]})
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply + "\n\n" + flipped}))
+
+    assert "2 different verdict objects" in provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+
+
+def test_a_real_answer_with_no_verdict_is_an_error_after_two_calls(monkeypatch):
+    [answer] = _REPLIES["no_verdict"].values()
+    calls = _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": answer}))
 
     error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
 
-    assert len(error) < 600
-    assert "x" * 5000 not in error
+    assert error.startswith('judge reply has no verdict object with a "pass" key (asked twice')
+    assert len(calls) == 2
+
+
+def test_a_valid_judge_reply_reaches_promptfoo_unchanged_after_one_call(monkeypatch):
+    calls = _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": json.dumps(_VERDICT)}))
+
+    response = provider.call_api("the prompt", JUDGE_OPTIONS)
+
+    assert response == {
+        "output": _VERDICT,
+        "tokenUsage": {"prompt": 123, "completion": 7, "total": 130},
+        "cost": 0.25,
+    }
+    assert len(calls) == 1
+
+
+def test_a_reply_without_a_verdict_is_asked_once_more(monkeypatch, _reply_dir):
+    calls = _fake_cli(
+        monkeypatch,
+        json.dumps({**SUCCESS, "result": "I think it passes."}),
+        json.dumps({**SUCCESS, "result": json.dumps(_VERDICT)}),
+    )
+
+    response = provider.call_api("the prompt", JUDGE_OPTIONS)
+
+    # Both calls are spent, so both are counted.
+    assert response == {
+        "output": _VERDICT,
+        "tokenUsage": {"prompt": 246, "completion": 14, "total": 260},
+        "cost": 0.5,
+    }
+    assert len(calls) == 2
+    assert calls[1] == calls[0]
+    assert not _reply_dir.exists()
+
+
+def test_a_second_reply_without_a_verdict_is_kept_in_full_and_redacted(monkeypatch, _reply_dir):
+    home = str(Path.home())
+    first = "no verdict here " + "x" * 5000 + f" {home}/repo sk-ant-api03-{'a' * 30}"
+    second = '{"pass": true, "reason": "cut off'
+    calls = _fake_cli(
+        monkeypatch,
+        json.dumps({**SUCCESS, "result": first}),
+        json.dumps({**SUCCESS, "result": second}),
+    )
+
+    error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+
+    assert len(calls) == 2
+    # The console gets a short excerpt of the last reply and where the full ones are.
+    assert error.startswith('judge reply has no verdict object with a "pass" key (asked twice')
+    assert second in error and "x" * 500 not in error
+    [kept] = list(_reply_dir.iterdir())
+    assert str(kept) in error
+    saved = json.loads(kept.read_text(encoding="utf-8"))
+    assert [entry["problem"] for entry in saved] == ['has no verdict object with a "pass" key'] * 2
+    assert saved[0]["reply"] == first.replace(home, "~").replace(
+        f"sk-ant-api03-{'a' * 30}", "[REDACTED]"
+    )
+    assert saved[1]["reply"] == second
+
+
+def test_a_retry_that_fails_keeps_the_first_reply(monkeypatch, _reply_dir):
+    _fake_cli(
+        monkeypatch,
+        json.dumps({**SUCCESS, "result": "I think it passes."}),
+        json.dumps({**SUCCESS, "result": "Claude AI usage limit reached|1789400000"}),
+    )
+
+    error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+
+    [kept] = list(_reply_dir.iterdir())
+    assert error.startswith("claude usage limit: ")
+    assert error.endswith(f"; the earlier judge reply is kept at {kept}")
+    assert json.loads(kept.read_text())[0]["reply"] == "I think it passes."
+
+
+def test_an_unwritable_reply_dir_still_returns_the_error(monkeypatch, tmp_path):
+    blocker = tmp_path / "a-file"
+    blocker.write_text("")
+    monkeypatch.setattr(provider, "REPLY_DIR", blocker / "judge-replies")
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": "no verdict"}))
+
+    error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+
+    assert "kept at nowhere (could not write " in error
 
 
 def test_without_json_reply_a_json_answer_stays_text(monkeypatch):

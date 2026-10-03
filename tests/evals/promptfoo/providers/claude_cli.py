@@ -16,15 +16,20 @@ With `jsonReply: true` (the judge) the verdict object is parsed here and handed 
 promptfoo as an object. promptfoo's own extractor counts braces without reading
 strings, so a `{` or `}` inside the reason drops the grade or passes it silently.
 A judge reply with no valid verdict is a promptfoo `error`, never text for promptfoo
-to parse: promptfoo grades a missing or non-boolean "pass" as a pass.
+to parse: promptfoo grades a missing or non-boolean "pass" as a pass. Such a reply is
+asked again once; when the second reply has no verdict either, both replies are kept
+in full (redacted) under `tests/evals/results/judge-replies/` and the error names the
+file (#796).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
 import subprocess
+from pathlib import Path
 
 # Isolation: no tools, no MCP servers (without --strict-mcp-config the
 # developer's own sumo-qa server attaches and the skills grade themselves), no
@@ -51,7 +56,11 @@ _EXCERPT = 400
 # graded as the candidate's answer. The "|<digits>" suffix keeps an answer that merely
 # quotes the phrase from matching.
 _USAGE_LIMIT = re.compile(r"usage limit reached\|\d+", re.IGNORECASE)
-_DECODER = json.JSONDecoder()
+# strict=False: a raw newline or tab inside the judge's "reason" string still decodes.
+_DECODER = json.JSONDecoder(strict=False)
+# Judge replies that never gave a verdict are kept here in full (gitignored).
+REPLY_DIR = Path(__file__).resolve().parents[2] / "results" / "judge-replies"
+_SECRET = re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,})")
 
 
 def call_api(prompt, options=None, context=None):
@@ -64,6 +73,48 @@ def call_api(prompt, options=None, context=None):
     if config.get("systemPrompt"):
         argv += ["--system-prompt", config["systemPrompt"]]
 
+    # A judge reply with no verdict is asked once more before it becomes an error.
+    unparsed = []
+    prompt_tokens = completion_tokens = 0
+    cost = 0.0
+    for _ in range(2 if config.get("jsonReply") else 1):
+        answer = _ask(argv, prompt)
+        if "error" in answer:
+            if unparsed:
+                answer["error"] += f"; the earlier judge reply is kept at {_keep(unparsed)}"
+            return answer
+        result, envelope = answer["result"], answer["envelope"]
+        # Accounting is best effort: a malformed usage field must not throw away an answer.
+        usage = envelope.get("usage")
+        if not isinstance(usage, dict):
+            usage = {}
+        prompt_tokens += sum(
+            _number(usage.get(key))
+            for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+        )
+        completion_tokens += _number(usage.get("output_tokens"))
+        # List-price notional cost from the CLI; nothing is invoiced.
+        cost += float(_number(envelope.get("total_cost_usd"), float))
+        output, problem = _verdict(result) if config.get("jsonReply") else (result, None)
+        if not problem:
+            return {
+                "output": output,
+                "tokenUsage": {
+                    "prompt": prompt_tokens,
+                    "completion": completion_tokens,
+                    "total": prompt_tokens + completion_tokens,
+                },
+                "cost": cost,
+            }
+        unparsed.append({"problem": problem, "reply": result})
+    return {
+        "error": f"judge reply {problem} (asked twice; both replies kept at "
+        f"{_keep(unparsed)}): {result[:_EXCERPT]!r}"
+    }
+
+
+def _ask(argv, prompt):
+    """{"result", "envelope"} for a successful CLI answer, else {"error"}."""
     try:
         # The prompt goes in on stdin: a rendered eval prompt reaches ~22k tokens.
         done = subprocess.run(
@@ -96,36 +147,25 @@ def call_api(prompt, options=None, context=None):
         return {"error": f"claude reported success but returned no answer: {result!r}"}
     if _USAGE_LIMIT.search(result):
         return {"error": f"claude usage limit: {result[:_EXCERPT]}"}
+    return {"result": result, "envelope": envelope}
 
-    # Accounting is best effort: a malformed usage field must not throw away an answer.
-    usage = envelope.get("usage")
-    if not isinstance(usage, dict):
-        usage = {}
-    prompt_tokens = sum(
-        _number(usage.get(key))
-        for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
-    )
-    completion_tokens = _number(usage.get("output_tokens"))
-    output = result
-    if config.get("jsonReply"):
-        output, problem = _verdict(result)
-        if problem:
-            return {"error": f"judge reply {problem}: {result[:_EXCERPT]!r}"}
-    return {
-        "output": output,
-        "tokenUsage": {
-            "prompt": prompt_tokens,
-            "completion": completion_tokens,
-            "total": prompt_tokens + completion_tokens,
-        },
-        # List-price notional cost from the CLI; nothing is invoiced.
-        "cost": float(_number(envelope.get("total_cost_usd"), float)),
-    }
+
+def _keep(unparsed):
+    """Write the unparsed judge replies, redacted, to REPLY_DIR; return where they went."""
+    text = _SECRET.sub("[REDACTED]", json.dumps(unparsed, indent=2, ensure_ascii=False))
+    text = text.replace(str(Path.home()), "~")
+    path = REPLY_DIR / f"judge-reply-{hashlib.sha256(text.encode()).hexdigest()[:12]}.json"
+    try:
+        REPLY_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        return f"nowhere (could not write {path}: {exc})"
+    return str(path)
 
 
 def _verdict(text):
-    """(verdict, None) for the reply's verdict object, else (None, the problem)."""
-    last = None
+    """(verdict, None) for the reply's one verdict object, else (None, the problem)."""
+    verdicts = []
     start = text.find("{")
     while start != -1:
         try:
@@ -135,19 +175,24 @@ def _verdict(text):
             start = text.find("{", start + 1)
             continue
         # Top level only: an object nested inside another one is never scanned on its own.
-        last = value
+        # Objects without "pass" (a quoted snippet, trailing notes) are not verdicts.
+        if isinstance(value, dict) and "pass" in value and value not in verdicts:
+            verdicts.append(value)
         start = text.find("{", end)
-    # The verdict closes the reply: anything before it is a quoted example or the restated
-    # format, and a reply whose last object is not a verdict did not end in a grade.
-    if not isinstance(last, dict) or "pass" not in last:
-        return None, 'has no verdict object with a "pass" key as its last JSON object'
-    if not isinstance(last["pass"], bool):
+    if not verdicts:
+        return None, 'has no verdict object with a "pass" key'
+    # Two different verdicts (a quoted example and the grade, or a changed mind) leave the
+    # grade ambiguous: no rule here may pick one.
+    if len(verdicts) > 1:
+        return None, f"has {len(verdicts)} different verdict objects"
+    verdict = verdicts[0]
+    if not isinstance(verdict["pass"], bool):
         return None, '"pass" is not a JSON boolean'
-    if not _finite(last.get("score", 0)):
+    if not _finite(verdict.get("score", 0)):
         return None, '"score" is not a finite number'
-    if not isinstance(last.get("reason", ""), str):
+    if not isinstance(verdict.get("reason", ""), str):
         return None, '"reason" is not a string'
-    return last, None
+    return verdict, None
 
 
 def _finite(value):
