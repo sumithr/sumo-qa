@@ -7,7 +7,10 @@ Measures, with the repository's canonical estimator
 * **bootstrap**: the SessionStart ``additionalContext`` the real hook emits on
   a healthy Claude Code session (compact path), plus the full-router fallback
   for reference, with the plugin root replaced by a fixed stand-in path;
-* **tools/list**: the compact JSON of every advertised MCP tool;
+* **tools/list**: the compact JSON of every advertised MCP tool, once per
+  profile (``core`` and ``full``, from ``sumo_qa.tool_registry``), plus one
+  report-only row per capability group (tool count, how many are core, and the
+  description vs name/schema/annotations split) so a regression is attributable;
 * **root skills**: every ``skills/*/SKILL.md``;
 * **workflows**: the MCP tool results a routed skill loads, through the real
   server's ``call_tool``. Each workflow is reported twice: the per-loader
@@ -15,9 +18,15 @@ Measures, with the repository's canonical estimator
   bundled path (one ``sumo_qa_load_skill_context(mode="bundle")`` call), with
   call counts and a re-sent estimate (an agent loop re-sends every earlier
   result on each later turn, so N results cost the sum of their prefixes).
+  The workflows run on the ``core`` server, so every audited workflow is
+  proven to run under ``core``;
+* **end-to-end**: per workflow and profile, the model-visible total of one
+  bundled run: compact bootstrap + that profile's tools/list + the results,
+  with the bootstrap and tools/list riding every turn in the re-sent figure.
 
 Budgets live in ``[tool.sumo-qa.context-budget]`` in pyproject.toml. A budget
-that is absent is report-only. Exit 1 when any configured budget is exceeded.
+that is absent is report-only. Exit 1 when a budget is exceeded or a workflow or
+bundle fails; exit 2 on a config error.
 
 Usage::
 
@@ -36,8 +45,13 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from unittest import mock
+
+import mcp.server.mcpserver.exceptions as mcp_exceptions
+from mcp.server.mcpserver.exceptions import ToolError
 
 from sumo_qa.skill_manifest import _approx_tokens as approx_tokens
+from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, TOOLS
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -51,6 +65,18 @@ ROUTER_CALLS = (
     ("sumo_qa_load_classifications", {}),
     ("sumo_qa_load_approaches", {}),
 )
+
+
+# Absent on mcp 2.0.x; a crash inside a tool is told apart from a rejected call only where it exists.
+UnexpectedToolError = getattr(mcp_exceptions, "UnexpectedToolError", None)
+
+
+class ConfigError(ValueError):
+    """The budget config is malformed."""
+
+
+class UnservableTool(Exception):
+    """A workflow's tool call failed under a profile (unknown tool or call failure)."""
 
 
 def resent_tokens(sizes: list[int]) -> int:
@@ -121,11 +147,86 @@ def _workflow_calls(wf: dict[str, Any], bundled: bool) -> list[tuple[str, dict[s
     return calls
 
 
+def _compact(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+def _run(server: Any, calls: list[tuple[str, dict[str, Any]]], profile: str) -> list[str]:
+    """Run ``calls`` on ``server``; a ``ToolError`` raised calling a tool under
+    ``profile`` (an unknown tool or a rejected call) raises ``UnservableTool``
+    naming the tool, the profile and the error. ``UnexpectedToolError`` (a crash
+    inside the tool) propagates unchanged."""
+    texts = []
+    for name, args in calls:
+        try:
+            texts.append(_text(asyncio.run(server.call_tool(name, args))))
+        except ToolError as exc:
+            if UnexpectedToolError is not None and isinstance(exc, UnexpectedToolError):
+                raise
+            cause = f" (cause: {exc.__cause__!r})" if exc.__cause__ else ""
+            raise UnservableTool(
+                f"tool {name} failed under profile {profile}: {exc}{cause}"
+            ) from exc
+    return texts
+
+
+def _positive_int(config: dict[str, Any], key: str, where: str = "context-budget") -> None:
+    value = config.get(key)
+    if key in config and (not isinstance(value, int) or isinstance(value, bool) or value <= 0):
+        raise ConfigError(f"{where} {key} must be a positive integer, got {value!r}")
+
+
+def validate_config(config: dict[str, Any]) -> None:
+    """Raise ``ConfigError`` naming the offending key unless the whole config is valid."""
+    if not isinstance(config, dict):
+        raise ConfigError(f"context-budget must be a table, got {type(config).__name__}")
+    budgets = config.get("tools_list", {})
+    if not isinstance(budgets, dict):
+        raise ConfigError(
+            "context-budget tools_list must be a table keyed by profile "
+            f"({', '.join(PROFILES)}), got {type(budgets).__name__}"
+        )
+    unknown = sorted(set(budgets) - set(PROFILES))
+    if unknown:
+        raise ConfigError(
+            f"context-budget tools_list names unknown profile(s) {', '.join(unknown)}; "
+            f"valid profiles: {', '.join(PROFILES)}"
+        )
+    for profile in budgets:
+        _positive_int(budgets, profile, "context-budget tools_list")
+    _positive_int(config, "bootstrap")
+    _positive_int(config, "root_skill")
+    workflows = config.get("workflow", [])
+    if not isinstance(workflows, list):
+        raise ConfigError("context-budget workflow must be an array of tables")
+    for i, wf in enumerate(workflows):
+        where = f"context-budget workflow[{i}]"
+        if not isinstance(wf, dict):
+            raise ConfigError(f"{where} must be a table")
+        for key in ("name", "skill", "classification"):
+            if not isinstance(wf.get(key), str) or not wf[key]:
+                raise ConfigError(f"{where} requires a non-empty string {key}")
+        if not isinstance(wf.get("modules", ""), str):
+            raise ConfigError(f"{where} modules must be a string")
+        _positive_int(wf, "bundle", where)
+
+
+def _check_bundle(wf: dict[str, Any], text: str, failures: list[str], profile: str = "") -> None:
+    bundle = json.loads(text)
+    if "error" in bundle:
+        where = f" ({profile})" if profile else ""
+        failures.append(f"workflow {wf['name']}{where}: bundle failed: {bundle['error']}")
+
+
 def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any]], list[str]]:
     """Return (rows, failures). Each row: area, name, chars, tokens, budget."""
     from sumo_qa.server import build_mcp_server
 
-    server = build_mcp_server()
+    validate_config(config)
+    servers = {}
+    for profile in PROFILES:
+        with mock.patch.dict(os.environ, {PROFILE_ENV: profile}):
+            servers[profile] = build_mcp_server()
     rows: list[dict[str, Any]] = []
 
     def row(area: str, name: str, text: str, budget: int | None = None, **extra: Any) -> None:
@@ -135,18 +236,45 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
             | extra
         )
 
-    row(
-        "bootstrap",
-        "compact (default)",
-        measure_bootstrap(repo, "compact"),
-        config.get("bootstrap"),
-    )
+    bootstrap = measure_bootstrap(repo, "compact")
+    row("bootstrap", "compact (default)", bootstrap, config.get("bootstrap"))
     row("bootstrap", "full fallback", measure_bootstrap(repo, "full"))
 
-    tools = asyncio.run(server.list_tools())
-    dumped = [t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in tools]
-    tools_json = json.dumps(dumped, separators=(",", ":"), ensure_ascii=False)
-    row("tools/list", f"{len(tools)} tools", tools_json, config.get("tools_list"))
+    list_budgets = config.get("tools_list", {})
+    tools_json: dict[str, str] = {}
+    entries: dict[str, list[dict[str, Any]]] = {}
+    for profile, server in servers.items():
+        tools = asyncio.run(server.list_tools())
+        entries[profile] = [
+            t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in tools
+        ]
+        tools_json[profile] = _compact(entries[profile])
+        row(
+            "tools/list",
+            f"{profile}: {len(tools)} tools",
+            tools_json[profile],
+            list_budgets.get(profile),
+            profile=profile,
+        )
+    by_name = {e["name"]: e for e in entries["full"]}
+    meta = {t.name: t for t in TOOLS}
+    for group in dict.fromkeys(t.group for t in TOOLS):
+        members = [meta[n] for n in by_name if n in meta and meta[n].group == group]
+        group_entries = [by_name[t.name] for t in members]
+        core = sum(t.core for t in members)
+        row(
+            "tool group",
+            f"{group}: {len(members)} tools ({core} core)",
+            _compact(group_entries),
+            group=group,
+            tools=len(members),
+            core=core,
+            desc=sum(approx_tokens(e.get("description", "")) for e in group_entries),
+            schema=sum(
+                approx_tokens(_compact({k: v for k, v in e.items() if k != "description"}))
+                for e in group_entries
+            ),
+        )
 
     for path in sorted((repo / "skills").glob("*/SKILL.md")):
         row(
@@ -158,23 +286,40 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
 
     failures: list[str] = []
     for wf in config.get("workflow", []):
-        for bundled in (False, True):
-            texts = [
-                _text(asyncio.run(server.call_tool(n, a))) for n, a in _workflow_calls(wf, bundled)
-            ]
-            if bundled:
-                bundle = json.loads(texts[-1])
-                if "error" in bundle:
-                    failures.append(f"workflow {wf['name']}: bundle failed: {bundle['error']}")
-                row("bundle", wf["name"], texts[-1], wf.get("bundle"))
-            sizes = [approx_tokens(t) for t in texts]
-            row(
-                "workflow",
-                f"{wf['name']} ({'bundled' if bundled else 'per-loader'})",
-                "".join(texts),
-                calls=len(texts),
-                resent=resent_tokens(sizes),
-            )
+        try:
+            core_bundle: list[str] = []
+            for bundled in (False, True):
+                texts = _run(servers["core"], _workflow_calls(wf, bundled), "core")
+                if bundled:
+                    core_bundle = texts
+                    _check_bundle(wf, texts[-1], failures)
+                    row("bundle", wf["name"], texts[-1], wf.get("bundle"))
+                sizes = [approx_tokens(t) for t in texts]
+                row(
+                    "workflow",
+                    f"{wf['name']} ({'bundled' if bundled else 'per-loader'})",
+                    "".join(texts),
+                    calls=len(texts),
+                    resent=resent_tokens(sizes),
+                )
+            for profile, server in servers.items():
+                prefix = bootstrap + tools_json[profile]
+                if profile == "core":
+                    texts = core_bundle  # already run and checked above
+                else:
+                    texts = _run(server, _workflow_calls(wf, bundled=True), profile)
+                    _check_bundle(wf, texts[-1], failures, profile)
+                row(
+                    "end-to-end",
+                    f"{wf['name']} ({profile})",
+                    prefix + "".join(texts),
+                    workflow=wf["name"],
+                    profile=profile,
+                    calls=len(texts),
+                    resent=resent_tokens([approx_tokens(t) for t in (prefix, *texts)]),
+                )
+        except UnservableTool as exc:
+            failures.append(f"workflow {wf['name']}: {exc}")
 
     failures += [
         f"{r['area']} {r['name']}: ~{r['tokens']} est. tokens > budget {r['budget']}"
@@ -186,28 +331,49 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
 
 def render(rows: list[dict[str, Any]]) -> str:
     lines = [
-        f"{'area':<11} {'name':<52} {'chars':>7} {'tokens':>7} {'budget':>7} {'calls':>5} {'re-sent':>8}"
+        f"{'area':<11} {'name':<52} {'chars':>7} {'tokens':>7} {'budget':>7} {'calls':>5} "
+        f"{'re-sent':>8} {'desc':>5} {'schema':>6}"
     ]
     for r in rows:
         budget = "-" if r["budget"] is None else str(r["budget"])
         over = " OVER" if r["budget"] is not None and r["tokens"] > r["budget"] else ""
         lines.append(
             f"{r['area']:<11} {r['name']:<52} {r['chars']:>7} {r['tokens']:>7} {budget:>7} "
-            f"{r.get('calls', ''):>5} {r.get('resent', ''):>8}{over}"
+            f"{r.get('calls', ''):>5} {r.get('resent', ''):>8} {r.get('desc', ''):>5} "
+            f"{r.get('schema', ''):>6}{over}"
         )
     return "\n".join(lines)
 
 
 def load_config(path: Path) -> dict[str, Any]:
-    with path.open("rb") as fh:
-        return tomllib.load(fh)["tool"]["sumo-qa"]["context-budget"]
+    try:
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except OSError as exc:
+        raise ConfigError(f"cannot read {path}: {exc}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{path} is not valid TOML: {exc}") from exc
+    node: Any = data
+    dotted = ""
+    for key in ("tool", "sumo-qa", "context-budget"):
+        if key not in node:
+            raise ConfigError(f"{path} has no [tool.sumo-qa.context-budget] table")
+        node = node[key]
+        dotted = f"{dotted}.{key}" if dotted else key
+        if not isinstance(node, dict):
+            raise ConfigError(f"{path}: {dotted} must be a table")
+    return node
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, default=REPO / "pyproject.toml")
     args = parser.parse_args(argv)
-    rows, failures = audit(load_config(args.config))
+    try:
+        rows, failures = audit(load_config(args.config))
+    except ConfigError as exc:
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
     print(render(rows))
     for failure in failures:
         print(f"FAIL {failure}")
