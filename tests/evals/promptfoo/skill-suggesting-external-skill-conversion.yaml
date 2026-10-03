@@ -135,7 +135,7 @@ tests:
         `unsupported_source` for a `.pdf`; the gap is a converter, not a test tool.
 
         ## MCP tool results supplied to this eval
-        - `sumo_qa_check_external_skill_installed(skill="pdf-to-markdown")` returned null.
+        - `sumo_qa_check_external_skill_installed(skill="pdf-to-markdown")` returned `{"installed": false, "skill": "pdf-to-markdown", "scope": "auto"}`.
         - `sumo_qa_search_external_skills(query="pdf to markdown")` returned:
           ```
           {"query": "pdf to markdown",

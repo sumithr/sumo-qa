@@ -358,12 +358,10 @@ class SearchExternalSkillsOutput(_StrictBase):
 
 
 class CheckExternalSkillInstalledOutput(_StrictBase):
-    """Success-shape output of ``sumo_qa_check_external_skill_installed``.
+    """Found-skill output of ``sumo_qa_check_external_skill_installed``.
 
-    The underlying function returns ``None`` when the skill is not installed;
-    that branch is preserved at the server-wiring layer via a
-    ``CheckExternalSkillInstalledOutput | None`` annotation rather than
-    modelled here.
+    An absent skill is :class:`CheckExternalSkillNotInstalledOutput`, keyed on
+    ``installed: false``; an error is :class:`ErrorEnvelope`.
     """
 
     name: str = Field(
@@ -377,6 +375,19 @@ class CheckExternalSkillInstalledOutput(_StrictBase):
     # _candidate_paths which emits only "project" or "global".
     scope: Literal["project", "global"] = Field(
         description="Where the skill is installed: project (cwd-relative) or global (home-relative)."
+    )
+
+
+class CheckExternalSkillNotInstalledOutput(_StrictBase):
+    """Absent-skill output of ``sumo_qa_check_external_skill_installed``.
+
+    Echoes the request only: no candidate paths are disclosed.
+    """
+
+    installed: Literal[False] = Field(description="Discriminator: the skill is not installed.")
+    skill: str = Field(description="Echo of the requested skill name, whitespace-stripped.")
+    scope: Literal["auto", "project", "global"] = Field(
+        description="Echo of the scope that was searched."
     )
 
 

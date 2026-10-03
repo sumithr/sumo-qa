@@ -124,7 +124,7 @@ tests:
         fits this QA surface and routed here.
 
         ## MCP tool results supplied to this eval
-        - `sumo_qa_check_external_skill_installed(skill="playwright-e2e")` returned null.
+        - `sumo_qa_check_external_skill_installed(skill="playwright-e2e")` returned `{"installed": false, "skill": "playwright-e2e", "scope": "auto"}`.
         - `sumo_qa_search_external_skills(query="playwright e2e")` returned:
           ```
           {

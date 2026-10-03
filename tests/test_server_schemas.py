@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from sumo_qa import external_skills as ext
 from sumo_qa.server_schemas import (
     CheckExternalSkillInstalledOutput,
+    CheckExternalSkillNotInstalledOutput,
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
     InstallExternalSkillOutput,
@@ -373,6 +374,27 @@ def test_check_external_skill_installed_output_rejects_unknown_field(tmp_path: P
     payload["extra"] = "nope"
     with pytest.raises(ValidationError):
         CheckExternalSkillInstalledOutput.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"installed": True, "skill": "mypy", "scope": "auto"},
+        {"installed": False, "skill": "mypy", "scope": "auto", "path": "/leak"},
+        {"name": "mypy", "path": "/p/SKILL.md", "agent": "codex", "scope": "project"},
+    ],
+)
+def test_check_external_skill_not_installed_output_rejects_non_absent_shapes(payload) -> None:
+    """The absent arm accepts only ``installed: false`` with the echoed request:
+    no found payload, and no candidate path, passes as absent (#821)."""
+    assert (
+        CheckExternalSkillNotInstalledOutput.model_validate(
+            {"installed": False, "skill": "mypy", "scope": "auto"}
+        ).installed
+        is False
+    )
+    with pytest.raises(ValidationError):
+        CheckExternalSkillNotInstalledOutput.model_validate(payload)
 
 
 # ---------------------------------------------------------------------------

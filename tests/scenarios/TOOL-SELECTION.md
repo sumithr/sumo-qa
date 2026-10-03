@@ -161,7 +161,7 @@ Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario belo
 
 **Expected tool:** `sumo_qa_check_external_skill_installed(skill="mypy-type-checking", scope="auto")`.
 
-**Expected use of result:** if a path is returned, the LLM executes that installed skill; if null, it searches or asks before installing.
+**Expected use of result:** if a path is returned, the LLM executes that installed skill; if `installed: false`, it searches or asks before installing.
 
 **Anti-pick:** reads `~/.codex/skills` directly; assumes absence without checking project and global locations.
 
