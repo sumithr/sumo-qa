@@ -1,4 +1,5 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import inspect
 import json
 import os
 import sys
@@ -549,6 +550,19 @@ def _slim_tool_schemas(mcp: Any) -> None:
         if tool.fn_metadata.output_schema is not None:
             tool.fn_metadata.output_schema = _strip_schema_titles(tool.fn_metadata.output_schema)
             tool.__dict__.pop("output_schema", None)
+
+
+def _clean_tool_descriptions(mcp: Any) -> None:
+    """Serve every tool description through ``inspect.cleandoc``, once at build time.
+
+    MCPServer serves a tool's ``fn.__doc__`` as its description unchanged.
+    Python 3.13+ strips docstring indentation at compile time and earlier
+    versions keep it, so without this pass ``tools/list`` differs by Python
+    version. Pinned by tests/test_tool_schema_titles.py against the served
+    list."""
+    for tool in mcp._tool_manager.list_tools():
+        if tool.description:
+            tool.description = inspect.cleandoc(tool.description)
 
 
 def _drop_structured_output(mcp: Any) -> None:
@@ -2029,6 +2043,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         section: str | None = None,
         module: str | None = None,
         known_hash: str | None = None,
+        classification: str | None = None,
+        modules: str | None = None,
+        include_body: bool = True,
     ) -> str:
         """Load just one slice of a skill's context as a JSON string, instead of
         the whole SKILL.md body.
@@ -2042,9 +2059,20 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           - "full"     — the entire SKILL.md body, byte-for-byte identical to the
             existing zero-argument skill tool for `skill_name`; a body over the
             host's per-response token cap is returned as an `oversize` pointer
-            to the manifest/section/module slices instead of failing (#393).
+            to the manifest/section/module slices instead of failing;
+          - "bundle": a routed skill's working context in ONE call: the
+            body (omit with `include_body=false` when you already hold it),
+            the `modules` named (comma-separated ids, matched exactly), and
+            for `classification` (comma-separated ids, kept in request order)
+            its catalogue entries, looked up by exact id (unlike
+            `load_catalogue_entry`, which also matches case-insensitively and
+            by heading), plus the standards and rules, which equal
+            `sumo_qa_load_standards` / `sumo_qa_load_rules` called with the
+            same argument and are returned exactly as those loaders return
+            them. Any id that matches nothing returns an error envelope; an
+            exception from a loader returns an unreadable envelope.
 
-        The section/module/full slices each return `content_hash` (sha256 of the
+        The section/module/full/bundle slices each return `content_hash` (sha256 of the
         returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this
         slice changed since hash X?": a match returns `changed=false` with the
         body omitted (saving the re-send), a mismatch returns `changed=true` with
@@ -2056,7 +2084,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         listing the valid choices. Read-only and local-only."""
         return json.dumps(
             _load_skill_context(
-                skill_name, mode, section=section, module=module, known_hash=known_hash
+                skill_name,
+                mode,
+                section=section,
+                module=module,
+                known_hash=known_hash,
+                classification=classification,
+                modules=modules,
+                include_body=include_body,
             ),
             ensure_ascii=False,
             indent=2,
@@ -2066,6 +2101,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     register_skill_resources(mcp)
     _apply_profile(mcp, profile)
     _slim_tool_schemas(mcp)
+    _clean_tool_descriptions(mcp)
     _drop_structured_output(mcp)
     return mcp
 

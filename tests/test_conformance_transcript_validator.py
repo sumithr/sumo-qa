@@ -64,6 +64,9 @@ def _good_transcript(s: ConformanceScenario) -> Transcript:
         if s.expected_entry_skill not in ROUTER_CHAIN:
             calls.append(ToolCall(s.expected_entry_skill))
     calls.extend(ToolCall(t) for t in s.required_tool_calls)
+    if s.required_one_of:
+        first = s.required_one_of[0]
+        calls.append(ToolCall(first.tool, {k: "x" if v == "*" else v for k, v in first.args}))
     output = " ".join(s.required_output_markers) + " ...clean senior-QA output..."
     return Transcript(scenario_id=s.id, tool_calls=tuple(calls), output_text=output)
 
@@ -98,6 +101,7 @@ def test_fixture_only_references_registered_tools(scenarios) -> None:
     registered = set(build_mcp_server()._tool_manager._tools)
     for s in scenarios:
         referenced = set(s.required_tool_calls) | set(s.forbidden_tool_calls)
+        referenced |= {r.tool for r in s.required_one_of}
         if s.expected_entry_skill:
             referenced.add(s.expected_entry_skill)
         unknown = referenced - registered
@@ -187,11 +191,69 @@ def test_router_prefixed_transcript_still_routes_cleanly(scenarios) -> None:
             ToolCall("sumo_qa_deciding_approach"),
             ToolCall("sumo_qa_reviewing_before_merge"),
             ToolCall("sumo_qa_load_classifications"),
-            ToolCall("sumo_qa_load_rules"),
+            ToolCall(
+                "sumo_qa_load_skill_context",
+                {"mode": "bundle", "classification": "business_logic_change"},
+            ),
         ),
         output_text="scope + verdict, no leaked taxonomy",
     )
     assert validate_transcript(s, transcript, known).passed
+
+
+def _review_transcript(*loads: ToolCall) -> Transcript:
+    return Transcript(
+        "S02-review-before-merge",
+        (
+            *(ToolCall(t) for t in ROUTER_CHAIN),
+            ToolCall("sumo_qa_reviewing_before_merge"),
+            ToolCall("sumo_qa_load_classifications"),
+            *loads,
+        ),
+        "scope + verdict",
+    )
+
+
+@pytest.mark.parametrize(
+    "load",
+    [
+        ToolCall("sumo_qa_load_rules", {"classification": "business_logic_change"}),
+        ToolCall(
+            "sumo_qa_load_skill_context",
+            {"mode": "bundle", "classification": "business_logic_change"},
+        ),
+    ],
+    ids=["load-rules", "bundle-with-classification"],
+)
+def test_review_scenario_accepts_either_rules_load(scenarios, load) -> None:
+    s = next(s for s in scenarios if s.id == "S02-review-before-merge")
+    assert validate_transcript(s, _review_transcript(load)).passed
+
+
+@pytest.mark.parametrize(
+    "load",
+    [
+        ToolCall("sumo_qa_load_skill_context", {"mode": "module", "module": "runtime-scope"}),
+        ToolCall("sumo_qa_load_skill_context", {"mode": "bundle", "modules": "runtime-scope"}),
+        ToolCall("sumo_qa_load_skill_context", {"mode": "bundle", "classification": ""}),
+        ToolCall("sumo_qa_load_skill_context", {"mode": "bundle", "classification": ","}),
+        ToolCall("sumo_qa_load_skill_context", {"mode": "bundle", "classification": " "}),
+    ],
+    ids=[
+        "module-only",
+        "bundle-without-classification",
+        "bundle-blank-classification",
+        "bundle-separator-only-classification",
+        "bundle-whitespace-classification",
+    ],
+)
+def test_review_scenario_fails_when_rules_are_never_loaded(scenarios, load) -> None:
+    """A review that loads only modules never sees the change rules: S02 fails."""
+    s = next(s for s in scenarios if s.id == "S02-review-before-merge")
+    result = validate_transcript(s, _review_transcript(load))
+    assert not result.passed
+    assert _kinds(result) == {ViolationKind.MISSING_REQUIRED_TOOL}
+    assert "sumo_qa_load_rules" in result.violations[0].detail
 
 
 # --------------------------------------------------------------------------- #
@@ -514,6 +576,31 @@ def test_scenario_expecting_a_skill_and_forbidding_sumo_qa_is_rejected(tmp_path)
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="X01.*cannot both"):
+        load_scenarios(fixture)
+
+
+@pytest.mark.parametrize(
+    ("entry", "match"),
+    [
+        ("{args: {mode: bundle}}", "R01.*'tool' key"),
+        ("{tool: sumo_qa_load_rules, arg: {classification: '*'}}", r"R01.*unexpected: \['arg'\]"),
+    ],
+    ids=["missing-tool", "unknown-key"],
+)
+def test_malformed_required_one_of_entry_is_rejected(tmp_path, entry, match) -> None:
+    """A misspelt key would otherwise silently drop the argument check."""
+    fixture = tmp_path / "one_of.yaml"
+    fixture.write_text(
+        "scenarios:\n"
+        "  - id: R01\n"
+        "    source_doc: SCENARIOS.md\n"
+        "    source_heading: whatever\n"
+        "    user_prompt: hi\n"
+        "    mode: deterministic\n"
+        f"    required_one_of:\n      - {entry}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=match):
         load_scenarios(fixture)
 
 

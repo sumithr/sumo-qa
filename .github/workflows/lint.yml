@@ -126,6 +126,30 @@ jobs:
       - name: Run em-dash gate
         run: python scripts/check_no_em_dashes.py
 
+  context-budget:
+    name: context token budget
+    # Deterministic audit of what sumo-qa puts in a host's context:
+    # the SessionStart bootstrap, the tools/list surface, root skills and the
+    # bundled review workflows, against [tool.sumo-qa.context-budget] in
+    # pyproject.toml. Prints the full measurement table on every run. Single
+    # Python + single OS: the estimate is platform-independent.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package
+        run: python -m pip install -e .
+
+      - name: Run context budget audit
+        run: python scripts/audit_context_budget.py
+
   pip-audit:
     name: pip-audit (dependency vulnerabilities)
     # CI mirror of the local `pip-audit` pre-commit hook so a contributor who

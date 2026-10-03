@@ -3,8 +3,8 @@
 
 Every surface that tells a host how to enter sumo-qa must carry
 `FIRST_HOP_RULE` verbatim, so the
-server instructions, Copilot instructions, entry-skill body, trigger fixture,
-and conformance fixture cannot assert incompatible rules. Tool-name validity of
+server instructions, Copilot instructions, entry-skill body, SessionStart
+compact bootstrap, trigger fixture, and conformance fixture cannot assert incompatible rules. Tool-name validity of
 the instruction surfaces is pinned in tests/test_server.py. Text presence is a
 drift guard, not proof that a model follows the rule; that proof is the
 conformance validator plus captured live-host runs.
@@ -27,6 +27,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _RULE_FILES = {
     "copilot-instructions": _REPO_ROOT / ".github" / "copilot-instructions.md",
     "entry-skill": _REPO_ROOT / "skills" / "using-sumo-qa" / "SKILL.md",
+    "session-bootstrap": _REPO_ROOT / "hooks" / "compact-bootstrap.md",
     "trigger-fixture": _REPO_ROOT / "tests" / "fixtures" / "skill_triggers.yaml",
     "conformance-fixture": _REPO_ROOT / "tests" / "scenarios" / "conformance" / "scenarios.yaml",
 }

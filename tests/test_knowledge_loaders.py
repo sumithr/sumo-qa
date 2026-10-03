@@ -778,3 +778,36 @@ def test_load_rules_multi_filter_all_four_in_one_call(tmp_path, monkeypatch):
     assert result["test_change"] == {"must_consider": ["tautology"]}
     assert result["config_change"] == {"must_consider": ["env override"]}
     assert result["infrastructure_change"] == {"must_consider": ["env override"]}
+
+
+def test_filters_stay_case_sensitive(tmp_path, monkeypatch):
+    from sumo_qa.knowledge_loaders import sumo_qa_load_rules, sumo_qa_load_standards
+
+    rules = tmp_path / "rules.yaml"
+    rules.write_text("business_logic_change:\n  must_consider: [x]\n", "utf-8")
+    (tmp_path / "packs").mkdir()
+    (tmp_path / "packs" / "p.yaml").write_text(
+        "applies_to_classifications: [api_change]\n", "utf-8"
+    )
+    monkeypatch.setenv("QA_RULES_PATH", str(rules))
+    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    assert sumo_qa_load_rules(classification="Business_Logic_Change") == "{}\n"
+    assert sumo_qa_load_standards(classification="API_Change") == ""
+    assert sumo_qa_load_standards(classification="api_change").startswith("# p.yaml")
+
+
+def test_unfiltered_loaders_return_raw_text_without_parsing(tmp_path, monkeypatch):
+    """A date YAML cannot construct makes ``yaml.safe_load`` raise ValueError;
+    the unfiltered loaders never parse, so they still return the file."""
+    from sumo_qa.knowledge_loaders import sumo_qa_load_rules, sumo_qa_load_standards
+
+    rules = tmp_path / "rules.yaml"
+    rules_text = "business_logic_change:\n  reviewed: 2026-02-30\n"
+    rules.write_text(rules_text, "utf-8")
+    pack_text = "applies_to_classifications: [api_change]\ndate: 2026-13-01\n"
+    (tmp_path / "packs").mkdir()
+    (tmp_path / "packs" / "p.yaml").write_text(pack_text, "utf-8")
+    monkeypatch.setenv("QA_RULES_PATH", str(rules))
+    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    assert sumo_qa_load_rules() == rules_text
+    assert sumo_qa_load_standards() == f"# p.yaml\n\n{pack_text}"
