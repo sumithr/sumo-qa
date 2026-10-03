@@ -174,38 +174,60 @@ def test_groups_partition_the_served_full_list(shipped_rows):
     assert abs(sum(r["tokens"] for r in groups.values()) - full["tokens"]) <= len(GROUPS)
 
 
-def test_workflow_calling_a_tool_not_served_under_core_fails_a_named_row(capsys):
-    full_only = next(t.name for t in TOOLS if not t.core)
+def test_workflow_calling_a_tool_not_served_under_core_fails_a_named_row():
+    full_only = sorted(profile_tool_names("full") - profile_tool_names("core"))[0]
+    assert full_only in profile_tool_names("full")  # real tool, so the failure is the profile
+    assert full_only not in profile_tool_names("core")
     wf = {
         "name": "unservable",
-        "skill": full_only.removeprefix("sumo_qa_").replace("_", "-"),
+        "skill": full_only.replace("_", "-"),  # the chain calls skill.replace("-", "_")
         "classification": "test_change",
     }
-    # the skill chain's own tool is the full-only one
     _, failures = audit_mod.audit({"workflow": [wf]}, REPO)
     assert any(
-        f.startswith("workflow unservable:") and "profile core" in f and "failed" in f
+        f.startswith("workflow unservable:")
+        and f"tool {full_only} failed" in f
+        and "profile core" in f
         for f in failures
     )
 
 
 @pytest.mark.parametrize(
-    ("budgets", "message"),
+    ("config", "message"),
     [
-        (9400, "must be a table keyed by profile"),
-        ({"core": 1, "huge": 2}, r"unknown profile\(s\) huge"),
+        ({"tools_list": 9400}, "must be a table keyed by profile"),
+        ({"tools_list": {"core": 1, "huge": 2}}, r"unknown profile\(s\) huge"),
+        ({"tools_list": {"core": "9400"}}, "tools_list core must be a positive integer"),
+        ({"bootstrap": "1000"}, "bootstrap must be a positive integer"),
+        ({"root_skill": 0}, "root_skill must be a positive integer"),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "bundle": "x"}]},
+            r"workflow\[0\] bundle must be a positive integer",
+        ),
+        ({"workflow": [{"name": "w", "skill": "s"}]}, "requires a non-empty string classification"),
+        ({"workflow": [{"skill": "s", "classification": "c"}]}, "requires a non-empty string name"),
     ],
 )
-def test_invalid_tools_list_config_is_a_clear_error(budgets, message):
-    with pytest.raises(ValueError, match=message):
-        audit_mod.audit({"tools_list": budgets}, REPO)
+def test_invalid_config_is_a_clear_error_before_anything_runs(config, message):
+    with pytest.raises(audit_mod.ConfigError, match=message):
+        audit_mod.audit(config, REPO)
 
 
-def test_invalid_tools_list_config_exits_with_a_config_error(tmp_path, capsys):
+def test_invalid_config_exits_with_a_config_error(tmp_path, capsys):
     config = tmp_path / "budget.toml"
-    config.write_text("[tool.sumo-qa.context-budget]\ntools_list = 9400\n", encoding="utf-8")
+    config.write_text('[tool.sumo-qa.context-budget]\ntools_list = { core = "9400" }\n')
     assert audit_mod.main(["--config", str(config)]) == 2
-    assert "config error: context-budget tools_list must be a table" in capsys.readouterr().err
+    assert "config error: context-budget tools_list core must be" in capsys.readouterr().err
+
+
+def test_a_non_config_value_error_propagates(monkeypatch):
+    def boom(*_args):
+        raise ValueError("hook output was not JSON")
+
+    monkeypatch.setattr(audit_mod, "measure_bootstrap", boom)
+    with pytest.raises(ValueError, match="hook output") as exc:
+        audit_mod.main([])
+    assert not isinstance(exc.value, audit_mod.ConfigError)
 
 
 def test_end_to_end_workflow_costs_less_under_core(shipped_rows):

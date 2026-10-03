@@ -25,7 +25,8 @@ Measures, with the repository's canonical estimator
   with the bootstrap and tools/list riding every turn in the re-sent figure.
 
 Budgets live in ``[tool.sumo-qa.context-budget]`` in pyproject.toml. A budget
-that is absent is report-only. Exit 1 when any configured budget is exceeded.
+that is absent is report-only. Exit 1 when a budget is exceeded or a workflow or
+bundle fails; exit 2 on a config error.
 
 Usage::
 
@@ -63,6 +64,14 @@ ROUTER_CALLS = (
     ("sumo_qa_load_classifications", {}),
     ("sumo_qa_load_approaches", {}),
 )
+
+
+class ConfigError(ValueError):
+    """The budget config is malformed."""
+
+
+class UnservableTool(Exception):
+    """A workflow's tool call failed under a profile (unknown tool or call failure)."""
 
 
 def resent_tokens(sizes: list[int]) -> int:
@@ -138,30 +147,55 @@ def _compact(value: Any) -> str:
 
 
 def _run(server: Any, calls: list[tuple[str, dict[str, Any]]], profile: str) -> list[str]:
-    """Run ``calls`` on ``server``; a tool the profile does not serve raises
-    ``LookupError`` naming the tool and the profile."""
+    """Run ``calls`` on ``server``; any ``ToolError`` raised calling a tool under
+    ``profile`` (an unknown tool or a call failure) raises ``UnservableTool``
+    naming the tool and the profile."""
     texts = []
     for name, args in calls:
         try:
             texts.append(_text(asyncio.run(server.call_tool(name, args))))
         except ToolError as exc:
-            raise LookupError(f"tool {name} failed under profile {profile}: {exc}") from exc
+            raise UnservableTool(f"tool {name} failed under profile {profile}: {exc}") from exc
     return texts
 
 
-def validate_tools_list(budgets: Any) -> None:
-    """Raise ``ValueError`` unless ``tools_list`` maps registry profiles to budgets."""
+def _positive_int(config: dict[str, Any], key: str, where: str = "context-budget") -> None:
+    value = config.get(key)
+    if key in config and (not isinstance(value, int) or isinstance(value, bool) or value <= 0):
+        raise ConfigError(f"{where} {key} must be a positive integer, got {value!r}")
+
+
+def validate_config(config: dict[str, Any]) -> None:
+    """Raise ``ConfigError`` naming the offending key unless the whole config is valid."""
+    budgets = config.get("tools_list", {})
     if not isinstance(budgets, dict):
-        raise ValueError(
+        raise ConfigError(
             "context-budget tools_list must be a table keyed by profile "
             f"({', '.join(PROFILES)}), got {type(budgets).__name__}"
         )
     unknown = sorted(set(budgets) - set(PROFILES))
     if unknown:
-        raise ValueError(
+        raise ConfigError(
             f"context-budget tools_list names unknown profile(s) {', '.join(unknown)}; "
             f"valid profiles: {', '.join(PROFILES)}"
         )
+    for profile in budgets:
+        _positive_int(budgets, profile, "context-budget tools_list")
+    _positive_int(config, "bootstrap")
+    _positive_int(config, "root_skill")
+    workflows = config.get("workflow", [])
+    if not isinstance(workflows, list):
+        raise ConfigError("context-budget workflow must be an array of tables")
+    for i, wf in enumerate(workflows):
+        where = f"context-budget workflow[{i}]"
+        if not isinstance(wf, dict):
+            raise ConfigError(f"{where} must be a table")
+        for key in ("name", "skill", "classification"):
+            if not isinstance(wf.get(key), str) or not wf[key]:
+                raise ConfigError(f"{where} requires a non-empty string {key}")
+        if not isinstance(wf.get("modules", ""), str):
+            raise ConfigError(f"{where} modules must be a string")
+        _positive_int(wf, "bundle", where)
 
 
 def _check_bundle(wf: dict[str, Any], text: str, failures: list[str], profile: str = "") -> None:
@@ -175,6 +209,7 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
     """Return (rows, failures). Each row: area, name, chars, tokens, budget."""
     from sumo_qa.server import build_mcp_server
 
+    validate_config(config)
     servers = {}
     for profile in PROFILES:
         with mock.patch.dict(os.environ, {PROFILE_ENV: profile}):
@@ -193,7 +228,6 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
     row("bootstrap", "full fallback", measure_bootstrap(repo, "full"))
 
     list_budgets = config.get("tools_list", {})
-    validate_tools_list(list_budgets)
     tools_json: dict[str, str] = {}
     entries: dict[str, list[dict[str, Any]]] = {}
     for profile, server in servers.items():
@@ -240,9 +274,11 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
     failures: list[str] = []
     for wf in config.get("workflow", []):
         try:
+            core_bundle: list[str] = []
             for bundled in (False, True):
                 texts = _run(servers["core"], _workflow_calls(wf, bundled), "core")
                 if bundled:
+                    core_bundle = texts
                     _check_bundle(wf, texts[-1], failures)
                     row("bundle", wf["name"], texts[-1], wf.get("bundle"))
                 sizes = [approx_tokens(t) for t in texts]
@@ -255,8 +291,11 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
                 )
             for profile, server in servers.items():
                 prefix = bootstrap + tools_json[profile]
-                texts = _run(server, _workflow_calls(wf, bundled=True), profile)
-                _check_bundle(wf, texts[-1], failures, profile)
+                if profile == "core":
+                    texts = core_bundle  # already run and checked above
+                else:
+                    texts = _run(server, _workflow_calls(wf, bundled=True), profile)
+                    _check_bundle(wf, texts[-1], failures, profile)
                 row(
                     "end-to-end",
                     f"{wf['name']} ({profile})",
@@ -266,7 +305,7 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
                     calls=len(texts),
                     resent=resent_tokens([approx_tokens(t) for t in (prefix, *texts)]),
                 )
-        except LookupError as exc:
+        except UnservableTool as exc:
             failures.append(f"workflow {wf['name']}: {exc}")
 
     failures += [
@@ -304,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         rows, failures = audit(load_config(args.config))
-    except ValueError as exc:
+    except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
     print(render(rows))
