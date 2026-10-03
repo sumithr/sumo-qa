@@ -124,7 +124,7 @@ Once installed (above), you get them for free on every `git commit` / `git push`
 
 | Trigger | What runs | Speed | Why |
 |---|---|---|---|
-| `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | ~1s | Auto-fixes 95% of CI lint failures before the commit lands. |
+| `git commit` | `ruff check --fix`, `ruff format`, `actionlint` on changed workflows, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | ~1s | Auto-fixes 95% of CI lint failures before the commit lands. |
 | `git push` | the full `pytest` suite at 100% coverage across pytest-xdist workers, printing its counts; the mutmut gate (see [Mutation testing](#mutation-testing) for its triggers and scope); and every other hook without a commit-only stage, on the pushed files (the fixers among them can rewrite a file and stop the push) | minutes | Stops broken or under-tested commits reaching the remote. |
 
 The pytest hook runs in pre-commit's own isolated venv, built from the explicit `additional_dependencies` pins in `.pre-commit-config.yaml` (where a hook and `pyproject.toml` pin the same package, `tests/test_toolchain_pin_lockstep.py` keeps the two in lockstep), so it's not coupled to whichever `python` happens to be on your PATH. The first `git push` after install is slower while pre-commit builds that venv; later pushes reuse it.
@@ -423,6 +423,30 @@ enforces these rules:
 The test hard-codes no version and lists every mismatch in one failure,
 naming both files, the hook id, the hook value and every candidate
 `pyproject.toml` declaration, so a bump edits the pins and nothing else.
+
+## Release supply chain
+
+- **Action pins.** Every `uses:` in `.github/workflows/` names a full commit
+  SHA with a `# vX.Y.Z` comment; `tests/test_workflow_expression_lint.py`
+  fails on a tag, branch or short SHA. Dependabot's `github-actions` entry
+  bumps the SHA and the comment together. To pin a new action, resolve the
+  tag's commit with `git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>^{}'`
+  (or `refs/tags/<tag>` for a lightweight tag).
+- **Workflow lint.** The `actionlint` pre-commit hook (pinned `rev`) runs on
+  changed workflows, and the `actionlint` job in `lint.yml` runs the same hook.
+- **Release build lock.** `.github/release/requirements.in` names the release
+  build tools; `.github/release/requirements.txt` is the hashed lock compiled
+  from it (regenerate with the command in its header). `release.yml` installs
+  it with `--require-hashes` and builds with `--no-isolation`, so the lock is
+  the whole set of build inputs. Dependabot watches `/.github/release`.
+- **Release evidence.** `release.yml` adds `sbom.cdx.json`, `build-info.json`
+  and `SHA256SUMS` next to the wheel and sdist, attests build provenance and
+  the SBOM, and gates publishing on `scripts/release_evidence.py verify` plus
+  `gh attestation verify` (`tests/test_release_evidence.py` covers the
+  negative cases). Run the workflow from the Actions tab
+  (`workflow_dispatch`) for a dry run that builds, attests and verifies
+  without publishing. [`SECURITY.md`](../.github/SECURITY.md) has the consumer
+  verification commands.
 
 ## Branch workflow
 

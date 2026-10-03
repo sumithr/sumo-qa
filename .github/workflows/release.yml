@@ -4,53 +4,169 @@ on:
   push:
     tags:
       - "v*"
+  # Dry run from any branch: build, attest and verify without publishing.
+  # The publish and release-assets jobs only run for a tag push.
+  workflow_dispatch:
 
-# Minimum-required default token scope. The build job only checks out the
-# repo and builds artefacts; the publish job overrides below with the
-# id-token write it needs for OIDC trusted publishing. Satisfies CodeQL's
-# "workflow does not contain permissions" lint.
+# Minimum-required default token scope; each job below widens only what it
+# needs. Satisfies CodeQL's "workflow does not contain permissions" lint.
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build wheel + sdist
+    name: Build, SBOM and attest
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Sigstore signing certificate for the attestations
+      attestations: write
+      artifact-metadata: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
+      # No pip cache: a release build installs only the hashed lock below.
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
-      - name: Install build backend
-        run: python -m pip install build
+      # Every package here is pinned with hashes in the lock, and the build
+      # runs with --no-isolation, so this environment is the complete set of
+      # build inputs. build-info.json records it.
+      - name: Install pinned build tools
+        run: python -m pip install --require-hashes -r .github/release/requirements.txt
 
-      - name: Build
-        run: python -m build
+      - name: Build wheel + sdist
+        run: python -m build --no-isolation
 
-      - name: Upload artefacts
-        uses: actions/upload-artifact@v4
+      # CycloneDX SBOM of the dependency set installing the wheel resolves.
+      # cyclonedx-py validates the document against the schema before writing.
+      - name: Generate SBOM
+        run: |
+          python -m venv --without-pip "$RUNNER_TEMP/sbom-env"
+          python -m pip --python "$RUNNER_TEMP/sbom-env/bin/python" install dist/*.whl
+          cyclonedx-py environment --pyproject pyproject.toml --mc-type library \
+            --output-reproducible --of JSON -o dist/sbom.cdx.json \
+            "$RUNNER_TEMP/sbom-env/bin/python"
+
+      - name: Record build info and digests
+        run: python scripts/release_evidence.py record dist
+
+      # SLSA build provenance for every file SHA256SUMS lists.
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Attest SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+          sbom-path: dist/sbom.cdx.json
+
+      # PyPI accepts only the packages; the release files go to the
+      # GitHub release.
+      - name: Upload packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-files
           path: dist/
+          if-no-files-found: error
+
+  verify:
+    name: Verify digests, SBOM and attestations
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Download release files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: dist/
+
+      - name: Verify digests, SBOM and build info
+        run: python scripts/release_evidence.py verify dist --commit "$GITHUB_SHA"
+
+      # Fails on any file without a provenance attestation from this
+      # workflow, commit and ref, and on a package without an SBOM attestation.
+      - name: Verify attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          check() {
+            gh attestation verify "$1" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" \
+              --deny-self-hosted-runners "${@:2}"
+          }
+          for f in dist/*; do
+            [ "${f##*/}" = SHA256SUMS ] || check "$f"
+          done
+          for f in dist/*.whl dist/*.tar.gz; do
+            check "$f" --predicate-type https://cyclonedx.org/bom
+          done
 
   publish:
     name: Publish to PyPI
-    needs: build
+    needs: verify
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write  # OIDC trusted publishing
+      # OIDC trusted publishing; the action also uploads PEP 740 attestations.
+      id-token: write
     steps:
-      - name: Download artefacts
-        uses: actions/download-artifact@v4
+      - name: Download packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  release-assets:
+    name: Attach release files to the GitHub release
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: dist/
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
