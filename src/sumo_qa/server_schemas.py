@@ -437,6 +437,14 @@ class CapabilityWorkflow(_StrictBase):
     outcome: str = Field(description="One-line description of what the workflow produces.")
 
 
+class UnavailableGroup(_StrictBase):
+    """A capability group the active profile leaves out."""
+
+    group: str = Field(description="Capability group name.")
+    open_world: bool = Field(description="True when the group reaches outside the local machine.")
+    activate: str = Field(description="Configuration that enables the group.")
+
+
 class CapabilitiesOutput(_StrictBase):
     """Output of ``sumo_qa_capabilities``.
 
@@ -451,6 +459,11 @@ class CapabilitiesOutput(_StrictBase):
     )
     workflows: list[CapabilityWorkflow] = Field(
         description="Core QA workflows, each with a sample prompt and the skill it routes to."
+    )
+    active_profile: str = Field(description="The MCP tool profile being served: core or full.")
+    enabled_groups: list[str] = Field(description="Capability groups the profile serves.")
+    unavailable_groups: list[UnavailableGroup] = Field(
+        description="Capability groups the profile leaves out, each with its activation."
     )
 
 

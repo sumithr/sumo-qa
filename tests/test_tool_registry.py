@@ -9,12 +9,14 @@ the advertised workflow skills."""
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 import pytest
 
 from sumo_qa import server, skill_prompts
 from sumo_qa.capabilities import _CORE_WORKFLOWS
+from sumo_qa.skill_manifest import load_skill_context
 from sumo_qa.tool_registry import (
     GROUPS,
     PROFILE_ENV,
@@ -146,11 +148,14 @@ def test_every_advertised_workflow_entry_is_core() -> None:
 # A tool or skill name, optionally host-qualified (``mcp__sumo-qa__``).
 _TOOL_REF = r"(?:\bmcp__sumo[_-]qa__|\b)(sumo[_-]qa[_-][a-z_-]+|using[_-]sumo[_-]qa)\b"
 
-# The external-skill workflow may name the external-group tools it drives:
-# until #807 gives a missing external tool an actionable activation path.
-_NAMED_TOOL_EXEMPTIONS = {
-    "sumo-qa-suggesting-external-skill": {t.name for t in TOOLS if t.group == "external"},
-}
+
+def _exempt(skill_or_tool: str) -> set[str]:
+    """A core skill may name the tools of the group its tool ``requires``: a
+    profile without that group serves the activation path in place of the
+    skill, so the host never reaches those names (pinned below)."""
+    meta = _BY_NAME.get(str(skill_or_tool).replace("-", "_"))
+    required = meta.requires if meta else None
+    return {t.name for t in TOOLS if required and t.group == required}
 
 
 def _tool_refs(text: str) -> set[str]:
@@ -176,7 +181,7 @@ def test_core_skills_only_name_core_tools() -> None:
             continue
         text = "\n".join(p.read_text(encoding="utf-8") for p in skill_dir.rglob("*.md"))
         named = _tool_refs(text) & set(_BY_NAME)
-        missing = named - core - _NAMED_TOOL_EXEMPTIONS.get(skill_dir.name, set())
+        missing = named - core - _exempt(skill_dir.name)
         assert not missing, f"{skill_dir.name} names non-core tools: {sorted(missing)}"
 
 
@@ -192,6 +197,77 @@ def test_core_server_descriptions_only_name_core_tools(monkeypatch) -> None:
         *((r.uri_template, r.description) for r in mcp._resource_manager.list_templates()),
     ]
     for name, description in served:
-        exempt = _NAMED_TOOL_EXEMPTIONS.get(str(name).replace("_", "-"), set())
-        missing = (_tool_refs(description or "") & set(_BY_NAME)) - core - exempt
+        missing = (_tool_refs(description or "") & set(_BY_NAME)) - core - _exempt(name)
         assert not missing, f"{name} names non-core tools: {sorted(missing)}"
+
+
+# A workflow whose required group the profile leaves out. Technique:
+# equivalence partitioning over profile x serving route (the skill tool and
+# load_skill_context, which the oversize pointer and the skill resources use).
+_EXTERNAL_SKILL = "sumo-qa-suggesting-external-skill"
+_ACTIVATION = [
+    "capability unavailable in core profile",
+    "required group: external",
+    f"activate: {PROFILE_ENV}=full",
+]
+
+
+def _call_skill_tool(name: str) -> str:
+    result = asyncio.run(server.build_mcp_server().call_tool(name, {}))
+    return result.content[0].text
+
+
+def test_requires_names_a_group_outside_core_on_a_core_tool() -> None:
+    requiring = [t for t in TOOLS if t.requires]
+    assert requiring, "no core workflow declares a required group"
+    for meta in requiring:
+        assert meta.core, meta.name
+        assert meta.requires in GROUPS, meta.name
+        assert not any(t.core for t in TOOLS if t.group == meta.requires), meta.name
+
+
+def test_core_external_workflow_returns_one_activation_path(monkeypatch) -> None:
+    monkeypatch.setenv(PROFILE_ENV, "core")
+    text = _call_skill_tool(_EXTERNAL_SKILL.replace("-", "_"))
+    assert text.splitlines()[:3] == _ACTIVATION
+    assert not _tool_refs(text) & {t.name for t in TOOLS if not t.core}
+
+
+def test_full_external_workflow_serves_the_skill_body(monkeypatch) -> None:
+    monkeypatch.setenv(PROFILE_ENV, "full")
+    body = (skill_prompts._skills_dir() / _EXTERNAL_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    assert _call_skill_tool(_EXTERNAL_SKILL.replace("-", "_")) == body
+
+
+def test_core_workflow_without_a_required_group_serves_its_body(monkeypatch) -> None:
+    monkeypatch.setenv(PROFILE_ENV, "core")
+    body = (skill_prompts._skills_dir() / "using-sumo-qa" / "SKILL.md").read_text(encoding="utf-8")
+    assert _call_skill_tool("using_sumo_qa") == body
+
+
+@pytest.mark.parametrize("mode", ["manifest", "section", "module", "full"])
+def test_core_load_skill_context_returns_the_activation_path(monkeypatch, mode) -> None:
+    monkeypatch.setenv(PROFILE_ENV, "core")
+    out = load_skill_context(_EXTERNAL_SKILL, mode, section="x", module="x")
+    assert out["error"].splitlines()[:3] == _ACTIVATION
+    assert set(out) == {"error"}
+
+
+def test_full_load_skill_context_serves_the_external_skill(monkeypatch) -> None:
+    monkeypatch.setenv(PROFILE_ENV, "full")
+    out = load_skill_context(_EXTERNAL_SKILL, "manifest")
+    assert "error" not in out
+    assert out["skill_name"] == _EXTERNAL_SKILL
+
+
+def test_load_skill_context_keeps_its_never_raises_contract_on_a_bad_profile(
+    monkeypatch,
+) -> None:
+    """The launch entry points reject a bad profile, but the loader is also a
+    Python API and a resource body: it answers with an envelope, never raises."""
+    monkeypatch.setenv(PROFILE_ENV, "bogus")
+    out = load_skill_context(_EXTERNAL_SKILL, "manifest")
+    assert out == {
+        "error": f"{PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
+        "expected one of: core, full"
+    }

@@ -10,7 +10,14 @@ no internal classification labels.
 
 from __future__ import annotations
 
-from sumo_qa.server_schemas import CapabilitiesOutput, CapabilityWorkflow
+from sumo_qa.server_schemas import CapabilitiesOutput, CapabilityWorkflow, UnavailableGroup
+from sumo_qa.tool_registry import (
+    ACTIVATION,
+    DEFAULT_PROFILE,
+    TOOLS,
+    group_availability,
+    unavailable_capability,
+)
 
 # (workflow, sample_prompt, target_skill, outcome). Every target_skill MUST be an
 # existing skills/<name>/ — enforced by tests/test_capabilities.py. Keep the prose
@@ -79,13 +86,26 @@ _CORE_WORKFLOWS: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
-def build_capabilities() -> CapabilitiesOutput:
-    """Return the compact, typed map of core QA workflows.
+def build_capabilities(profile: str = DEFAULT_PROFILE) -> CapabilitiesOutput:
+    """Return the compact, typed map of core QA workflows, plus which
+    capability groups ``profile`` serves and how to enable the rest. A
+    workflow whose required group ``profile`` leaves out is not listed.
 
-    Static and read-only; never raises. Discovery only — the entry router
-    remains ``using-sumo-qa`` / ``sumo_qa_deciding_approach``.
+    Read-only. Discovery only — the entry router remains ``using-sumo-qa`` /
+    ``sumo_qa_deciding_approach``.
     """
+    enabled, unavailable = group_availability(profile)
     return CapabilitiesOutput(
+        active_profile=profile,
+        enabled_groups=enabled,
+        unavailable_groups=[
+            UnavailableGroup(
+                group=group,
+                open_world=any(t.open_world for t in TOOLS if t.group == group),
+                activate=ACTIVATION,
+            )
+            for group in unavailable
+        ],
         workflows=[
             CapabilityWorkflow(
                 workflow=workflow,
@@ -94,5 +114,6 @@ def build_capabilities() -> CapabilitiesOutput:
                 outcome=outcome,
             )
             for workflow, sample_prompt, target_skill, outcome in _CORE_WORKFLOWS
-        ]
+            if unavailable_capability(target_skill, profile) is None
+        ],
     )

@@ -80,9 +80,9 @@ def test_no_dead_skill_to_tool_refs() -> None:
 # intent — routing it through `using-sumo-qa` would violate that skill's Iron
 # Law (no work before `sumo-qa-deciding-approach`). `sumo_qa_capabilities` is a
 # pure discovery tool ("what can sumo-qa do?") — it answers, it does not route a
-# QA intent, so it is deliberately not the target of any SKILL body. The agent
-# discovers and calls both from their tool descriptions, so neither needs a
-# SKILL.md cross-reference.
+# QA intent. The agent discovers and calls both from their tool descriptions,
+# so neither needs a SKILL.md cross-reference (a skill may still name
+# `sumo_qa_capabilities`, as the external-skill one does for profile activation).
 #
 # `sumo_qa_list_skill_manifests` and `sumo_qa_load_skill_context` (#285) are
 # read-only progressive-loading tools a host discovers from their descriptions

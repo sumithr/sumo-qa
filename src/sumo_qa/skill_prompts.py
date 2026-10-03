@@ -75,6 +75,7 @@ from typing import Any
 import yaml
 
 from sumo_qa.debug_capture import maybe_capture
+from sumo_qa.tool_registry import unavailable_capability
 
 _REPO_ROOT_SKILLS = Path(__file__).resolve().parent.parent.parent / "skills"
 _BUNDLED_SKILLS = Path(__file__).resolve().parent / "_data" / "skills"
@@ -245,7 +246,7 @@ def _bind_tool(
     body_fn = _make_skill_callable(path, token_cap=token_cap)
 
     def fn() -> str:
-        text = body_fn()
+        text = unavailable_capability(name) or body_fn()
         maybe_capture(
             tool=name,
             args={},

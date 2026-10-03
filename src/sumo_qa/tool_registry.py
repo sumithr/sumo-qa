@@ -15,7 +15,9 @@ skill, plus each tool a core skill names (pinned by tests/test_tool_registry.py)
 and ``sumo_qa_capabilities`` for discovery. The external-skill workflow body is
 core so the router never points at a missing tool, but the open-world and
 external-skill tools it drives (search, check, install, execute) are not: under
-``core`` that workflow is listed but cannot run them.
+``core`` that workflow's tool is in ``tools/list``, and its entry declares ``requires`` on that
+group, so calling it (or loading it through ``sumo_qa_load_skill_context``)
+returns ``unavailable_capability``'s activation path instead of the skill body.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ PROFILE_ENV = "SUMO_QA_MCP_PROFILE"
 PROFILES = ("core", "full")
 DEFAULT_PROFILE = "full"
 GROUPS = ("workflow", "test_design", "analysis", "execution_evidence", "specialist", "external")
+ACTIVATION = f"{PROFILE_ENV}=full"
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,9 @@ class ToolMeta:
     core: bool
     open_world: bool = False
     integration: str | None = None
+    # The group a core workflow cannot run without; a profile that leaves the
+    # group out serves the activation path in place of the workflow.
+    requires: str | None = None
 
 
 def _core(group: str, *names: str) -> tuple[ToolMeta, ...]:
@@ -63,7 +69,6 @@ TOOLS: tuple[ToolMeta, ...] = (
         "sumo_qa_strategising",
         "sumo_qa_strengthening_tests",
         "sumo_qa_triaging_test_failures",
-        "sumo_qa_suggesting_external_skill",
         "sumo_qa_capabilities",
         "sumo_qa_load_skill_context",
     ),
@@ -96,6 +101,7 @@ TOOLS: tuple[ToolMeta, ...] = (
         "sumo_qa_record_mutation",
         "sumo_qa_capture_review_feedback",
     ),
+    ToolMeta("sumo_qa_suggesting_external_skill", "workflow", core=True, requires="external"),
     ToolMeta("sumo_qa_load_catalogue_entry", "specialist", core=False),
     ToolMeta("sumo_qa_list_skill_manifests", "specialist", core=False),
     ToolMeta("sumo_qa_export_test_cases", "specialist", core=False),
@@ -150,3 +156,32 @@ def profile_tool_names(profile: str) -> frozenset[str]:
     if profile not in PROFILES:
         raise _invalid(profile)
     return frozenset(t.name for t in TOOLS if profile == "full" or t.core)
+
+
+def group_availability(profile: str) -> tuple[list[str], list[str]]:
+    """``(enabled, unavailable)`` groups for ``profile``, in ``GROUPS`` order:
+    a group is enabled when the profile serves any of its tools and unavailable
+    when it leaves any of them out."""
+    served = profile_tool_names(profile)
+    enabled = [g for g in GROUPS if any(t.group == g and t.name in served for t in TOOLS)]
+    unavailable = [g for g in GROUPS if any(t.group == g and t.name not in served for t in TOOLS)]
+    return enabled, unavailable
+
+
+def unavailable_capability(name: str, profile: str | None = None) -> str | None:
+    """The activation path for workflow ``name`` (tool or skill spelling) when
+    ``profile`` (default: the configured one) leaves out the group it
+    ``requires``; ``None`` when it can run."""
+    meta = next((t for t in TOOLS if t.name == name.replace("-", "_")), None)
+    if meta is None or meta.requires is None:
+        return None
+    profile = profile or resolve_profile()
+    if meta.requires not in group_availability(profile)[1]:
+        return None
+    return (
+        f"capability unavailable in {profile} profile\n"
+        f"required group: {meta.requires}\n"
+        f"activate: {ACTIVATION}\n"
+        "Set it in the sumo-qa MCP server's env and restart the host. Tell the "
+        "user this step needs it; do not substitute another tool or answer from memory."
+    )
