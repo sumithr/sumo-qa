@@ -103,6 +103,12 @@ name = "broken"
 skill = "sumo-qa-reviewing-before-merge"
 classification = "test_change"
 modules = "no-such-module"
+
+[[tool.sumo-qa.context-budget.workflow]]
+name = "misnamed"
+skill = "sumo-qa-security-testing"
+classification = "security_change"
+loaders = "standards,rule"
 """,
         encoding="utf-8",
     )
@@ -113,6 +119,7 @@ modules = "no-such-module"
     assert "FAIL root skill using-sumo-qa" in out
     assert "FAIL bundle tight" in out
     assert "FAIL workflow broken: bundle failed" in out
+    assert "FAIL workflow misnamed: unknown loader 'rule'" in out
     assert "context budget: FAILED" in out
 
 
@@ -135,3 +142,15 @@ def test_a_handoff_workflow_enters_through_the_bundle_with_the_body():
     assert "sumo_qa_security_testing" not in [name for name, _ in bundled]
     assert bundled[-1][1]["include_body"] is True
     assert bundled[-1][1]["catalogues"] == "techniques"
+
+
+def test_loaders_are_stripped_and_checked_against_the_known_loader_tools():
+    wf = {"skill": "sumo-qa-security-testing", "classification": "security_change"}
+    calls = audit_mod._workflow_calls(wf | {"loaders": " standards , techniques"}, bundled=False)
+    assert calls[-2:] == [
+        ("sumo_qa_load_standards", {"classification": "security_change"}),
+        ("sumo_qa_load_techniques", {}),
+    ]
+    for bad in ("standards,", "standards,bogus"):
+        with pytest.raises(ValueError, match="unknown loader"):
+            audit_mod._workflow_calls(wf | {"loaders": bad}, bundled=False)

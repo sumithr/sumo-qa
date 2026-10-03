@@ -52,6 +52,8 @@ ROUTER_CALLS = (
     ("sumo_qa_load_classifications", {}),
     ("sumo_qa_load_approaches", {}),
 )
+# The ``sumo_qa_load_<name>`` catalogue loaders a workflow's ``loaders`` may name.
+LOADERS = ("approaches", "classifications", "principles", "rules", "standards", "techniques")
 
 
 def resent_tokens(sizes: list[int]) -> int:
@@ -119,7 +121,11 @@ def _workflow_calls(wf: dict[str, Any], bundled: bool) -> list[tuple[str, dict[s
             "include_body": handoff,
         }
         return [*calls, ("sumo_qa_load_skill_context", bundle)]
-    for loader in wf.get("loaders", "classifications,standards,rules").split(","):
+    for loader in (
+        n.strip() for n in wf.get("loaders", "classifications,standards,rules").split(",")
+    ):
+        if loader not in LOADERS:
+            raise ValueError(f"unknown loader {loader!r} (known: {', '.join(LOADERS)})")
         args = {"classification": wf["classification"]} if loader in ("standards", "rules") else {}
         calls.append((f"sumo_qa_load_{loader}", args))
     for module in filter(None, wf.get("modules", "").split(",")):
@@ -166,9 +172,12 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
     failures: list[str] = []
     for wf in config.get("workflow", []):
         for bundled in (False, True):
-            texts = [
-                _text(asyncio.run(server.call_tool(n, a))) for n, a in _workflow_calls(wf, bundled)
-            ]
+            try:
+                calls = _workflow_calls(wf, bundled)
+            except ValueError as exc:
+                failures.append(f"workflow {wf['name']}: {exc}")
+                break
+            texts = [_text(asyncio.run(server.call_tool(n, a))) for n, a in calls]
             if bundled:
                 bundle = json.loads(texts[-1])
                 if "error" in bundle:

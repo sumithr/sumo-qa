@@ -527,7 +527,10 @@ trigger = "startup|clear|compact"
 # bootstrap: SessionStart additionalContext on a healthy session.
 # tools_list: the compact JSON of every advertised MCP tool.
 # Each workflow's `bundle` caps its one-call sumo_qa_load_skill_context
-# result (include_body=false, as the review skill calls it).
+# result: include_body=false, as a skill loads its own context, unless the
+# workflow sets `handoff`, where the router enters the skill through the
+# bundle and the body is included. `loaders` names the per-loader chain it is
+# compared against; `catalogues` names whole catalogues the bundle carries.
 bootstrap = 1000
 tools_list = 11900
 
@@ -552,8 +555,7 @@ classification = "test_change"
 modules = "test-only-diff"
 bundle = 2250
 
-# security-testing is entered through its bundle (handoff: body included),
-# replacing its skill tool and three loaders (#802).
+# security-testing is entered through its bundle (handoff: body included).
 [[tool.sumo-qa.context-budget.workflow]]
 name = "security testing"
 skill = "sumo-qa-security-testing"

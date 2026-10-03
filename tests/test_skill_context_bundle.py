@@ -322,7 +322,7 @@ def test_module_ids_split_on_commas_and_strip_whitespace():
     assert [m["id"] for m in out["modules"]] == ["runtime-scope", "coverage-ledger"]
 
 
-# --- catalogues= (#802): whole knowledge catalogues in the same one call ---
+# --- catalogues=: whole knowledge catalogues in the same one call ---
 # Technique: equivalence partitioning over the catalogue names (each valid
 # name, several valid names, an unknown name, none at all).
 
@@ -382,3 +382,5 @@ def test_over_cap_bundle_sizes_the_catalogues_part():
     out = _bundle(catalogues="techniques", include_body=False, token_cap=100)
     assert out["oversize"] is True
     assert "catalogues" in out["part_tokens"]
+    for remedy in ("fewer modules", "include_body=False", "drop catalogues"):
+        assert remedy in out["error"]

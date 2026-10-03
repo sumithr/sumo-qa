@@ -25,7 +25,9 @@ is met by any one call matching one alternative, an alternative naming a tool
 and optionally argument values (``"*"``: at least one id once split on
 ``,``/``;``/whitespace); output markers
 match as case-insensitive substrings — pin distinctive phrases in fixtures
-(an id like ``INV-12345`` also matches inside ``INV-123456``).
+(an id like ``INV-12345`` also matches inside ``INV-123456``). A bundle-mode
+``sumo_qa_load_skill_context`` call that carries a routed skill's body enters
+that skill, so it counts as that skill's tool (see ``_entry_name``).
 """
 
 from __future__ import annotations
@@ -146,6 +148,24 @@ class ConformanceScenario:
 class ToolCall:
     tool: str
     args: dict[str, Any] = field(default_factory=dict)
+
+
+def _entry_name(call: ToolCall) -> str:
+    """The name a call routes under: a bundle-mode ``sumo_qa_load_skill_context``
+    carrying a routed skill's body enters that skill, so it reads as the skill's
+    tool. Manifest, section, module and full loads, and a bundle without the body
+    (``include_body=False``), are context loads, not entry."""
+    args = call.args
+    skill = args.get("skill_name")
+    if (
+        call.tool != "sumo_qa_load_skill_context"
+        or args.get("mode") != "bundle"
+        or not isinstance(skill, str)
+        or str(args.get("include_body", True)).lower() == "false"
+    ):
+        return call.tool
+    name = skill.replace("-", "_")
+    return call.tool if name in ROUTER_CHAIN else name
 
 
 @dataclass(frozen=True)
@@ -293,7 +313,7 @@ def _routing_violations(
     expected = scenario.expected_entry_skill
     if expected is None:
         return []
-    names = [tc.tool for tc in transcript.tool_calls]
+    names = [_entry_name(tc) for tc in transcript.tool_calls]
     if expected not in names:
         return [
             Violation(
@@ -345,7 +365,8 @@ def _first_hop_violations(
     expected = scenario.expected_entry_skill
     if expected is None:
         return []
-    sumo_calls = [tc.tool for tc in transcript.tool_calls if _is_sumo_qa_tool(tc.tool)]
+    names = [_entry_name(tc) for tc in transcript.tool_calls]
+    sumo_calls = [name for name in names if _is_sumo_qa_tool(name)]
     if not sumo_calls:
         return [
             Violation(
@@ -393,6 +414,7 @@ def _first_hop_violations(
 
 def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> list[Violation]:
     called = {tc.tool for tc in transcript.tool_calls}
+    called |= {_entry_name(tc) for tc in transcript.tool_calls}
     violations: list[Violation] = []
     for required in scenario.required_tool_calls:
         if required not in called:

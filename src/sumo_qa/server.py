@@ -2086,21 +2086,29 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         Never raises: an unknown skill_name/mode/section/module, a missing
         required arg, or a path-traversal attempt returns a JSON error envelope
         listing the valid choices. Read-only and local-only."""
-        return json.dumps(
-            _load_skill_context(
-                skill_name,
-                mode,
-                section=section,
-                module=module,
-                known_hash=known_hash,
-                classification=classification,
-                modules=modules,
-                include_body=include_body,
-                catalogues=catalogues,
-            ),
+        options = {
+            "section": section,
+            "module": module,
+            "known_hash": known_hash,
+            "classification": classification,
+            "modules": modules,
+            "include_body": include_body,
+            "catalogues": catalogues,
+        }
+        text = json.dumps(
+            _load_skill_context(skill_name, mode, **options),
             ensure_ascii=False,
             indent=2,
         )
+        # Captured with its args: a bundle carrying a routed skill's body is
+        # entry into that skill, which conformance reads from these args. The
+        # output is a summary, not the served slice.
+        maybe_capture(
+            tool="sumo_qa_load_skill_context",
+            args={"skill_name": skill_name, "mode": mode, **options},
+            output={"served_chars": len(text)},
+        )
+        return text
 
     register_skills_as_prompts(mcp)
     register_skill_resources(mcp)

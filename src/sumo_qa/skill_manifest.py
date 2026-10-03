@@ -725,7 +725,8 @@ def _bundle(
             "part_tokens": {k: _approx_tokens(_served(payload[k])) for k in sized if k in payload},
             "error": (
                 f"bundle (~{tokens} est. tokens) exceeds the ~{cap}-token "
-                f"per-response cap; request fewer modules or pass include_body=False."
+                f"per-response cap; request fewer modules, pass include_body=False, "
+                f"or drop catalogues and load each with its own loader."
             ),
         }
     content_hash = _content_hash(text)
