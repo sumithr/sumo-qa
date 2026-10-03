@@ -1,4 +1,5 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import inspect
 import json
 import os
 import sys
@@ -549,6 +550,19 @@ def _slim_tool_schemas(mcp: Any) -> None:
         if tool.fn_metadata.output_schema is not None:
             tool.fn_metadata.output_schema = _strip_schema_titles(tool.fn_metadata.output_schema)
             tool.__dict__.pop("output_schema", None)
+
+
+def _clean_tool_descriptions(mcp: Any) -> None:
+    """Serve every tool description through ``inspect.cleandoc``, once at build time.
+
+    MCPServer serves a tool's ``fn.__doc__`` as its description unchanged.
+    Python 3.13+ strips docstring indentation at compile time and earlier
+    versions keep it, so without this pass ``tools/list`` differs by Python
+    version. Pinned by tests/test_tool_schema_titles.py against the served
+    list."""
+    for tool in mcp._tool_manager.list_tools():
+        if tool.description:
+            tool.description = inspect.cleandoc(tool.description)
 
 
 def _drop_structured_output(mcp: Any) -> None:
@@ -2087,6 +2101,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     register_skill_resources(mcp)
     _apply_profile(mcp, profile)
     _slim_tool_schemas(mcp)
+    _clean_tool_descriptions(mcp)
     _drop_structured_output(mcp)
     return mcp
 

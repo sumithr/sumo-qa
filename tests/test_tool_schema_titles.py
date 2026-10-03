@@ -11,12 +11,14 @@ the annotation ``title`` on schema objects is removed, while title-named
 properties/definitions and data (``default``/``const``/``enum``/``examples``)
 are preserved. This test pins that no annotation title survives on the real
 served input schemas (the surface ``tools/list`` returns); output schemas are
-not served.
+not served. It also pins that every served description is free of docstring
+indentation, so tools/list is identical on every supported Python.
 """
 
 from __future__ import annotations
 
 import asyncio
+import inspect
 
 from sumo_qa.server import _slim_tool_schemas, _strip_schema_titles, build_mcp_server
 
@@ -219,3 +221,15 @@ def test_served_tools_list_emits_no_output_schema() -> None:
         f"{len(with_output_schema)} tool(s) still ship an outputSchema in "
         f"tools/list: {with_output_schema}"
     )
+
+
+def test_served_tool_descriptions_carry_no_docstring_indentation() -> None:
+    # Python 3.13+ strips docstring indentation at compile time and earlier
+    # versions keep it; a served description must already be cleandoc-clean.
+    tools = asyncio.run(build_mcp_server().list_tools())
+    indented = sorted(
+        tool.name
+        for tool in tools
+        if tool.description and tool.description != inspect.cleandoc(tool.description)
+    )
+    assert not indented, f"tool descriptions still carry docstring indentation: {indented}"
