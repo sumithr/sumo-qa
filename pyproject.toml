@@ -525,11 +525,12 @@ trigger = "startup|clear|compact"
 # ---------------------------------------------------------------------------
 [tool.sumo-qa.context-budget]
 # bootstrap: SessionStart additionalContext on a healthy session.
-# tools_list: the compact JSON of every advertised MCP tool.
+# tools_list: the compact JSON of every advertised MCP tool, per profile.
+# core is a ratchet just above its measurement; #808 tracks its 6,000 target.
 # Each workflow's `bundle` caps its one-call sumo_qa_load_skill_context
 # result (include_body=false, as the review skill calls it).
 bootstrap = 1000
-tools_list = 11900
+tools_list = { core = 9400, full = 11900 }
 
 [[tool.sumo-qa.context-budget.workflow]]
 name = "review: business logic change"

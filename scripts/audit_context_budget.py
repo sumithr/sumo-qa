@@ -7,7 +7,10 @@ Measures, with the repository's canonical estimator
 * **bootstrap**: the SessionStart ``additionalContext`` the real hook emits on
   a healthy Claude Code session (compact path), plus the full-router fallback
   for reference, with the plugin root replaced by a fixed stand-in path;
-* **tools/list**: the compact JSON of every advertised MCP tool;
+* **tools/list**: the compact JSON of every advertised MCP tool, once per
+  profile (``core`` and ``full``, from ``sumo_qa.tool_registry``), plus one
+  report-only row per capability group (tool count, how many are core, and the
+  description vs name/schema/annotations split) so a regression is attributable;
 * **root skills**: every ``skills/*/SKILL.md``;
 * **workflows**: the MCP tool results a routed skill loads, through the real
   server's ``call_tool``. Each workflow is reported twice: the per-loader
@@ -15,6 +18,11 @@ Measures, with the repository's canonical estimator
   bundled path (one ``sumo_qa_load_skill_context(mode="bundle")`` call), with
   call counts and a re-sent estimate (an agent loop re-sends every earlier
   result on each later turn, so N results cost the sum of their prefixes).
+  The workflows run on the ``core`` server, so every audited workflow is
+  proven to run under ``core``;
+* **end-to-end**: per workflow and profile, the model-visible total of one
+  bundled run: compact bootstrap + that profile's tools/list + the results,
+  with the bootstrap and tools/list riding every turn in the re-sent figure.
 
 Budgets live in ``[tool.sumo-qa.context-budget]`` in pyproject.toml. A budget
 that is absent is report-only. Exit 1 when any configured budget is exceeded.
@@ -36,8 +44,10 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from sumo_qa.skill_manifest import _approx_tokens as approx_tokens
+from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, TOOLS
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -121,11 +131,22 @@ def _workflow_calls(wf: dict[str, Any], bundled: bool) -> list[tuple[str, dict[s
     return calls
 
 
+def _compact(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+def _run(server: Any, calls: list[tuple[str, dict[str, Any]]]) -> list[str]:
+    return [_text(asyncio.run(server.call_tool(n, a))) for n, a in calls]
+
+
 def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any]], list[str]]:
     """Return (rows, failures). Each row: area, name, chars, tokens, budget."""
     from sumo_qa.server import build_mcp_server
 
-    server = build_mcp_server()
+    servers = {}
+    for profile in PROFILES:
+        with mock.patch.dict(os.environ, {PROFILE_ENV: profile}):
+            servers[profile] = build_mcp_server()
     rows: list[dict[str, Any]] = []
 
     def row(area: str, name: str, text: str, budget: int | None = None, **extra: Any) -> None:
@@ -135,18 +156,44 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
             | extra
         )
 
-    row(
-        "bootstrap",
-        "compact (default)",
-        measure_bootstrap(repo, "compact"),
-        config.get("bootstrap"),
-    )
+    bootstrap = measure_bootstrap(repo, "compact")
+    row("bootstrap", "compact (default)", bootstrap, config.get("bootstrap"))
     row("bootstrap", "full fallback", measure_bootstrap(repo, "full"))
 
-    tools = asyncio.run(server.list_tools())
-    dumped = [t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in tools]
-    tools_json = json.dumps(dumped, separators=(",", ":"), ensure_ascii=False)
-    row("tools/list", f"{len(tools)} tools", tools_json, config.get("tools_list"))
+    list_budgets = config.get("tools_list", {})
+    tools_json: dict[str, str] = {}
+    entries: dict[str, list[dict[str, Any]]] = {}
+    for profile, server in servers.items():
+        tools = asyncio.run(server.list_tools())
+        entries[profile] = [
+            t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in tools
+        ]
+        tools_json[profile] = _compact(entries[profile])
+        row(
+            "tools/list",
+            f"{profile}: {len(tools)} tools",
+            tools_json[profile],
+            list_budgets.get(profile),
+            profile=profile,
+        )
+    by_name = {e["name"]: e for e in entries["full"]}
+    for group in dict.fromkeys(t.group for t in TOOLS):
+        members = [t for t in TOOLS if t.group == group]
+        group_entries = [by_name[t.name] for t in members if t.name in by_name]
+        core = sum(t.core for t in members)
+        row(
+            "tool group",
+            f"{group}: {len(members)} tools ({core} core)",
+            _compact(group_entries),
+            group=group,
+            tools=len(members),
+            core=core,
+            desc=sum(approx_tokens(e.get("description", "")) for e in group_entries),
+            schema=sum(
+                approx_tokens(_compact({k: v for k, v in e.items() if k != "description"}))
+                for e in group_entries
+            ),
+        )
 
     for path in sorted((repo / "skills").glob("*/SKILL.md")):
         row(
@@ -159,9 +206,7 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
     failures: list[str] = []
     for wf in config.get("workflow", []):
         for bundled in (False, True):
-            texts = [
-                _text(asyncio.run(server.call_tool(n, a))) for n, a in _workflow_calls(wf, bundled)
-            ]
+            texts = _run(servers["core"], _workflow_calls(wf, bundled))
             if bundled:
                 bundle = json.loads(texts[-1])
                 if "error" in bundle:
@@ -175,6 +220,18 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
                 calls=len(texts),
                 resent=resent_tokens(sizes),
             )
+        for profile, server in servers.items():
+            prefix = bootstrap + tools_json[profile]
+            texts = _run(server, _workflow_calls(wf, bundled=True))
+            row(
+                "end-to-end",
+                f"{wf['name']} ({profile})",
+                prefix + "".join(texts),
+                workflow=wf["name"],
+                profile=profile,
+                calls=len(texts),
+                resent=resent_tokens([approx_tokens(t) for t in (prefix, *texts)]),
+            )
 
     failures += [
         f"{r['area']} {r['name']}: ~{r['tokens']} est. tokens > budget {r['budget']}"
@@ -186,14 +243,16 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
 
 def render(rows: list[dict[str, Any]]) -> str:
     lines = [
-        f"{'area':<11} {'name':<52} {'chars':>7} {'tokens':>7} {'budget':>7} {'calls':>5} {'re-sent':>8}"
+        f"{'area':<11} {'name':<52} {'chars':>7} {'tokens':>7} {'budget':>7} {'calls':>5} "
+        f"{'re-sent':>8} {'desc':>5} {'schema':>6}"
     ]
     for r in rows:
         budget = "-" if r["budget"] is None else str(r["budget"])
         over = " OVER" if r["budget"] is not None and r["tokens"] > r["budget"] else ""
         lines.append(
             f"{r['area']:<11} {r['name']:<52} {r['chars']:>7} {r['tokens']:>7} {budget:>7} "
-            f"{r.get('calls', ''):>5} {r.get('resent', ''):>8}{over}"
+            f"{r.get('calls', ''):>5} {r.get('resent', ''):>8} {r.get('desc', ''):>5} "
+            f"{r.get('schema', ''):>6}{over}"
         )
     return "\n".join(lines)
 

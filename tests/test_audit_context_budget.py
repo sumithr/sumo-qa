@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from sumo_qa.tool_registry import GROUPS, PROFILES, TOOLS, profile_tool_names
+
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32" or shutil.which("bash") is None,
     reason="the audit runs the bash SessionStart hook (Linux/macOS CI)",
@@ -70,7 +72,15 @@ def test_shipped_budgets_pass_and_report_every_area(capsys):
     rows, failures = audit_mod.audit(audit_mod.load_config(REPO / "pyproject.toml"), REPO)
     assert not failures
     by_area = {r["area"] for r in rows}
-    assert by_area == {"bootstrap", "tools/list", "root skill", "bundle", "workflow"}
+    assert by_area == {
+        "bootstrap",
+        "tools/list",
+        "tool group",
+        "root skill",
+        "bundle",
+        "workflow",
+        "end-to-end",
+    }
     compact = next(r for r in rows if r["name"] == "compact (default)")
     assert compact["tokens"] <= 1000
     roots = [r for r in rows if r["area"] == "root skill"]
@@ -88,7 +98,7 @@ def test_exceeded_budgets_fail_naming_each_area(tmp_path, capsys):
         """
 [tool.sumo-qa.context-budget]
 bootstrap = 10
-tools_list = 10
+tools_list = { core = 10, full = 10 }
 root_skill = 10
 
 [[tool.sumo-qa.context-budget.workflow]]
@@ -109,8 +119,62 @@ modules = "no-such-module"
     assert audit_mod.main(["--config", str(config)]) == 1
     out = capsys.readouterr().out
     assert "FAIL bootstrap compact (default)" in out
-    assert "FAIL tools/list" in out
+    assert "FAIL tools/list core" in out
+    assert "FAIL tools/list full" in out
     assert "FAIL root skill using-sumo-qa" in out
     assert "FAIL bundle tight" in out
     assert "FAIL workflow broken: bundle failed" in out
     assert "context budget: FAILED" in out
+
+
+@pytest.fixture(scope="module")
+def shipped_rows():
+    rows, _ = audit_mod.audit(audit_mod.load_config(REPO / "pyproject.toml"), REPO)
+    return rows
+
+
+def test_tools_list_is_measured_per_profile_with_its_registry_tool_count(shipped_rows):
+    lists = {r["profile"]: r for r in shipped_rows if r["area"] == "tools/list"}
+    assert set(lists) == set(PROFILES)
+    for profile, r in lists.items():
+        assert r["name"] == f"{profile}: {len(profile_tool_names(profile))} tools"
+        assert r["budget"] is not None  # every profile ships a budget
+    assert lists["core"]["tokens"] < lists["full"]["tokens"]
+
+
+def test_core_budget_fails_one_token_below_its_measurement(shipped_rows, tmp_path):
+    # boundary value analysis: a budget equal to the measured core cost passes,
+    # one token less fails, and only the core row is named.
+    core = next(r for r in shipped_rows if r["area"] == "tools/list" and r["profile"] == "core")
+    for budget, failed in ((core["tokens"], False), (core["tokens"] - 1, True)):
+        _, failures = audit_mod.audit({"tools_list": {"core": budget}}, REPO)
+        assert any(f.startswith("tools/list core:") for f in failures) is failed
+        assert not any(f.startswith("tools/list full:") for f in failures)
+
+
+def test_groups_attribute_every_full_tool_once(shipped_rows):
+    groups = {r["group"]: r for r in shipped_rows if r["area"] == "tool group"}
+    assert set(groups) == set(GROUPS)
+    for group, r in groups.items():
+        members = [t for t in TOOLS if t.group == group]
+        assert r["tools"] == len(members)
+        assert r["core"] == sum(t.core for t in members)
+        assert 0 < r["desc"] < r["tokens"]
+        assert 0 < r["schema"] < r["tokens"]
+    full = next(r for r in shipped_rows if r["area"] == "tools/list" and r["profile"] == "full")
+    assert sum(r["tools"] for r in groups.values()) == len(profile_tool_names("full"))
+    # the groups partition the full list: their costs sum to it, give or take
+    # one token of rounding per group
+    assert abs(sum(r["tokens"] for r in groups.values()) - full["tokens"]) <= len(GROUPS)
+
+
+def test_end_to_end_workflow_costs_less_under_core(shipped_rows):
+    e2e = [r for r in shipped_rows if r["area"] == "end-to-end"]
+    flows = {r["workflow"] for r in e2e}
+    assert flows == {w["name"] for w in audit_mod.load_config(REPO / "pyproject.toml")["workflow"]}
+    for flow in flows:
+        by_profile = {r["profile"]: r for r in e2e if r["workflow"] == flow}
+        assert set(by_profile) == set(PROFILES)
+        assert by_profile["core"]["calls"] == by_profile["full"]["calls"]
+        assert by_profile["core"]["tokens"] < by_profile["full"]["tokens"]
+        assert by_profile["core"]["resent"] < by_profile["full"]["resent"]
