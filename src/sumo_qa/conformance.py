@@ -26,8 +26,9 @@ and optionally argument values (``"*"``: at least one id once split on
 ``,``/``;``/whitespace); output markers
 match as case-insensitive substrings — pin distinctive phrases in fixtures
 (an id like ``INV-12345`` also matches inside ``INV-123456``). A bundle-mode
-``sumo_qa_load_skill_context`` call that carries a routed skill's body enters
-that skill, so it counts as that skill's tool (see ``_entry_name``).
+``sumo_qa_load_skill_context`` call that carries a routed skill's body and did
+not return an error enters that skill, so every check counts it as that
+skill's tool as well as its own (see ``_entry_name``).
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import TypeAdapter, ValidationError
 
 from sumo_qa.first_hop import ENTRY_ROUTER, ROUTER_CHAIN
 from sumo_qa.knowledge_loaders import (
@@ -103,8 +105,10 @@ class ToolRequirement:
     tool: str
     args: tuple[tuple[str, str], ...] = ()
 
-    def matches(self, call: ToolCall) -> bool:
-        if call.tool != self.tool:
+    def matches(self, call: ToolCall, entry: str) -> bool:
+        """Whether ``call`` (whose entry name is ``entry``) meets this
+        alternative: its own tool name or its entry name is ``tool``."""
+        if self.tool not in (call.tool, entry):
             return False
         for key, want in self.args:
             got = call.args.get(key)
@@ -146,22 +150,42 @@ class ConformanceScenario:
 
 @dataclass(frozen=True)
 class ToolCall:
+    """One tool call. ``error`` is whether the call returned an error envelope;
+    ``None`` when the transcript carries no result information."""
+
     tool: str
     args: dict[str, Any] = field(default_factory=dict)
+    error: bool | None = None
+
+
+_BOOL = TypeAdapter(bool)
+
+
+def _includes_body(args: dict[str, Any]) -> bool:
+    """``include_body`` as the server's bool parameter coerces it (pydantic lax
+    bool: false/0/no/off in any case is False). A value the server would reject
+    never ran, so it carries no body."""
+    try:
+        return _BOOL.validate_python(args.get("include_body", True))
+    except ValidationError:
+        return False
 
 
 def _entry_name(call: ToolCall) -> str:
     """The name a call routes under: a bundle-mode ``sumo_qa_load_skill_context``
     carrying a routed skill's body enters that skill, so it reads as the skill's
-    tool. Manifest, section, module and full loads, and a bundle without the body
-    (``include_body=False``), are context loads, not entry."""
+    tool. Manifest, section, module and full loads, a bundle without the body
+    (``include_body`` false), and a bundle recorded as returning an error
+    (``error=True``: unknown id, oversize) are not entry. A call with no result
+    information (``error=None``) is judged on its args alone."""
     args = call.args
     skill = args.get("skill_name")
     if (
         call.tool != "sumo_qa_load_skill_context"
+        or call.error
         or args.get("mode") != "bundle"
         or not isinstance(skill, str)
-        or str(args.get("include_body", True)).lower() == "false"
+        or not _includes_body(args)
     ):
         return call.tool
     name = skill.replace("-", "_")
@@ -295,10 +319,12 @@ def validate_transcript(
         return ScenarioResult(scenario.id, (), skipped=True)
     if known_entry_skills is None:
         known_entry_skills = registered_entry_skills()
+    # Every check reads the same per-call entry names, mapped once here.
+    names = tuple(_entry_name(tc) for tc in transcript.tool_calls)
     violations = (
-        _routing_violations(scenario, transcript, known_entry_skills)
-        + _first_hop_violations(scenario, transcript)
-        + _tool_violations(scenario, transcript)
+        _routing_violations(scenario, names, known_entry_skills)
+        + _first_hop_violations(scenario, names)
+        + _tool_violations(scenario, transcript, names)
         + _output_violations(scenario, transcript)
         + _leak_violations(transcript)
     )
@@ -307,13 +333,12 @@ def validate_transcript(
 
 def _routing_violations(
     scenario: ConformanceScenario,
-    transcript: Transcript,
+    names: tuple[str, ...],
     known_entry_skills: frozenset[str],
 ) -> list[Violation]:
     expected = scenario.expected_entry_skill
     if expected is None:
         return []
-    names = [_entry_name(tc) for tc in transcript.tool_calls]
     if expected not in names:
         return [
             Violation(
@@ -352,7 +377,7 @@ def _is_sumo_qa_tool(name: str) -> bool:
 
 def _first_hop_violations(
     scenario: ConformanceScenario,
-    transcript: Transcript,
+    names: tuple[str, ...],
 ) -> list[Violation]:
     """Enforce ``sumo_qa.first_hop.FIRST_HOP_RULE`` on a routed scenario: the
     first sumo-qa call is the entry router, and the whole router chain then the
@@ -365,7 +390,6 @@ def _first_hop_violations(
     expected = scenario.expected_entry_skill
     if expected is None:
         return []
-    names = [_entry_name(tc) for tc in transcript.tool_calls]
     sumo_calls = [name for name in names if _is_sumo_qa_tool(name)]
     if not sumo_calls:
         return [
@@ -412,9 +436,11 @@ def _first_hop_violations(
     return []
 
 
-def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> list[Violation]:
-    called = {tc.tool for tc in transcript.tool_calls}
-    called |= {_entry_name(tc) for tc in transcript.tool_calls}
+def _tool_violations(
+    scenario: ConformanceScenario, transcript: Transcript, names: tuple[str, ...]
+) -> list[Violation]:
+    """Tool clauses see each call under both its own name and its entry name."""
+    called = {tc.tool for tc in transcript.tool_calls} | set(names)
     violations: list[Violation] = []
     for required in scenario.required_tool_calls:
         if required not in called:
@@ -425,7 +451,9 @@ def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> l
                 )
             )
     if scenario.required_one_of and not any(
-        req.matches(tc) for req in scenario.required_one_of for tc in transcript.tool_calls
+        req.matches(tc, name)
+        for req in scenario.required_one_of
+        for tc, name in zip(transcript.tool_calls, names, strict=True)
     ):
         violations.append(
             Violation(
@@ -435,9 +463,7 @@ def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> l
             )
         )
     if scenario.forbid_sumo_qa_calls:
-        called_sumo_qa = sorted(
-            {tc.tool for tc in transcript.tool_calls if _is_sumo_qa_tool(tc.tool)}
-        )
+        called_sumo_qa = sorted(name for name in called if _is_sumo_qa_tool(name))
         for name in called_sumo_qa:
             violations.append(
                 Violation(
@@ -836,7 +862,8 @@ def transcript_from_debug_dir(
     """Reconstruct a transcript from a ``SUMO_QA_DEBUG_DIR`` capture directory.
 
     Each per-tool subdirectory ``debug_capture`` wrote (``{ts}-{tool}`` with its
-    ``input.json``) becomes one ordered ``ToolCall``. The debug capture records
+    ``input.json``) becomes one ordered ``ToolCall``; a boolean ``error`` in its
+    ``output.json`` becomes the call's ``error``. The debug capture records
     only tool exchanges, not the final assistant text, so ``output_text`` is
     supplied by the caller (the human running the manual conformance check).
 
@@ -851,7 +878,18 @@ def transcript_from_debug_dir(
     for run_dir in sorted((p for p in base.iterdir() if p.is_dir()), key=_run_dir_sort_key):
         input_path = run_dir / "input.json"
         args = json.loads(input_path.read_text(encoding="utf-8")) if input_path.is_file() else {}
-        calls.append(ToolCall(tool=_tool_name_from_run_dir(run_dir.name), args=args))
+        output_path = run_dir / "output.json"
+        output = (
+            json.loads(output_path.read_text(encoding="utf-8")) if output_path.is_file() else {}
+        )
+        error = output.get("error") if isinstance(output, dict) else None
+        calls.append(
+            ToolCall(
+                tool=_tool_name_from_run_dir(run_dir.name),
+                args=args,
+                error=error if isinstance(error, bool) else None,
+            )
+        )
     return Transcript(scenario_id=scenario_id, tool_calls=tuple(calls), output_text=output_text)
 
 
