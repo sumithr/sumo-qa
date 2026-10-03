@@ -74,7 +74,7 @@ Anti-patterns:
 This router loads ONLY `load_classifications` + `load_approaches` (step 2). Every other catalogue is the routed sub-skill's responsibility, loaded on demand:
 
 - `sumo-qa-implementing-with-tdd` / `sumo-qa-strengthening-tests` → `load_techniques`.
-- `sumo-qa-reviewing-before-merge` → one `load_skill_context` bundle (classification entries, standards, rules, modules).
+- `sumo-qa-reviewing-before-merge` → one `load_skill_context` bundle.
 - `sumo-qa-creating-test-plan` → `load_standards` + `load_rules` + `load_techniques` + `load_principles`.
 - `sumo-qa-preparing-for-work` → `load_standards` + `load_rules` + `load_techniques`.
 - `sumo-qa-strategising` → `load_principles` + `load_classifications`.
