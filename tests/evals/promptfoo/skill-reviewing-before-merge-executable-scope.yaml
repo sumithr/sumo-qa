@@ -1,0 +1,522 @@
+description: >
+  Issue #761 (groups #447 and #746): runtime scope by executable behaviour,
+  not path or file type, for sumo-qa-reviewing-before-merge. Two seeds put a
+  defect where a path-keyed review waves it through: a stateful fence scanner
+  in an eval assertion helper under `tests/evals/promptfoo/asserts/` (the diff
+  touches test-tree paths only), and changed commands in a markdown procedure
+  an agent executes (the diff touches markdown only). Each must be reviewed as
+  runtime with a named risk anchored to file:line. The fence seed must reach
+  NOT SAFE TO MERGE; the procedure seed must reach NOT SAFE TO MERGE or name a
+  dry run of the procedure as the missing evidence (the #746 acceptance
+  criterion). Three controls keep the lighter handling where it belongs: the
+  same helper written length-aware with a red-on-pre-fix nested-fence
+  regression test is SAFE, an ordinary test file holding fenced Markdown
+  fixtures gets the test-only probe and no runtime probes, and an inert prose
+  doc edit keeps the trivial-change exemption. The seeds carry facts only:
+  nothing candidate-visible names the defect, the discriminating input or the
+  verdict.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
+providers:
+  - file://providers/claude-candidate.yaml
+defaultTest:
+  vars:
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, test-only-diff, discovery-probes, contract-and-fence-probes, coverage-ledger, unproven-escalation, surface-verifier, discharged-check]
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+  assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider: file://providers/claude-judge.yaml
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate decided
+      runtime scope by what each changed file DOES (something executes,
+      imports, or follows it as instructions) rather than by its path or file
+      type, and reached the verdict the seed's facts support. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- SUPPLIED CONTEXT (what the candidate was given) ---
+
+      {{ground_truth_context}}
+
+      --- END SUPPLIED CONTEXT ---
+
+
+      --- LOADED CLASSIFICATIONS (catalogue the candidate was given) ---
+
+      {{loaded_classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      --- LOADED TECHNIQUES (catalogue the candidate was given) ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the Expected QA shape in the
+         rubric concretely, including its verdict line?
+
+      B. GROUNDING - does the response anchor its findings to the supplied
+         diff (changed file paths and lines) and the supplied fresh evidence,
+         rather than generic advice?
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the change classifications catalogue
+    (`sumo_qa_load_classifications`) and the test design technique catalogue:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    Repository diff and fresh verification evidence for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Deliver the
+    verdict in this one turn, no confirmation question. Keep the response
+    concise and evidence-led.
+tests:
+  # #447: executable test infrastructure under tests/. The helper's output
+  # decides which techniques every implementing-with-tdd eval accepts.
+  - description: SEED eval-assert fence scanner under tests/, where a boolean fence toggle in an assertion helper gets the structural probe despite the test-only path
+    vars:
+      user_prompt: >-
+        Small tidy-up in the eval asserts, test-only change. Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/tests/evals/promptfoo/asserts/cites-catalogue-technique.js b/tests/evals/promptfoo/asserts/cites-catalogue-technique.js
+        @@ tests/evals/promptfoo/asserts/cites-catalogue-technique.js:22-52 @@
+         22 const TECHNIQUES_MD = path.resolve(
+         23   __dirname, '..', '..', '..', '..', 'knowledge', 'techniques.md',
+         24 );
+         25
+        +26 // Extract the catalogue's technique names: the level-3 (`###`) ATX
+        +27 // headings. Fence-aware: headings inside code blocks are ignored.
+        +28 function catalogueTechniqueNames(markdown) {
+        +29   const names = [];
+        +30   let inFence = false;
+        +31   for (const line of markdown.split(/\r?\n/)) {
+        +32     if (/^ {0,3}(`{3,}|~{3,})/.test(line)) {
+        +33       inFence = !inFence;
+        +34       continue;
+        +35     }
+        +36     if (inFence) continue;
+        +37     const heading = line.match(/^###\s+(.*\S)\s*$/);
+        +38     if (heading) names.push(heading[1].trim());
+        +39   }
+        +40   return names;
+        +41 }
+         42
+         43 function buildTechniqueRegex() {
+         44   const names = catalogueTechniqueNames(fs.readFileSync(TECHNIQUES_MD, 'utf8'));
+         45   const alternation = names.map(escapeRegExp).join('|');
+         46   return new RegExp(alternation, 'i');
+         47 }
+         48
+         49 // promptfoo `javascript` assert used by skill-implementing-with-tdd.yaml,
+         50 // .ab.yaml and -retrospective.yaml: a candidate passes the grounding axis
+         51 // only when its output cites a technique name this function returned.
+         52 module.exports = function citesCatalogueTechnique(output) { /* unchanged */ };
+        diff --git a/tests/test_eval_cites_catalogue_technique_assert.py b/tests/test_eval_cites_catalogue_technique_assert.py
+        @@ tests/test_eval_cites_catalogue_technique_assert.py:1-40 @@
+        +12 def _names(markdown: str) -> list[str]:
+        +13     """Run the JS helper under node and return its parsed technique names."""
+        +14     return json.loads(_node(f"console.log(JSON.stringify(m.catalogueTechniqueNames({json.dumps(markdown)})))"))
+        +15
+        +16 def test_collects_level3_headings():
+        +17     md = "## Black-box\n### boundary value analysis\n### decision tables\n"
+        +18     assert _names(md) == ["boundary value analysis", "decision tables"]
+        +19
+        +20 def test_skips_heading_inside_backtick_fence():
+        +21     md = "```\n### not a technique\n```\n### decision tables\n"
+        +22     assert _names(md) == ["decision tables"]
+        +23
+        +24 def test_skips_heading_inside_tilde_fence():
+        +25     md = "~~~\n### not a technique\n~~~\n### decision tables\n"
+        +26     assert _names(md) == ["decision tables"]
+        +27
+        +28 def test_parses_the_real_catalogue():
+        +29     assert len(_names(TECHNIQUES_MD.read_text())) > 10
+        ```
+
+        ## Fresh test run
+        ```text
+        $ uv run pytest tests/test_eval_cites_catalogue_technique_assert.py -v
+        tests/test_eval_cites_catalogue_technique_assert.py::test_collects_level3_headings PASSED
+        tests/test_eval_cites_catalogue_technique_assert.py::test_skips_heading_inside_backtick_fence PASSED
+        tests/test_eval_cites_catalogue_technique_assert.py::test_skips_heading_inside_tilde_fence PASSED
+        tests/test_eval_cites_catalogue_technique_assert.py::test_parses_the_real_catalogue PASSED
+        4 passed in 0.62s
+
+        $ bash tests/evals/promptfoo/run-eval.sh skill-implementing-with-tdd.yaml
+        [eval] backend=CLAUDE (merge gate; subscription via claude -p)  repeat=1
+        skill-implementing-with-tdd.yaml: 6 passed, 0 failed
+        ```
+        (Every fixture above opens and closes a block with a 3-character run
+        at column 0 and nothing else on the line.)
+      expected_shape: >-
+        Treats `cites-catalogue-technique.js` as runtime despite the
+        test-only path: its output decides what the implementing-with-tdd
+        evals accept, so it is executable test infrastructure, and the review
+        runs the stateful-scanner structural probe on it (the line loop with
+        the `inFence = !inFence` toggle at lines 30-34), not only the
+        test-only probe. Names the defect: the toggle flips on ANY 3+ fence
+        run, so it never records which character or how long a run opened the
+        block. PRESCRIBES the variable-length nested-fence discriminator with
+        broken-vs-correct observables: a 4-backtick outer fence wrapping a
+        3-backtick block with a `### ` line inside it: the broken toggle
+        closes the outer fence at the inner 3-backtick line and returns that
+        `###` line as a technique name (so the eval would accept a non-catalogue
+        "technique"); a length-aware parser keeps the outer fence open and
+        returns only the real headings. Maps the risk as UNPROVEN against the
+        path-matching green tests in
+        `tests/test_eval_cites_catalogue_technique_assert.py` (they use only
+        well-formed 3-character fences), requires that regression test before
+        SAFE, and delivers NOT SAFE TO MERGE.
+      anti_patterns:
+        - Treats the diff as test-only and skips the structural parser probe because the files live under `tests/`, or says the runtime probes do not apply to it.
+        - Accepts the "Fence-aware" comment or the green happy-path fence tests as proof the scanner is correct, or maps the fence risk COVERED.
+        - Prescribes no concrete discriminating input, or names only `~~~`-vs-backtick or unclosed-at-EOF cases without the 4-backtick-wrapping-3-backtick nested fence.
+        - Names fence inputs as a bare checklist without saying what the current toggle returns wrong for at least the nested-fence input.
+        - Declares SAFE TO MERGE.
+        - Asking another confirmation question instead of delivering the verdict.
+
+  # #447 true negative: the same helper written length-aware, with the exact
+  # discriminator as a regression test that was red on the toggle version.
+  - description: CONTROL length-aware eval-assert fence scanner with a red-on-pre-fix nested-fence regression test is SAFE-eligible
+    vars:
+      user_prompt: >-
+        Fixed the fence handling in the eval asserts. Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/tests/evals/promptfoo/asserts/cites-catalogue-technique.js b/tests/evals/promptfoo/asserts/cites-catalogue-technique.js
+        @@ tests/evals/promptfoo/asserts/cites-catalogue-technique.js:28-56 @@
+         28 function catalogueTechniqueNames(markdown) {
+         29   const names = [];
+        -30   let inFence = false;
+        +30   let fence = null; // { char, len } while inside a fenced block, else null
+         31   for (const line of markdown.split(/\r?\n/)) {
+        -32     if (/^ {0,3}(`{3,}|~{3,})/.test(line)) {
+        -33       inFence = !inFence;
+        -34       continue;
+        -35     }
+        -36     if (inFence) continue;
+        +32     if (fence === null) {
+        +33       const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+        +34       if (open) {
+        +35         fence = { char: open[1][0], len: open[1].length };
+        +36         continue;
+        +37       }
+        +38       const heading = line.match(/^###\s+(.*\S)\s*$/);
+        +39       if (heading) names.push(heading[1].trim());
+        +40     } else {
+        +41       const close = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+        +42       if (
+        +43         close &&
+        +44         close[1][0] === fence.char &&
+        +45         close[1].length >= fence.len &&
+        +46         close[2].trim() === ''
+        +47       ) {
+        +48         fence = null;
+        +49       }
+        +50     }
+        -37     const heading = line.match(/^###\s+(.*\S)\s*$/);
+        -38     if (heading) names.push(heading[1].trim());
+         51   }
+         52   return names;
+         53 }
+        diff --git a/tests/test_eval_cites_catalogue_technique_assert.py b/tests/test_eval_cites_catalogue_technique_assert.py
+        @@ tests/test_eval_cites_catalogue_technique_assert.py:30-52 @@
+        +30 def test_three_tick_block_inside_four_tick_fence_is_skipped():
+        +31     md = "````\n```\n### not a technique\n```\n````\n### decision tables\n"
+        +32     assert _names(md) == ["decision tables"]
+        +33
+        +34 def test_tilde_line_inside_backtick_fence_does_not_close_it():
+        +35     md = "```\n~~~\n### not a technique\n```\n### decision tables\n"
+        +36     assert _names(md) == ["decision tables"]
+        +37
+        +38 def test_close_with_trailing_text_does_not_close():
+        +39     md = "```\n``` not a close\n### not a technique\n```\n### decision tables\n"
+        +40     assert _names(md) == ["decision tables"]
+        +41
+        +42 def test_four_space_indented_close_looking_line_stays_inside():
+        +43     md = "```\n    ```\n### not a technique\n```\n### decision tables\n"
+        +44     assert _names(md) == ["decision tables"]
+        ```
+
+        ## Red evidence on the pre-fix toggle (the four new tests run against HEAD~1's helper)
+        ```text
+        $ git show HEAD~1:tests/evals/promptfoo/asserts/cites-catalogue-technique.js > tests/evals/promptfoo/asserts/cites-catalogue-technique.js
+        $ uv run pytest tests/test_eval_cites_catalogue_technique_assert.py -v
+        ...::test_three_tick_block_inside_four_tick_fence_is_skipped FAILED
+        E   AssertionError: assert ['not a technique', 'decision tables'] == ['decision tables']
+        ...::test_tilde_line_inside_backtick_fence_does_not_close_it FAILED
+        ...::test_close_with_trailing_text_does_not_close FAILED
+        ...::test_four_space_indented_close_looking_line_stays_inside PASSED
+        3 failed, 5 passed in 0.66s
+        $ git checkout -- tests/evals/promptfoo/asserts/cites-catalogue-technique.js
+        ```
+
+        ## Fresh test run (current tree)
+        ```text
+        $ uv run pytest tests/test_eval_cites_catalogue_technique_assert.py -v
+        ...::test_collects_level3_headings PASSED
+        ...::test_skips_heading_inside_backtick_fence PASSED
+        ...::test_skips_heading_inside_tilde_fence PASSED
+        ...::test_parses_the_real_catalogue PASSED
+        ...::test_three_tick_block_inside_four_tick_fence_is_skipped PASSED
+        ...::test_tilde_line_inside_backtick_fence_does_not_close_it PASSED
+        ...::test_close_with_trailing_text_does_not_close PASSED
+        ...::test_four_space_indented_close_looking_line_stays_inside PASSED
+        8 passed in 0.64s
+
+        $ bash tests/evals/promptfoo/run-eval.sh skill-implementing-with-tdd.yaml
+        [eval] backend=CLAUDE (merge gate; subscription via claude -p)  repeat=1
+        skill-implementing-with-tdd.yaml: 6 passed, 0 failed
+        ```
+      expected_shape: >-
+        Reviews the helper as executable test infrastructure (runs the
+        stateful-scanner probe on the fence state at lines 30-50) and finds it
+        tracks the opening character and run length and validates the close
+        line. Maps the fence-scanner risk COVERED, citing
+        `test_three_tick_block_inside_four_tick_fence_is_skipped` and its
+        verbatim assertion `assert _names(md) == ["decision tables"]`, with
+        the cited red-on-pre-fix run as proof the test discriminates. Treats
+        the surface verifier (the implementing-with-tdd eval that uses the
+        assert, run on the Claude eval gate) as DISCHARGED. Delivers SAFE TO
+        MERGE, listing any untested nuance only under Residual concerns.
+      anti_patterns:
+        - Marks the fence-scanner risk UNPROVEN or UNCOVERED although the fresh run includes the 4-backtick-wrapping-3-backtick regression test with red-on-pre-fix evidence.
+        - Withholds SAFE on a speculative fence variant the diff's code already handles and the tests already exercise, or on a manufactured verifier blocker.
+        - Declares NOT SAFE TO MERGE or NEEDS WORK.
+        - Asking another confirmation question instead of delivering the verdict.
+
+  # #447 true negative: an ordinary test file whose fixtures contain fenced
+  # Markdown. No parser or helper logic changed, so no runtime probes.
+  - description: CONTROL ordinary test file with fenced Markdown fixtures gets the test-only probe, not runtime probes
+    vars:
+      review_modules: [runtime-scope, test-only-diff]
+      user_prompt: >-
+        Added a characterisation test for code-block rendering. Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/tests/test_render.py b/tests/test_render.py
+        @@ tests/test_render.py:88-104 @@
+        +88 FENCED_DOC = "Intro\n\n````\n```\n## inside\n```\n````\n\n## after\n"
+        +89
+        +90 def test_render_keeps_nested_fence_as_one_code_block():
+        +91     html = render_markdown(FENCED_DOC)
+        +92     assert html == (
+        +93         "<p>Intro</p>\n"
+        +94         "<pre><code>```\n## inside\n```\n</code></pre>\n"
+        +95         "<h2>after</h2>\n"
+        +96     )
+        ```
+        `render_markdown` (in `src/docsite/render.py`) is unchanged by this
+        diff; it delegates to the pinned `markdown-it-py` CommonMark renderer.
+
+        ## Fresh test run
+        ```text
+        $ uv run pytest tests/test_render.py -v
+        tests/test_render.py::test_render_heading PASSED
+        tests/test_render.py::test_render_list PASSED
+        tests/test_render.py::test_render_keeps_nested_fence_as_one_code_block PASSED
+        3 passed in 0.21s
+        ```
+        Mutation check run this turn: with `render_markdown` patched to treat
+        every 3+ backtick run as a block boundary, the new test FAILED
+        (`<h2>inside</h2>` appeared in the output).
+      expected_shape: >-
+        Recognises a test-only change to an ordinary test function and its
+        fixture string: nothing in the diff executes, parses or gates
+        anything beyond the one test. Runs the test-only probe and emits a
+        `Test probe:` line for `test_render_keeps_nested_fence_as_one_code_block`
+        that judges it discriminating (exact expected HTML derived from the
+        input, and the cited mutation run where a fence-boundary bug fails
+        it). Does NOT run the stateful-parser or other runtime structural
+        probes on the fixture string and does not demand a discriminating
+        fence input for code the diff does not change. Delivers SAFE TO MERGE.
+      anti_patterns:
+        - Treats the fenced fixture string or the test function as a stateful parser and demands fence discriminators, an UNPROVEN escalation, or a runtime coverage ledger for it.
+        - Names runtime risks in `src/docsite/render.py`, which the diff does not change.
+        - Declares NOT SAFE TO MERGE or NEEDS WORK.
+        - Asking another confirmation question instead of delivering the verdict.
+
+  # #746: a markdown procedure an agent executes step by step. Its commands,
+  # carried values and branches are runtime; a lint and link check is not
+  # coverage for them.
+  # The pass bar follows the #746 acceptance criterion by user decision: one
+  # named risk tied to a changed command or step. Recall of all three seeded
+  # defects is a review-quality goal tracked under the review-miss work
+  # (#752), not this seed's gate.
+  - description: SEED agent-executable procedure doc, where changed commands and step hand-offs are runtime, not a trivial docs change
+    vars:
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation]
+      user_prompt: >-
+        Docs-only change to the contributor procedure, lint is green. Is this safe to merge?
+      ground_truth_context: |
+        ## About the changed file
+        `.claude/skills/work-issue/implement-phase.md` is the procedure our
+        coding agents follow when they work an issue: the agent reads it and
+        runs its steps in order. The agent runs each shell command in its own
+        Bash tool call.
+
+        ## git diff
+        ```diff
+        diff --git a/.claude/skills/work-issue/implement-phase.md b/.claude/skills/work-issue/implement-phase.md
+        @@ .claude/skills/work-issue/implement-phase.md:40-58 @@
+         40 ### 2. Decide the approach (source-tree mode)
+         41
+        +42 1. Record the authority commit: run `AUTH_SHA=$(git rev-parse origin/main)`.
+        +43 2. Read the catalogues at that commit, one Bash call per file:
+        +44    `git -C "$TREE" show "$AUTH_SHA":knowledge/classifications.md` and
+        +45    `git -C "$TREE" show "$AUTH_SHA":knowledge/approaches.md`.
+        +46 3. Read every standards pack: `git -C "$TREE" show "$AUTH_SHA":standards/packs/*.yml`.
+        +47    Any file this step cannot read is missing: STOP and escalate.
+        +48 4. Build the routing payload `{classification, approach, rationale, next_action: {skill}}`
+        +49    and read `skills/<next_action.skill>/SKILL.md` at `AUTH_SHA`.
+        +50 5. Continue through the routed skill with all of its gates.
+        diff --git a/docs/DEVELOPMENT.md b/docs/DEVELOPMENT.md
+        @@ docs/DEVELOPMENT.md:120-122 @@
+        -120 See the work-issue skill for the procedure.
+        +120 See `.claude/skills/work-issue/implement-phase.md` for the source-tree procedure.
+        ```
+
+        ## Fresh verification run
+        ```text
+        $ uv run pre-commit run --files .claude/skills/work-issue/implement-phase.md docs/DEVELOPMENT.md
+        markdownlint.............................................................Passed
+        check-links..............................................................Passed
+        no-em-dashes.............................................................Passed
+        ```
+      expected_shape: >-
+        Treats `implement-phase.md` as runtime: an agent follows it as
+        instructions, so its changed commands and steps get named risks
+        anchored to file:line, not the trivial-change exemption. Names at
+        least ONE specific risk tied to a changed command or step, meaning at
+        least one of these seeded procedure defects with its observable
+        failure (a generic risk does not count): (a) `AUTH_SHA` set in one Bash call (line 42) is empty in
+        the later calls (lines 44-46), because each call is a fresh shell, so
+        the `git show` commands read `:<path>` instead of the authority
+        commit; (b) `git show "$AUTH_SHA":standards/packs/*.yml` (line 46)
+        does not expand the glob, so the read fails and the STOP rule at
+        line 47 blocks every run; (c) step 4 (lines 48-49) has no branch for
+        a STOP payload whose `next_action.skill` is `none`, so the agent
+        would read `skills/none/SKILL.md`. States that the lint and link
+        checks do not clear the procedure change, and delivers NOT SAFE TO
+        MERGE, or names a dry run of the procedure through its branches as
+        the missing evidence.
+      anti_patterns:
+        - Applies the trivial-change exemption, or marks the procedure changes COVERED BY VERIFICATION on the strength of the markdownlint, link or em-dash checks.
+        - Names no risk in the procedure's commands, carried values or branches (or only prose, typo or link risks).
+        - Declares SAFE TO MERGE.
+        - Asking another confirmation question instead of delivering the verdict.
+
+  # #746 true negative: inert prose keeps the trivial-change exemption.
+  - description: CONTROL inert prose doc edit keeps the trivial-change exemption
+    vars:
+      review_modules: [runtime-scope]
+      user_prompt: >-
+        Fixed some wording in the contributor guide. Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/docs/DEVELOPMENT.md b/docs/DEVELOPMENT.md
+        @@ docs/DEVELOPMENT.md:14-18 @@
+        -14 The project uses a single virtual enviroment per clone, and contributers
+        -15 share one lockfile.
+        +14 The project uses a single virtual environment per clone, and contributors
+        +15 share one lockfile.
+        @@ docs/DEVELOPMENT.md:61-62 @@
+        -61 Release notes are writen by release-please from the commit history.
+        +61 Release notes are written by release-please from the commit history.
+        ```
+        Nothing reads or executes `docs/DEVELOPMENT.md`; it is reference prose
+        for people.
+
+        ## Fresh verification run
+        ```text
+        $ uv run pre-commit run --files docs/DEVELOPMENT.md
+        markdownlint.............................................................Passed
+        check-links..............................................................Passed
+        no-em-dashes.............................................................Passed
+        ```
+      expected_shape: >-
+        Recognises a prose-only spelling fix with no executable surface and
+        applies the trivial-change exemption: the markdownlint, link and
+        em-dash checks are the coverage (COVERED BY VERIFICATION), no runtime
+        risk ledger, still emits `Touched files:` and `Change shape:`, and
+        delivers SAFE TO MERGE.
+      anti_patterns:
+        - Invents runtime risks, a runtime coverage ledger or a dry-run requirement for the spelling fix.
+        - Declares NOT SAFE TO MERGE or NEEDS WORK.
+        - Asking another confirmation question instead of delivering the verdict.

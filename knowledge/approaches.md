@@ -35,11 +35,13 @@ chased with tautological tests.
 ## verify-existing
 Config-only or trivial tweak that doesn't merit new tests. Run the existing
 suite plus a smoke test. Fits when a config bump or mechanical edit needs
-confirmation, not new coverage.
+confirmation, not new coverage. Also fits a runtime change to a followed
+procedure (executable-behaviour rule), evidenced by a dry run of its branches.
 
 ## no-tests-recommended
 Pure docs / typos / comments. Build + lint, no QA test work. The honest
-senior-QA answer when the change has no behavioural surface.
+senior-QA answer when the change has no behavioural surface; a followed
+procedure's runtime change (executable-behaviour rule) has one.
 
 ## spike-first-then-tests
 Exploratory prototype. Defer test discipline until the design settles. The

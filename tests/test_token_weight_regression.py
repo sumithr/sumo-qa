@@ -42,8 +42,9 @@ def _approx_tokens(text: str) -> int:
 
 
 PER_CALL_BUDGET = 1500
-# Per-flow budget: caps the total catalogue tokens this routed flow returns across its calls.
-PER_FLOW_BUDGET = 3800
+# Per-flow budget: caps the total catalogue tokens this routed flow returns across its calls,
+# including the executable-behaviour rule the classifications catalogue carries.
+PER_FLOW_BUDGET = 4000
 
 
 def test_thin_catalogues_stay_under_per_call_budget():

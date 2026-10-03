@@ -124,6 +124,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "No hit only if it reads none of them, its own namespace included",
         "`-I` strips only `PYTHON*`, `sys.executable` only `PATH`",
         "**The two-pass split (pinned).**",
+        "A line/character loop storing or toggling open/close marker state (`inFence = !inFence`) always takes `contract-and-fence-probes`, in runtime code, test helper or eval assertion alike",
     ],
     "security-relevance": [
         "run the grounded security-relevance pass from `using-sumo-qa`",
@@ -228,9 +229,11 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Test-only-diff probe (pinned).**",
         "`Test probe: <test name> | Discriminates broken→fixed?",
         "**Test-only-diff (test_change) discipline (pinned):**",
+        "including an executable test helper under `tests/` (assertion/matcher, parser, grader, runner), which takes the structural probes with coverage-ledger rows anchored at it",
     ],
     "runtime-scope": [
-        "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
+        "**What counts as a runtime change (pinned):**",
+        "**Procedure probe (pinned):**",
         "**Command/input-classifier probe (pinned):**",
         "**Location claim (pinned):**",
         "directly, transitively (a lock entry beneath an imported package) or by dynamic load",
@@ -305,7 +308,8 @@ PINNED_RULE_MARKERS = (
     "**The two-pass split (pinned).**",
     "**Trivial-change exemption (pinned):**",
     "**Verification-evidence discipline (pinned).**",
-    "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
+    "**What counts as a runtime change (pinned):**",
+    "**Procedure probe (pinned):**",
 )
 
 
@@ -478,14 +482,14 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Test-only-diff (test_change) discipline (pinned):**": PinnedClauses(
-        defining="if the diff touches ONLY test files (no `app`/`src`/`lib` runtime file), the runtime coverage-ledger (item 2) does NOT apply",
+        defining="if only test code changed, by the executable-behaviour rule, the runtime coverage-ledger (item 2) does NOT apply (executable helpers keep their item-2 rows, per step 4)",
         operative=(
             "Any `NO` line is a SAFE-blocker",
             "`Test probe: <test name> | Discriminates broken→fixed?",
         ),
     ),
     "**Test-only-diff probe (pinned).**": PinnedClauses(
-        defining="When the diff is test files ONLY (no `app/`/`src/`/`lib/` runtime file — a `test_change`), the runtime coverage ledger (`coverage-ledger`) has no anchor",
+        defining="When only test code changed, by the executable-behaviour rule, the runtime coverage ledger (`coverage-ledger`) has no anchor outside an executable helper",
         operative=(
             "A new test whose assertion restates the production code or passes against a broken impl",
             "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
@@ -501,7 +505,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Trivial-change exemption (pinned):**": PinnedClauses(
-        defining="A diff qualifies only when it touches solely docs (`docs/`, markdown), static/inert config (YAML/TOML/JSON read as data, not executed — formatter/linter ignore lists, editor config), or other files with **no executable behavioural surface**",
+        defining="A diff qualifies only when it touches solely docs (`docs/`, markdown; a followed procedure only for a prose-only edit, per the executable-behaviour rule), static/inert config (YAML/TOML/JSON read as data, not executed — formatter/linter ignore lists, editor config), or other files with **no executable behavioural surface**",
         operative=(
             "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
         ),
@@ -512,11 +516,17 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
             "each surfaces *missing relevant verification* as a SAFE-blocker, never demoted to a residual note, and never cleared by weakening the verifier",
         ),
     ),
-    "**What counts as a runtime change (pinned — behaviour, not path prefix):**": PinnedClauses(
-        defining="any diff touching **executable code with a behavioural surface**",
+    "**What counts as a runtime change (pinned):**": PinnedClauses(
+        defining="the classifications catalogue's executable-behaviour rule (loaded at step 3) decides it per changed file, never path or file type",
         operative=(
-            "Keyed on what the file *does*, NOT on `app/`/`src/`/`lib/` location",
-            "It includes executable code OUTSIDE those dirs",
+            "executable test infrastructure under `tests/` (per `test-only-diff`)",
+            "a procedure an agent or operator follows, for each change that rule makes runtime",
+        ),
+    ),
+    "**Procedure probe (pinned):**": PinnedClauses(
+        defining="for each changed command or step in a procedure an agent or operator follows, run three checks, each hit a risk at file:line",
+        operative=(
+            "Lint and link checks do not cover these; a dry run through the procedure's branches does, else a SAFE-blocker labelled per `coverage-ledger`.",
         ),
     ),
 }
@@ -671,7 +681,7 @@ def _pinned_heading_sections(text: str) -> list[tuple[str, str]]:
 
 def _normalised_pinned_title(text: str) -> str:
     """`## What counts as a runtime change (pinned)` and
-    `**What counts as a runtime change (pinned — behaviour, not path prefix):**`
+    `**What counts as a runtime change (pinned):**`
     both normalise to ``what counts as a runtime change``."""
     title = text.strip().lstrip("#").strip().strip("*")
     title = title.split("(pinned", 1)[0]
@@ -971,10 +981,10 @@ def test_heading_form_pinned_rules_carry_a_bold_marker_in_their_section(name):
 def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
     """Fault injection through the REAL checker: a `## ... (pinned)` heading
     whose section carries no bold pinned marker must be rejected; a marker in
-    the NEXT section does not count; the real runtime-scope module (four
-    heading-form pinned rules, each with its bold marker) passes."""
+    the NEXT section does not count; the real runtime-scope module (each
+    heading-form pinned rule with its bold marker) passes."""
     trivial = "**Trivial-change exemption (pinned):**"
-    runtime = "**What counts as a runtime change (pinned — behaviour, not path prefix):**"
+    runtime = "**What counts as a runtime change (pinned):**"
     scratch = (
         "# Module\n\n## Foo rule (pinned)\n\nprose with no bold marker at all\n\n"
         f"## Bar\n\n{trivial} the marker lives in the wrong section\n"
@@ -1225,7 +1235,7 @@ def test_representative_paths_name_only_shipped_modules():
 PATH_CONDITIONAL_OBLIGATIONS: dict[str, dict[str, str]] = {
     "ordinary-runtime-change": {"unproven-escalation": "any risk is UNPROVEN"},
     "test-eval-only-change": {
-        "test-only-diff": "the diff touches only test files",
+        "test-only-diff": "only test code changed",
         "surface-verifier": "ALWAYS for a skill or eval change",
     },
     "docs-config-change": {"inventory-drift": "generated artifact changed"},
