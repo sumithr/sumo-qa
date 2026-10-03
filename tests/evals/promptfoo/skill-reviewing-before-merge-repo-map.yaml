@@ -9,7 +9,7 @@ description: >
   rubber-stamps SAFE on the map's leads fails; the Iron Law (fresh evidence)
   must still gate the verdict.
 # A local reasoning-tier config; the default gate runs it on the Claude pair
-# (candidate claude-haiku-4-5, judge claude-opus-5). Per the #245
+# (candidate claude-haiku-4-5, judge claude-opus-5-5). Per the #245
 # candidate-by-type policy, reasoning/discovery evals use the reasoning
 # candidate. This scenario requires treating the diff-impact
 # related_tests / risk_surface as LEADS and gating on the fresh run. History on

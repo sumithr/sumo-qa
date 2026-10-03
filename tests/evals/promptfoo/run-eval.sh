@@ -5,7 +5,7 @@
 #   CLAUDE (default)     the Claude pair, through the local Claude Code CLI
 #                        (providers/claude_cli.py -> `claude -p` on the account's
 #                        subscription; no API key). Candidate claude-haiku-4-5
-#                        (providers/claude-candidate.yaml), judge claude-opus-5
+#                        (providers/claude-candidate.yaml), judge claude-opus-5-5
 #                        (providers/claude-judge.yaml). This is the MERGE GATE.
 #
 #   LOCAL (via OpenWebUI proxy at $SUMO_OWUI_BASE): an unmetered iteration option,

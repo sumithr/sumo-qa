@@ -14,7 +14,7 @@ description: >
   product-behaviour gap is confirmed.
 
 # A local reasoning-tier config; the default gate runs it on the Claude pair
-# (candidate claude-haiku-4-5, judge claude-opus-5). Per the #245
+# (candidate claude-haiku-4-5, judge claude-opus-5-5). Per the #245
 # candidate-by-type policy, diagnostic reasoning over supplied
 # failure output + repo state (discriminating a product regression from a test
 # bug / fixture / order / environment cause, and naming the discriminating

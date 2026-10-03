@@ -4,7 +4,7 @@ description: >-
   restore→red→return-to-current-tree mechanic, a reasoning/procedural task, so
   it is a local reasoning-tier config (matching the sibling reasoning configs
   -reviewing-before-merge-repo-map / -doc-drift). The default gate runs it on
-  the Claude pair: candidate claude-haiku-4-5, judge claude-opus-5. History: the
+  the Claude pair: candidate claude-haiku-4-5, judge claude-opus-5-5. History: the
   retired OpenAI tier pinned it to gpt-5-mini rather than the cheap
   verdict-format gpt-4o-mini tier the base skill-implementing-with-tdd.yaml
   used, with the gpt-5.5 judge.
