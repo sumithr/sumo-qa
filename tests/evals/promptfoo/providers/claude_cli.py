@@ -60,7 +60,19 @@ _USAGE_LIMIT = re.compile(r"usage limit reached\|\d+", re.IGNORECASE)
 _DECODER = json.JSONDecoder(strict=False)
 # Judge replies that never gave a verdict are kept here in full (gitignored).
 REPLY_DIR = Path(__file__).resolve().parents[2] / "results" / "judge-replies"
-_SECRET = re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,})")
+# Bare secret values: the shapes src/sumo_qa/feedback_memory.py refuses, plus `sk-` API keys
+# and fine-grained `github_pat_` tokens. A copy, not an import: promptfoo runs this file under
+# PROMPTFOO_PYTHON or the `python3` on PATH, where sumo_qa need not be installed.
+_SECRET = re.compile(
+    r"\b(?:sk-[A-Za-z0-9_-]{16,}"
+    r"|gh[pousr]_[A-Za-z0-9]{20,}"
+    r"|github_pat_[A-Za-z0-9_]{20,}"
+    r"|(?:AKIA|ASIA)[0-9A-Z]{16}\b"
+    r"|xox[bpoas]-[0-9A-Za-z-]{10,}"
+    r"|eyJ[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,})"
+)
+# A `{` that opens what reads as a verdict; when it does not decode the reply is refused.
+_VERDICT_START = re.compile(r'\{\s*"(?:pass|score|reason)"')
 
 
 def call_api(prompt, options=None, context=None):
@@ -82,6 +94,7 @@ def call_api(prompt, options=None, context=None):
         if "error" in answer:
             if unparsed:
                 answer["error"] += f"; the earlier judge reply is kept at {_keep(unparsed)}"
+                answer.update(_spent(prompt_tokens, completion_tokens, cost))
             return answer
         result, envelope = answer["result"], answer["envelope"]
         # Accounting is best effort: a malformed usage field must not throw away an answer.
@@ -97,19 +110,24 @@ def call_api(prompt, options=None, context=None):
         cost += float(_number(envelope.get("total_cost_usd"), float))
         output, problem = _verdict(result) if config.get("jsonReply") else (result, None)
         if not problem:
-            return {
-                "output": output,
-                "tokenUsage": {
-                    "prompt": prompt_tokens,
-                    "completion": completion_tokens,
-                    "total": prompt_tokens + completion_tokens,
-                },
-                "cost": cost,
-            }
+            return {"output": output, **_spent(prompt_tokens, completion_tokens, cost)}
         unparsed.append({"problem": problem, "reply": result})
     return {
         "error": f"judge reply {problem} (asked twice; both replies kept at "
-        f"{_keep(unparsed)}): {result[:_EXCERPT]!r}"
+        f"{_keep(unparsed)}): {result[:_EXCERPT]!r}",
+        **_spent(prompt_tokens, completion_tokens, cost),
+    }
+
+
+def _spent(prompt_tokens, completion_tokens, cost):
+    """The usage of every call made, for an answer or an error alike."""
+    return {
+        "tokenUsage": {
+            "prompt": prompt_tokens,
+            "completion": completion_tokens,
+            "total": prompt_tokens + completion_tokens,
+        },
+        "cost": cost,
     }
 
 
@@ -152,32 +170,46 @@ def _ask(argv, prompt):
 
 def _keep(unparsed):
     """Write the unparsed judge replies, redacted, to REPLY_DIR; return where they went."""
-    text = _SECRET.sub("[REDACTED]", json.dumps(unparsed, indent=2, ensure_ascii=False))
-    text = text.replace(str(Path.home()), "~")
+    # Redacted before json.dumps, which doubles a Windows path's backslashes.
+    redacted = [{**entry, "reply": _redact(entry["reply"])} for entry in unparsed]
+    text = json.dumps(redacted, indent=2, ensure_ascii=False)
     path = REPLY_DIR / f"judge-reply-{hashlib.sha256(text.encode()).hexdigest()[:12]}.json"
     try:
         REPLY_DIR.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     except OSError as exc:
-        return f"nowhere (could not write {path}: {exc})"
-    return str(path)
+        return _redact(f"nowhere (could not write {path}: {exc})")
+    return _redact(str(path))
+
+
+def _redact(text):
+    """The text with bare secrets and the home directory scrubbed."""
+    return _SECRET.sub("[REDACTED]", text).replace(str(Path.home()), "~")
 
 
 def _verdict(text):
     """(verdict, None) for the reply's one verdict object, else (None, the problem)."""
-    verdicts = []
+    verdicts, seen = [], set()
     start = text.find("{")
     while start != -1:
         try:
             value, end = _DECODER.raw_decode(text, start)
         except ValueError:
-            # A `{` that does not decode (stray prose) starts no object.
+            # A broken verdict (truncated, a trailing comma, unescaped quotes) is refused
+            # whole: scanning inside it would grade an object nested in it instead.
+            if _VERDICT_START.match(text, start):
+                return None, "has a malformed verdict object"
+            # Any other `{` that does not decode (stray prose) starts no object.
             start = text.find("{", start + 1)
             continue
         # Top level only: an object nested inside another one is never scanned on its own.
         # Objects without "pass" (a quoted snippet, trailing notes) are not verdicts.
-        if isinstance(value, dict) and "pass" in value and value not in verdicts:
-            verdicts.append(value)
+        # Compared as JSON text, so `"pass": 1` is not the same verdict as `"pass": true`.
+        if isinstance(value, dict) and "pass" in value:
+            key = json.dumps(value, sort_keys=True)
+            if key not in seen:
+                seen.add(key)
+                verdicts.append(value)
         start = text.find("{", end)
     if not verdicts:
         return None, 'has no verdict object with a "pass" key'

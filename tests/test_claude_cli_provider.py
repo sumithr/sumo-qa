@@ -40,7 +40,7 @@ SUCCESS = {
 @pytest.fixture(autouse=True)
 def _reply_dir(tmp_path, monkeypatch):
     """Unparsed judge replies land in a temp dir, never in tests/evals/results."""
-    monkeypatch.setattr(provider, "REPLY_DIR", tmp_path / "judge-replies", raising=False)
+    monkeypatch.setattr(provider, "REPLY_DIR", tmp_path / "judge-replies")
     return tmp_path / "judge-replies"
 
 
@@ -174,6 +174,8 @@ def test_an_answer_that_quotes_the_usage_limit_phrase_is_still_graded(monkeypatc
 
 
 JUDGE_OPTIONS = {"config": {**OPTIONS["config"], "jsonReply": True}}
+# The console excerpt cap, written out so the test does not read it from the code under test.
+_EXCERPT_CAP = 400
 _VERDICT = {"pass": False, "score": 0.1, "reason": "x } y"}
 
 
@@ -269,7 +271,27 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
         pytest.param(
             '{"score": 1, "reason": "no pass key"}', "no verdict", id="object-without-pass"
         ),
-        pytest.param('{"pass": true, "reason": "cut off', "no verdict", id="truncated-object"),
+        # A verdict-shaped object that does not decode is refused whole: the objects
+        # nested inside it are never graded in its place.
+        pytest.param(
+            '{"pass": true, "reason": "cut off', "malformed verdict", id="truncated-object"
+        ),
+        pytest.param(
+            '{"pass": false, "score": 0.3, "axes": [{"pass": true, "score": 1}], "reason": "cut off',
+            "malformed verdict",
+            id="truncated-fail-with-a-nested-pass",
+        ),
+        pytest.param(
+            '{"pass": false, "score": 0.3, "detail": {"pass": true},}',
+            "malformed verdict",
+            id="trailing-comma-around-a-nested-pass",
+        ),
+        pytest.param(
+            '{"pass": false, "score": 0.3, "reason": "... fixture returns {"pass": true, '
+            '"score": 1} for every row, and its config sets {"threshold": 0.5}. VERDICT: FAIL."}',
+            "malformed verdict",
+            id="unescaped-quotes-around-a-nested-pass",
+        ),
         pytest.param("I think it passes {", "no verdict", id="stray-opening-brace"),
         pytest.param(
             '{"summary": {"pass": true, "score": 1}}',
@@ -300,6 +322,17 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             '{"pass": false, "score": 0.4, "reason": "r"}',
             "2 different verdict objects",
             id="a-changed-mind",
+        ),
+        # A non-boolean "pass" is never the same verdict as a boolean one, in either order.
+        pytest.param(
+            '{"pass": true, "score": 1} {"pass": 1, "score": 1}',
+            "2 different verdict objects",
+            id="a-boolean-then-a-numeric-pass",
+        ),
+        pytest.param(
+            '{"pass": 1, "score": 1} {"pass": true, "score": 1}',
+            "2 different verdict objects",
+            id="a-numeric-then-a-boolean-pass",
         ),
         # A score too large for a float must be an error, never an OverflowError.
         pytest.param('{"pass": true, "score": 1' + "0" * 400 + "}", '"score"', id="score-huge-int"),
@@ -402,19 +435,20 @@ def test_a_reply_without_a_verdict_is_asked_once_more(monkeypatch, _reply_dir):
 def test_a_second_reply_without_a_verdict_is_kept_in_full_and_redacted(monkeypatch, _reply_dir):
     home = str(Path.home())
     first = "no verdict here " + "x" * 5000 + f" {home}/repo sk-ant-api03-{'a' * 30}"
-    second = '{"pass": true, "reason": "cut off'
+    second = "no verdict " + "x" * 5000
     calls = _fake_cli(
         monkeypatch,
         json.dumps({**SUCCESS, "result": first}),
         json.dumps({**SUCCESS, "result": second}),
     )
 
-    error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+    response = provider.call_api("the prompt", JUDGE_OPTIONS)
+    error = response["error"]
 
     assert len(calls) == 2
     # The console gets a short excerpt of the last reply and where the full ones are.
     assert error.startswith('judge reply has no verdict object with a "pass" key (asked twice')
-    assert second in error and "x" * 500 not in error
+    assert second[:_EXCERPT_CAP] in error and second[: _EXCERPT_CAP + 1] not in error
     [kept] = list(_reply_dir.iterdir())
     assert str(kept) in error
     saved = json.loads(kept.read_text(encoding="utf-8"))
@@ -423,6 +457,9 @@ def test_a_second_reply_without_a_verdict_is_kept_in_full_and_redacted(monkeypat
         f"sk-ant-api03-{'a' * 30}", "[REDACTED]"
     )
     assert saved[1]["reply"] == second
+    # Both calls were spent, so both are counted even though no grade came back.
+    assert response["tokenUsage"] == {"prompt": 246, "completion": 14, "total": 260}
+    assert response["cost"] == 0.5
 
 
 def test_a_retry_that_fails_keeps_the_first_reply(monkeypatch, _reply_dir):
@@ -432,12 +469,57 @@ def test_a_retry_that_fails_keeps_the_first_reply(monkeypatch, _reply_dir):
         json.dumps({**SUCCESS, "result": "Claude AI usage limit reached|1789400000"}),
     )
 
-    error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+    response = provider.call_api("the prompt", JUDGE_OPTIONS)
+    error = response["error"]
 
     [kept] = list(_reply_dir.iterdir())
     assert error.startswith("claude usage limit: ")
     assert error.endswith(f"; the earlier judge reply is kept at {kept}")
-    assert json.loads(kept.read_text())[0]["reply"] == "I think it passes."
+    assert json.loads(kept.read_text(encoding="utf-8"))[0]["reply"] == "I think it passes."
+    # The first call was spent and is still counted.
+    assert response["tokenUsage"] == {"prompt": 123, "completion": 7, "total": 130}
+    assert response["cost"] == 0.25
+
+
+def test_the_kept_reply_path_names_home_as_a_tilde(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": "no verdict"}))
+
+    error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+
+    assert "kept at ~/judge-replies/judge-reply-" in error
+    assert str(tmp_path) not in error
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "sk-ant-api03-" + "a" * 30,
+        "ghp_" + "A1" * 15,
+        "github_pat_" + "11ABCDEFG0" * 3,
+        "AKIA" + "ABCDEFGHIJKLMNOP",
+        "ASIA" + "ABCDEFGHIJKLMNOP",
+        "xoxb-" + "1234567890-abcdef",
+        "eyJhbGciOiJ.eyJzdWIiOiIx.c2lnbmF0dXJl",
+    ],
+    ids=[
+        "anthropic",
+        "github-classic",
+        "github-fine-grained",
+        "aws-akia",
+        "aws-asia",
+        "slack",
+        "jwt",
+    ],
+)
+def test_a_kept_reply_has_bare_secrets_redacted(monkeypatch, _reply_dir, secret):
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": f"no verdict, key {secret} here"}))
+
+    provider.call_api("the prompt", JUDGE_OPTIONS)
+
+    [kept] = list(_reply_dir.iterdir())
+    text = kept.read_text(encoding="utf-8")
+    assert secret not in text and "key [REDACTED] here" in text
 
 
 def test_an_unwritable_reply_dir_still_returns_the_error(monkeypatch, tmp_path):
