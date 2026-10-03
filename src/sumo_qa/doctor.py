@@ -226,8 +226,8 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     - ``missing_tools``: ``tools/list`` lacks some of the tools the launch
       profile serves; names listed in ``details["missing"]``.
     - ``invalid_profile``: the launch env names an unknown
-      ``SUMO_QA_MCP_PROFILE``; the server would refuse to start, so nothing
-      is launched.
+      ``SUMO_QA_MCP_PROFILE``, or sets none and the saved profile file holds
+      one; the server would refuse to start, so nothing is launched.
     - ``launch_error``: the command could not be started (e.g. a host entry
       still points at a moved venv); the summary names the command and the
       config file the entry came from.
@@ -276,12 +276,14 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     try:
         required = profile_tool_names(resolve_profile(env))
     except ValueError as exc:
+        if entry_env.get(PROFILE_ENV):
+            hint = f"Set {PROFILE_ENV} in the env of {origin} to one of: {', '.join(PROFILES)}"
+        elif env.get(PROFILE_ENV):
+            hint = f"Set {PROFILE_ENV} in this shell to one of: {', '.join(PROFILES)}"
+        else:  # the saved profile file
+            hint = f"Save a valid one with `sumo-qa-install --profile <{'|'.join(PROFILES)}>`"
         handshake, tools = _handshake_fail(
-            summary=(
-                f"sumo-qa: {exc}. Set {PROFILE_ENV} in "
-                f"{'the env of ' + origin if entry_env.get(PROFILE_ENV) else 'this shell'} "
-                f"to one of: {', '.join(PROFILES)}"
-            ),
+            summary=f"sumo-qa: {exc}. {hint}",
             kind="invalid_profile",
         )
         return replace(handshake, fix=None), tools
@@ -1292,7 +1294,8 @@ def _host_entry_command(
       VAR is empty; an unset VAR with no default stays as written).
     - ``claude-desktop``: launched as written. It is a GUI app that does not
       inherit the doctor shell's env, so the env sets an empty
-      ``SUMO_QA_MCP_PROFILE`` (the server default) unless the entry sets one.
+      ``SUMO_QA_MCP_PROFILE`` (the saved profile, else the server default)
+      unless the entry sets one.
       The Claude Code CLI and VS Code keep the shell's value
       (docs/CONFIGURATION.md).
     """

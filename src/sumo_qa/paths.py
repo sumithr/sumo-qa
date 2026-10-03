@@ -93,3 +93,9 @@ def feedback_memory_path(scope: str) -> Path:
     override of classifications or change-rules.
     """
     return user_pack_root(scope) / "feedback" / "review_feedback.yaml"
+
+
+def mcp_profile_path() -> Path:
+    """Return the saved MCP tool profile file. Global only: a host launches the
+    server from any cwd, so a per-project file would differ by launch path."""
+    return _global_root() / "mcp-profile"

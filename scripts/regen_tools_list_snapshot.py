@@ -20,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,9 @@ def _spawn(profile: str | None) -> subprocess.Popen:
     env = {k: v for k, v in os.environ.items() if k != PROFILE_ENV}
     if profile is not None:
         env[PROFILE_ENV] = profile
+    # An empty data dir, so a profile saved with `sumo-qa-install --profile`
+    # cannot turn the default (full) snapshot into another profile's.
+    env["XDG_DATA_HOME"] = tempfile.mkdtemp(prefix="sumo-qa-regen-")
     return subprocess.Popen(
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,

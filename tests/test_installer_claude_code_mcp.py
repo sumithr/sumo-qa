@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from sumo_qa import installer
+from sumo_qa.paths import mcp_profile_path
 
 # No ``select`` fixture needed — the production reader uses a daemon thread +
 # ``queue.Queue.get(timeout=...)``, which works identically on POSIX and
@@ -653,3 +654,41 @@ def test_main_claude_only_flag(tmp_path: Path, monkeypatch) -> None:
         rc = installer.main()
 
     assert rc == 0
+
+
+# --profile saves the profile every launch path reads (#809). Technique:
+# equivalence partitioning over the saved file's prior state (absent, the other
+# profile, an invalid value the flag must be able to repair).
+@pytest.mark.parametrize("prior", [None, "full\n", "bogus\n"])
+def test_main_profile_flag_saves_the_profile_for_every_host(
+    tmp_path: Path, monkeypatch, prior
+) -> None:
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    handshake = _handshake_proc()  # derives the tool list, so before any saved file
+    if prior is not None:
+        mcp_profile_path().parent.mkdir(parents=True)
+        mcp_profile_path().write_text(prior, encoding="utf-8")
+
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+        patch("sumo_qa.installer.subprocess.Popen", return_value=handshake),
+        patch("sys.argv", ["sumo-qa-install", "--claude-code", "--profile", "core"]),
+    ):
+        rc = installer.main()
+
+    assert rc == 0
+    assert mcp_profile_path().read_text(encoding="utf-8") == "core\n"
+
+
+def test_main_profile_flag_rejects_an_unknown_profile_and_saves_nothing(capsys) -> None:
+    with (
+        patch("sys.argv", ["sumo-qa-install", "--profile", "minimal"]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        installer.main()
+    assert exc.value.code == 2
+    assert "invalid choice: 'minimal'" in capsys.readouterr().err
+    assert not mcp_profile_path().exists()

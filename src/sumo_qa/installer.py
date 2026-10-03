@@ -58,8 +58,9 @@ import threading
 import time
 from pathlib import Path
 
+from sumo_qa.paths import mcp_profile_path
 from sumo_qa.plugin_metadata import PluginMetadata
-from sumo_qa.tool_registry import resolve_profile_or_exit
+from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, resolve_profile_or_exit
 
 # Canonical plugin metadata — loaded once at import time from the bundled
 # snapshot at sumo_qa/_data/plugin_metadata.json. Every host-config write
@@ -317,6 +318,16 @@ def main() -> int:
         help="Don't reinstall the MCP binary via uv (assume it's already installed).",
     )
     parser.add_argument(
+        "--profile",
+        choices=PROFILES,
+        default=None,
+        help=(
+            "Save the MCP tool profile every host's sumo-qa reads at launch "
+            f"(`full` when none is saved). An entry or shell {PROFILE_ENV} "
+            "still overrides it for that one launch."
+        ),
+    )
+    parser.add_argument(
         "--uninstall",
         action="store_true",
         help=(
@@ -374,6 +385,11 @@ def main() -> int:
         print("`pip uninstall sumo-qa` separately to remove the package itself.")
         return 0
 
+    if args.profile:
+        saved = mcp_profile_path()
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(f"{args.profile}\n", encoding="utf-8")
+        print(f"MCP tool profile `{args.profile}` saved to {saved}")
     # The verify step derives the tool surface from the profile; stop on a bad
     # one before any host config is written.
     resolve_profile_or_exit()

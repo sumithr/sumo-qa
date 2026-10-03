@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from sumo_qa import doctor
+from sumo_qa.paths import mcp_profile_path
 from sumo_qa.tool_registry import PROFILE_ENV, profile_tool_names
 
 # mutmut-subprocess-spawning: spawns ``python -m sumo_qa.doctor`` from a fresh
@@ -1814,6 +1815,40 @@ def test_probe_fails_on_an_invalid_profile_in_the_host_entry_env(tmp_path: Path,
     )
     assert handshake.details["kind"] == "invalid_profile"
     assert handshake.fix is None
+    assert tools.status == "FAIL"
+
+
+def test_probe_fails_on_an_invalid_shell_profile_and_names_the_shell(monkeypatch) -> None:
+    """A bogus profile in the shell, with none in the entry env, points the
+    fix at the shell, not at the entry or the saved profile file."""
+    monkeypatch.setenv(PROFILE_ENV, "bogus")
+    handshake, tools = doctor.run_mcp_probe(doctor.McpCommand(sys.executable, ["-m", "sumo_qa"]))
+    assert handshake.summary == (
+        f"sumo-qa: {PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
+        f"expected one of: core, full. Set {PROFILE_ENV} in this shell to one of: core, full"
+    )
+    assert handshake.details["kind"] == "invalid_profile"
+    assert tools.status == "FAIL"
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize("host", _PROBE_HOSTS)
+def test_probe_fails_on_an_invalid_saved_profile_and_names_the_installer_fix(
+    tmp_path: Path, host
+) -> None:
+    """With no profile in the entry or shell env, the server reads the saved
+    profile file (#809), so a bogus one there fails the probe and points at
+    the installer flag that rewrites it, not at an env var."""
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text("bogus\n", encoding="utf-8")
+    handshake, tools = _probe_host_entry(tmp_path, host, {})
+    assert handshake.status == "FAIL"
+    assert handshake.summary == (
+        f"sumo-qa: {mcp_profile_path()} holds 'bogus', which is not a valid MCP tool "
+        "profile; expected one of: core, full. "
+        "Save a valid one with `sumo-qa-install --profile <core|full>`"
+    )
+    assert handshake.details["kind"] == "invalid_profile"
     assert tools.status == "FAIL"
 
 

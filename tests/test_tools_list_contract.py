@@ -422,3 +422,16 @@ def test_regen_script_refuses_to_pin_a_tool_without_capability_metadata(monkeypa
     with pytest.raises(SystemExit) as exc:
         regen._tools_list(None)
     assert "'stale_tool' has no capability metadata" in str(exc.value)
+
+
+def test_regen_script_default_snapshot_ignores_a_saved_profile() -> None:
+    """The default snapshot pins ``full``. A ``core`` profile the developer
+    saved with ``sumo-qa-install --profile core`` must not reach the server the
+    regen script starts, or the regenerated snapshot would pin core as full."""
+    from sumo_qa.paths import mcp_profile_path
+    from sumo_qa.tool_registry import profile_tool_names
+
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text("core\n", encoding="utf-8")
+    regen = _load_regen_script()
+    assert {t["name"] for t in regen._tools_list(None)} == profile_tool_names("full")

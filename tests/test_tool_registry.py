@@ -16,6 +16,7 @@ import pytest
 
 from sumo_qa import server, skill_prompts
 from sumo_qa.capabilities import _CORE_WORKFLOWS
+from sumo_qa.paths import mcp_profile_path
 from sumo_qa.skill_manifest import load_skill_context
 from sumo_qa.tool_registry import (
     GROUPS,
@@ -62,6 +63,58 @@ def test_resolve_profile_rejects_unknown_values_without_coercion(monkeypatch, va
     message = str(exc.value)
     assert f"{PROFILE_ENV}={value!r}" in message
     assert "core, full" in message
+
+
+# The saved profile file is the one source every launch path shares (#809);
+# the env var overrides it per process. Technique: decision tables over
+# env value x file state.
+@pytest.mark.parametrize(
+    ("env_value", "file_text", "expected"),
+    [
+        (None, None, "full"),
+        (None, "core\n", "core"),
+        ("", "core\n", "core"),
+        (None, "full\n", "full"),
+        ("full", "core\n", "full"),
+        ("core", "full\n", "core"),
+        (None, "", "full"),
+    ],
+)
+def test_resolve_profile_reads_the_saved_profile_when_the_env_sets_none(
+    monkeypatch, tmp_path, env_value, file_text, expected
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    if env_value is None:
+        monkeypatch.delenv(PROFILE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(PROFILE_ENV, env_value)
+    if file_text is not None:
+        mcp_profile_path().parent.mkdir(parents=True)
+        mcp_profile_path().write_text(file_text, encoding="utf-8")
+    assert mcp_profile_path() == tmp_path / "sumo-qa" / "mcp-profile"
+    assert resolve_profile() == expected
+
+
+@pytest.mark.parametrize("file_text", ["bogus\n", "CORE\n", "minimal"])
+def test_resolve_profile_rejects_an_unknown_saved_profile_naming_the_file(
+    monkeypatch, tmp_path, file_text
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text(file_text, encoding="utf-8")
+    with pytest.raises(ValueError) as exc:
+        resolve_profile()
+    assert str(exc.value) == (
+        f"{mcp_profile_path()} holds {file_text.strip()!r}, which is not a valid "
+        "MCP tool profile; expected one of: core, full"
+    )
+
+
+def test_resolve_profile_reports_an_unreadable_saved_profile(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().mkdir(parents=True)  # a directory where the file belongs
+    with pytest.raises(ValueError, match=f"cannot read {re.escape(str(mcp_profile_path()))}"):
+        resolve_profile()
 
 
 def test_profile_tool_names_rejects_unknown_profile() -> None:

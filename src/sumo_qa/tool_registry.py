@@ -6,7 +6,8 @@ capability group, whether it belongs to the compact ``core`` profile, whether it
 is open-world, and the optional integration it needs. The public profiles are
 derived from this tuple, never hand-listed: ``full`` is every entry, ``core`` is
 the entries marked ``core``. ``server.build_mcp_server`` resolves the profile
-from ``SUMO_QA_MCP_PROFILE`` before registering anything, then removes the tools
+from ``SUMO_QA_MCP_PROFILE``, else the saved profile file every launch path
+shares, before registering anything, then removes the tools
 outside it; a registered tool with no entry here warns on stderr and is
 served under ``full`` only, and tests/test_tool_registry.py fails on it.
 
@@ -25,6 +26,8 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+
+from sumo_qa.paths import mcp_profile_path
 
 PROFILE_ENV = "SUMO_QA_MCP_PROFILE"
 PROFILES = ("core", "full")
@@ -134,12 +137,27 @@ def _invalid(value: str) -> ValueError:
 
 def resolve_profile(env: Mapping[str, str] | None = None) -> str:
     """Return the profile named by ``SUMO_QA_MCP_PROFILE`` in ``env`` (default:
-    the process env); unset or empty means ``full``. Any other value raises: it
-    is never coerced."""
-    value = (os.environ if env is None else env).get(PROFILE_ENV) or DEFAULT_PROFILE
-    if value not in PROFILES:
-        raise _invalid(value)
-    return value
+    the process env); unset or empty falls back to the saved profile file every
+    launch path shares (``sumo-qa-install --profile`` writes it), then ``full``.
+    Any other value raises: it is never coerced."""
+    value = (os.environ if env is None else env).get(PROFILE_ENV)
+    if value:
+        if value not in PROFILES:
+            raise _invalid(value)
+        return value
+    path = mcp_profile_path()
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return DEFAULT_PROFILE
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc.strerror or exc}") from None
+    if value and value not in PROFILES:
+        raise ValueError(
+            f"{path} holds {value!r}, which is not a valid MCP tool profile; "
+            f"expected one of: {', '.join(PROFILES)}"
+        )
+    return value or DEFAULT_PROFILE
 
 
 def resolve_profile_or_exit() -> str:
@@ -182,6 +200,7 @@ def unavailable_capability(name: str, profile: str | None = None) -> str | None:
         f"capability unavailable in {profile} profile\n"
         f"required group: {meta.requires}\n"
         f"activate: {ACTIVATION}\n"
-        "Set it in the sumo-qa MCP server's env and restart the host. Tell the "
+        "Save it for every host with `sumo-qa-install --profile full` (or set it in "
+        "the sumo-qa MCP server's env), then restart the host. Tell the "
         "user this step needs it; do not substitute another tool or answer from memory."
     )
