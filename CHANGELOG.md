@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.0](https://github.com/sumithr/sumo-qa/compare/v0.72.1...v0.73.0) (2026-10-03)
+
+
+### Features
+
+* **audit:** measure tools/list per profile and capability group ([#828](https://github.com/sumithr/sumo-qa/issues/828)) ([30d6f4c](https://github.com/sumithr/sumo-qa/commit/30d6f4c9c9f33b72fb1cf200d7d3d042f02864b8))
+
 ## [0.72.1](https://github.com/sumithr/sumo-qa/compare/v0.72.0...v0.72.1) (2026-10-03)
 
 
