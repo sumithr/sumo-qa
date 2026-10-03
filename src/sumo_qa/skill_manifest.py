@@ -463,7 +463,10 @@ def load_skill_context(
             {"available_skills": sorted(records)},
         )
     record = records[skill_name]
-    unavailable = unavailable_capability(skill_name)
+    try:
+        unavailable = unavailable_capability(skill_name)
+    except ValueError as exc:  # an invalid SUMO_QA_MCP_PROFILE
+        return _error(str(exc))
     if unavailable is not None:
         return _error(unavailable)
 

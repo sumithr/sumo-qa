@@ -258,3 +258,16 @@ def test_full_load_skill_context_serves_the_external_skill(monkeypatch) -> None:
     out = load_skill_context(_EXTERNAL_SKILL, "manifest")
     assert "error" not in out
     assert out["skill_name"] == _EXTERNAL_SKILL
+
+
+def test_load_skill_context_keeps_its_never_raises_contract_on_a_bad_profile(
+    monkeypatch,
+) -> None:
+    """The launch entry points reject a bad profile, but the loader is also a
+    Python API and a resource body: it answers with an envelope, never raises."""
+    monkeypatch.setenv(PROFILE_ENV, "bogus")
+    out = load_skill_context(_EXTERNAL_SKILL, "manifest")
+    assert out == {
+        "error": f"{PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
+        "expected one of: core, full"
+    }
