@@ -4,8 +4,8 @@ config:
   # No promptfoo rate-limit retries: `claude -p` already retries transient API errors, so an
   # error reaching promptfoo is final (a usage limit), and retrying it only stalls the run.
   maxRetries: 0
-  # Judge model: claude-opus-5 (maintainer decision, 2026-09-14).
-  model: claude-opus-5
+  # Judge model: the highest Opus model, so it always out-reasons the candidate.
+  model: claude-opus-5-5
   # Hand promptfoo the parsed verdict object: its brace-counting extractor misreads a
   # `{` or `}` inside the reason (see claude_cli.py).
   jsonReply: true

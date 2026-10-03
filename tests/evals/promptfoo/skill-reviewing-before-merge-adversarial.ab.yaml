@@ -11,7 +11,7 @@ description: >
   representative 7-seed spread (easy->hard discovery families + a docs-only
   negative control) from skill-reviewing-before-merge-adversarial.yaml. The
   default gate runs it on the Claude pair (candidate claude-haiku-4-5, judge
-  claude-opus-5); it is a local reasoning-tier config. History on the retired
+  claude-opus-5-5); it is a local reasoning-tier config. History on the retired
   OpenAI tier: the candidate was gpt-5-mini (a cheap reasoning model), NOT the
   estate's gpt-4o-mini, because a discovery eval needs a candidate that can
   reason over a raw diff, and gpt-4o-mini proved too noisy to measure it (its

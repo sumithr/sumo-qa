@@ -6,7 +6,7 @@ description: >
   change_rules.yaml; the judge grades that the reviewer flags the stale doc
   as a merge blocker, not just shrugs at green tests.
 # A local reasoning-tier config; the default gate runs it on the Claude pair
-# (candidate claude-haiku-4-5, judge claude-opus-5). Per the #245
+# (candidate claude-haiku-4-5, judge claude-opus-5-5). Per the #245
 # candidate-by-type policy, reasoning/discovery evals use the reasoning
 # candidate. This scenario requires reasoning over supplied repo state
 # to flag BOTH stale-count files as merge blockers — a reasoning-heavy shape that

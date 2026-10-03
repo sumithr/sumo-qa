@@ -17,7 +17,7 @@ For each skill (every skill under `skills/` has a base config):
 - **ANTI-PATTERNS** — for each named anti-pattern in the rubric, is it
   ABSENT (PASS) or PRESENT (FAIL)?
 
-The judge (`claude-opus-5`, `providers/claude-judge.yaml`) applies a decision-table: only `SHAPE PASS + GROUNDING
+The judge (`claude-opus-5-5`, `providers/claude-judge.yaml`) applies a decision-table: only `SHAPE PASS + GROUNDING
 PASS + all anti-patterns ABSENT` → PASS. Verdict is JSON, reason quotes
 the candidate span the judge graded against.
 
@@ -587,7 +587,7 @@ npm run eval:view         # open the local results UI
 `run-eval.sh` defaults to `SUMO_EVAL_BACKEND=claude`: every config runs on your Claude
 subscription through the local Claude Code CLI. The candidate is
 `providers/claude-candidate.yaml` (`claude-haiku-4-5`, the weakest current model) and
-the judge is `providers/claude-judge.yaml` (`claude-opus-5`). Every `skill-*.yaml` pins
+the judge is `providers/claude-judge.yaml` (`claude-opus-5-5`). Every `skill-*.yaml` pins
 those two provider files, and `run-eval.sh` also passes them as `--providers` /
 `--grader`, so a bare `promptfoo eval -c <config>` runs on the same pair and never on an
 OpenAI model. The OpenAI cloud backend was removed in #682; `SUMO_EVAL_BACKEND=cloud`
@@ -806,7 +806,7 @@ candidate generation across the two boxes.
 | `local-laptop-gemma-candidate.yaml` | candidate | `gemma4-12b-bounded` (laptop) |
 | `local-gemma-candidates.yaml` | candidate list | both bounded Gemma 4 tags (laptop + 4060) |
 | `claude-candidate.yaml` | candidate (default, the merge gate) | `claude-haiku-4-5` via `claude -p` (subscription) |
-| `claude-judge.yaml` | judge (default, the merge gate) | `claude-opus-5` via `claude -p` (subscription) |
+| `claude-judge.yaml` | judge (default, the merge gate) | `claude-opus-5-5` via `claude -p` (subscription) |
 
 `SUMO_OWUI_BASE` is interpolated into the local provider files' `apiBaseUrl`, and
 `showThinking: false` keeps the judge grading clean `content` (no `<think>` channel). To run a

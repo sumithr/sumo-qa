@@ -16,7 +16,7 @@ description: >
 # it needs a reasoning-capable local candidate)
 providers:
   # This eval is a STABLE REGRESSION GUARD, NOT load-bearing. The default gate
-  # runs it on the Claude pair (candidate claude-haiku-4-5, judge claude-opus-5).
+  # runs it on the Claude pair (candidate claude-haiku-4-5, judge claude-opus-5-5).
   # History: on the retired OpenAI tier gpt-5-mini caught
   # the grounded security gap UNAIDED (its own reasoning, not the new #282 skill
   # line), so the eval could not ISOLATE the added skill line: it cannot prove that
