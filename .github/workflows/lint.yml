@@ -172,6 +172,39 @@ jobs:
       - name: Run context budget audit
         run: python scripts/audit_context_budget.py
 
+  runtime-lock:
+    name: runtime lock installs on the release platform
+    # The release SBOM job installs .github/release/runtime-requirements.txt
+    # with --no-deps on this platform (Linux, CPython 3.13). This runs the same
+    # install before a tag, so a single-pin bump that breaks a transitive
+    # constraint, or a pin with no Linux cp313 wheel, fails here instead.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Build the wheel from the hashed release-tools lock
+        run: |
+          python -m pip install --require-hashes --only-binary :all: -r .github/release/requirements.txt
+          python -m build --no-isolation --wheel
+
+      - name: Install the runtime lock and the wheel, then pip check
+        run: |
+          set -euo pipefail
+          env_python="$RUNNER_TEMP/lock-env/bin/python"
+          python -m venv --without-pip "$RUNNER_TEMP/lock-env"
+          python -m pip --python "$env_python" install --require-hashes --no-deps --only-binary :all: \
+            -r .github/release/runtime-requirements.txt
+          # Separate call: the lock's hashes put the whole call in hash-checking mode.
+          python -m pip --python "$env_python" install --no-deps dist/*.whl
+          python -m pip --python "$env_python" check
+
   pip-audit:
     name: pip-audit (dependency vulnerabilities)
     # CI mirror of the local `pip-audit` pre-commit hook so a contributor who

@@ -36,11 +36,11 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Every package here is pinned with hashes in the lock, and the build
-      # runs with --no-isolation, so this environment is the complete set of
+      # Every package here is a wheel pinned with hashes in the lock, and the
+      # build runs with --no-isolation, so this environment is the complete set of
       # build inputs. build-info.json records it.
       - name: Install pinned build tools
-        run: python -m pip install --require-hashes -r .github/release/requirements.txt
+        run: python -m pip install --require-hashes --only-binary ':all:' -r .github/release/requirements.txt
 
       - name: Build wheel + sdist
         run: python -m build --no-isolation
@@ -82,7 +82,7 @@ jobs:
 
       # cyclonedx-py comes from the hashed lock.
       - name: Install pinned build tools
-        run: python -m pip install --require-hashes -r .github/release/requirements.txt
+        run: python -m pip install --require-hashes --only-binary ':all:' -r .github/release/requirements.txt
 
       - name: Download packages
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -99,8 +99,9 @@ jobs:
       # CycloneDX SBOM of the wheel installed, in a throwaway venv, from the
       # hashed runtime lock (.github/release/runtime-requirements.txt, its
       # Linux / CPython 3.13 resolution) with no dependency resolution: every
-      # installed file is hash-checked, and pip check fails on a lock that no
-      # longer satisfies the wheel. cyclonedx-py validates the document against
+      # installed file is a hash-checked wheel (--only-binary, so no sdist build
+      # pulls in an unhashed build backend), and pip check fails on a lock that
+      # no longer satisfies the wheel. cyclonedx-py validates the document against
       # the schema before writing. No --output-reproducible: it drops the
       # serialNumber, and actions/attest rejects a CycloneDX SBOM without one.
       - name: Generate SBOM
@@ -111,7 +112,7 @@ jobs:
             > "$RUNNER_TEMP/wheel-requirements.txt"
           env_python="$RUNNER_TEMP/sbom-env/bin/python"
           python -m venv --without-pip "$RUNNER_TEMP/sbom-env"
-          python -m pip --python "$env_python" install --require-hashes --no-deps \
+          python -m pip --python "$env_python" install --require-hashes --no-deps --only-binary :all: \
             -r .github/release/runtime-requirements.txt \
             -r "$RUNNER_TEMP/wheel-requirements.txt"
           python -m pip --python "$env_python" check
