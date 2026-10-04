@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.1](https://github.com/sumithr/sumo-qa/compare/v0.73.0...v0.73.1) (2026-10-04)
+
+
+### Bug Fixes
+
+* **server:** return an explicit absent result from sumo_qa_check_external_skill_installed ([#834](https://github.com/sumithr/sumo-qa/issues/834)) ([ad44ce5](https://github.com/sumithr/sumo-qa/commit/ad44ce57c3c029f7c430dc094e476c9d5eb886dd))
+
 ## [0.73.0](https://github.com/sumithr/sumo-qa/compare/v0.72.1...v0.73.0) (2026-10-03)
 
 
