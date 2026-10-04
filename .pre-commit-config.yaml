@@ -110,10 +110,14 @@ repos:
   # Workflow lint. actionlint-py ships the actionlint binary as a wheel, so
   # no Go toolchain or system install is needed. Mirrored in
   # .github/workflows/lint.yml, which runs this same pinned hook.
+  # actionlint only shellchecks run: blocks when shellcheck is on PATH, so
+  # the hook env carries the same shellcheck-py pin as the shellcheck hook
+  # above; keep the two versions in step.
   - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
     rev: v1.7.12.25
     hooks:
       - id: actionlint
+        additional_dependencies: [shellcheck-py==0.10.0.1]
 
   - repo: local
     hooks:

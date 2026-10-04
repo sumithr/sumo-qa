@@ -104,7 +104,7 @@ jobs:
         run: |
           set -uo pipefail
           PR=$(jq -r '.number' <<<"$RELEASE_PR_JSON")
-          [ -n "$PR" ] && [ "$PR" != "null" ] || { echo "::error::could not read release PR number"; exit 1; }
+          if [ -z "$PR" ] || [ "$PR" = "null" ]; then echo "::error::could not read release PR number"; exit 1; fi
 
           # Wait for the release PR's REQUIRED checks to finish, then merge.
           # `gh pr checks --required --watch --fail-fast` blocks until every

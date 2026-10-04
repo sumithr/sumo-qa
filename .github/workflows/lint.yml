@@ -86,7 +86,8 @@ jobs:
     name: actionlint (workflow lint)
     # CI mirror of the actionlint pre-commit hook: runs that same pinned hook
     # (rev in .pre-commit-config.yaml) through the pre-commit dev dep.
-    # ubuntu-latest ships shellcheck, which actionlint uses on run: blocks.
+    # The hook env bundles the pinned shellcheck-py, which actionlint uses on
+    # run: blocks, so CI and local run the same shellcheck.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

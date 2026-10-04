@@ -43,7 +43,7 @@ Each GitHub release carries the wheel, the sdist and three evidence files:
 Every file listed in `SHA256SUMS` has a signed build-provenance attestation from `.github/workflows/release.yml`, and the wheel and sdist also have an SBOM attestation. Pass `--source-ref` so only an attestation from the release tag counts: a manual dry run of the workflow from another branch also signs attestations, with that branch as the source ref. The packages on PyPI are the same bytes and carry PyPI's own trusted-publishing attestations.
 
 ```sh
-VERSION=0.73.0   # the release to check
+VERSION=X.Y.Z   # the release to check: one whose assets include SHA256SUMS
 gh release download "v$VERSION" --repo sumithr/sumo-qa --dir "sumo-qa-$VERSION"
 cd "sumo-qa-$VERSION"
 sha256sum --check SHA256SUMS   # macOS: shasum -a 256 --check SHA256SUMS
