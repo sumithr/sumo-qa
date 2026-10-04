@@ -22,11 +22,18 @@ SCOPES = ("project", "global")
 
 
 def _windows_global_root(env: Mapping[str, str] | None = None) -> Path:
-    """Windows user-data dir: ``%LOCALAPPDATA%\\sumo-qa`` else ``~/AppData/Local/sumo-qa``."""
+    """Windows user-data dir: ``%LOCALAPPDATA%\\sumo-qa`` else ``~/AppData/Local/sumo-qa``,
+    ``~`` taken from a passed ``env``'s ``USERPROFILE`` (else ``HOMEDRIVE`` +
+    ``HOMEPATH``) when it sets one, as ``Path.home()`` does for this process."""
     local = (os.environ if env is None else env).get("LOCALAPPDATA")
     if local:
         return Path(local) / "sumo-qa"
-    return Path.home() / "AppData" / "Local" / "sumo-qa"
+    home = None
+    if env is not None:
+        home = env.get("USERPROFILE") or (
+            env.get("HOMEDRIVE", "") + env["HOMEPATH"] if env.get("HOMEPATH") else None
+        )
+    return (Path(home) if home else Path.home()) / "AppData" / "Local" / "sumo-qa"
 
 
 def _posix_global_root(env: Mapping[str, str] | None = None) -> Path:

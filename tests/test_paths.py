@@ -49,6 +49,18 @@ def test_windows_global_root_falls_back_to_home_appdata(tmp_path, monkeypatch):
     assert paths._windows_global_root() == tmp_path / "AppData" / "Local" / "sumo-qa"
 
 
+def test_windows_global_root_fallback_home_follows_a_passed_env(tmp_path, monkeypatch):
+    """With no LOCALAPPDATA in a host entry's env, the fallback home is that
+    env's USERPROFILE, else HOMEDRIVE+HOMEPATH, never this process's home."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "own"))
+    assert paths._windows_global_root({"USERPROFILE": str(tmp_path / "up")}) == (
+        tmp_path / "up" / "AppData" / "Local" / "sumo-qa"
+    )
+    entry = {"LOCALAPPDATA": "", "HOMEDRIVE": str(tmp_path), "HOMEPATH": "/hp"}
+    assert paths._windows_global_root(entry) == tmp_path / "hp" / "AppData" / "Local" / "sumo-qa"
+    assert paths._windows_global_root({}) == tmp_path / "own" / "AppData" / "Local" / "sumo-qa"
+
+
 def test_unknown_scope_raises(tmp_path):
     with pytest.raises(ValueError, match="unknown scope"):
         paths.user_pack_root("nope")
