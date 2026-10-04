@@ -178,11 +178,27 @@ _SEVERITIES = ("critical", "high", "medium", "low")
 # dangerous instruction itself, never a mere mention (mentions are high, so
 # they are disclosed without blocking). Critical rules fail closed: a negation
 # never exempts a command shape, since "never ..." can preface the very
-# command; only SQA-EXT-001 skips a directly negated match (_NEGATED).
+# command; only SQA-EXT-001 and 002 skip a directly negated match (_NEGATED).
 _DOWNLOADER = r"(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)"
-_HOME = r"(?:~|\$HOME\b|\$\{HOME\})"
-_CREDENTIAL_FILE = r"~/\.ssh\b|\bid_(?:rsa|dsa|ecdsa|ed25519)\b|\.aws/credentials\b|~/\.netrc\b"
-_SHELL_PROFILE = rf"{_HOME}/\.(?:bashrc|zshrc|profile|bash_profile|zprofile)\b"
+# A home folder, optionally quoted ("$HOME"/x), and a / or \ path separator.
+_HOME = r"[\"']?(?:~|\$HOME\b|\$\{HOME\}|%USERPROFILE%|/root\b|/(?:Users|home)/[^/\s\"'`]+)[\"']?"
+_SEP = r"[/\\]"
+_SHELL = r"(?:(?:ba|z|da|k)?sh|pwsh|powershell)"
+_INTERPRETER = rf"(?:{_SHELL}|python[\d.]*|node|perl|ruby)"
+
+
+def _after_first(lead: str, rest: str) -> str:
+    """``lead`` then ``rest`` later on the line, tried from the first ``lead``
+    only: whatever follows a later one follows the first too, and starting at
+    every ``lead`` would make a line of repeated leads quadratic."""
+    return rf"^(?:(?!{lead}).)*{lead}{rest}"
+
+
+_CREDENTIAL_FILE = (
+    rf"{_HOME}{_SEP}\.(?:ssh\b|aws{_SEP}credentials\b|netrc\b)|\.ssh{_SEP}id_\w+"
+    r"|\bid_(?:rsa|dsa|ecdsa|ed25519)\b"
+)
+_SHELL_PROFILE = rf"{_HOME}{_SEP}\.(?:bashrc|zshrc|zshenv|profile|bash_profile|zprofile)\b"
 _TEXT_RULES = tuple(
     (rule, severity, capability, message, re.compile(pattern, re.IGNORECASE))
     for rule, severity, capability, message, pattern in (
@@ -212,36 +228,49 @@ _TEXT_RULES = tuple(
             "critical",
             "remote_code",
             "runs downloaded code through a shell or interpreter",
-            rf"\b{_DOWNLOADER}\b[^\n]*\|\s*(?:sudo(?:\s+-\S+)*\s+)?"
-            r"(?:(?:ba|z|da)?sh|iex|invoke-expression|python[\d.]*|node|perl|ruby)\b"
-            r"|\b(?:ba|z)?sh\s+<\(\s*(?:curl|wget)\b"
-            rf"|\b(?:(?:ba|z|da)?sh\s+-c|eval)\s+[\"']?\$\(\s*{_DOWNLOADER}\b"
-            rf"|\b(?:iex|invoke-expression)\s*[(\s]\s*\(?\s*(?:{_DOWNLOADER}|new-object)\b"
-            rf"|\b{_DOWNLOADER}\b[^\n]*\b(?:iex|invoke-expression)\b",
+            # piped into a shell or interpreter (by path, through env or sudo),
+            # or handed to iex anywhere after the download
+            _after_first(
+                rf"\b{_DOWNLOADER}\b",
+                r"(?:.*\|\s*(?:sudo(?:\s+-\S+(?:\s+[\w.-]+)?)*\s+)?"
+                r"(?:(?:/[\w.-]+)*/)?(?:env\s+(?:-\S+\s+)*)?(?:(?:/[\w.-]+)*/)?"
+                rf"{_INTERPRETER}\b|.*\b(?:iex|invoke-expression)\b)",
+            )
+            # process substitution: source <(curl ...), bash < <(curl ...)
+            + rf"|(?:\bsource|(?<![^\s;&|(])\.|\b{_INTERPRETER})\s+(?:<\s*)?<\(\s*{_DOWNLOADER}\b"
+            # command substitution: bash -lc "$(curl ...)", eval `curl ...`
+            rf"|\b(?:{_INTERPRETER}\s+-\w*c|eval)\s+[\"']?(?:\$\(|`)\s*{_DOWNLOADER}\b"
+            rf"|\b(?:iex|invoke-expression)\s*[(\s]\s*\(?\s*(?:{_DOWNLOADER}|new-object)\b",
         ),
         (
             "SQA-EXT-004",
             "critical",
             "credential_access",
             "reads or sends a private key or credential file",
-            r"\b(?:cat|less|more|head|tail|get-content|cp|copy|scp|rsync|base64|xxd|od|strings"
-            r"|read|upload|send|post|paste|print|echo|curl|wget|include|attach|type|grep|share"
-            r"|contents\s+of)\b[^\n]{0,60}?"
-            rf"(?:{_HOME}/\.(?:ssh/|aws/credentials\b|netrc\b)|\.ssh/id_\w+)",
+            _after_first(
+                r"\b(?:cat|less|more|head|tail|get-content|cp|copy|scp|rsync|base64|xxd|od"
+                r"|strings|read|upload|send|post|paste|print|echo|curl|wget|include|attach|type"
+                r"|grep|share|contents\s+of|tar|zip|nc|ncat|netcat)\b",
+                rf".*?(?:{_HOME}{_SEP}\.(?:ssh\b|aws{_SEP}credentials\b|netrc\b)|\.ssh{_SEP}id_\w+)",
+            ),
         ),
         (
             "SQA-EXT-005",
             "critical",
             "writes_outside_project",
             "writes to a shell profile or a system path outside the project",
-            rf"(?:>>?|\btee\s+(?:-a\s+)?)\s*[\"']?(?:{_SHELL_PROFILE}|/(?:etc|usr|bin|sbin|System)/)",
+            rf"(?:>>?|\btee\s+(?:-a\s+|--append\s+)?)\s*"
+            rf"(?:{_SHELL_PROFILE}|[\"']?/(?:etc|usr|bin|sbin|System)/)",
         ),
         (
             "SQA-EXT-006",
             "critical",
             "destructive_shell",
             "deletes recursively from the filesystem root or home folder",
-            r"\brm\s+-[a-z]*(?:rf|fr)[a-z]*\s+(?:/|~|\$HOME)/?(?:\*)?(?=[\s\"'`]|$)",
+            # any recursive flag among short, long or split flags (and --),
+            # then root or home, then the end of the word
+            r"\brm(?:\s+-[\w-]*)*?\s+(?:-[a-z]*r[a-z]*|--recursive)\b(?:\s+-[\w-]*)*\s+"
+            rf"[\"']?(?:/|{_HOME})/?\*?[\"']?(?=[\s\"'`;&|)]|$)",
         ),
         (
             "SQA-EXT-007",
@@ -303,9 +332,19 @@ _TEXT_RULES = tuple(
         ),
     )
 )
-# "do not", "don't" or "never" immediately before an SQA-EXT-001 verb ("don't
-# ignore the earlier rules"): that line forbids the override. No word slot.
+# "do not", "don't" or "never" immediately before an SQA-EXT-001 or 002 verb
+# ("don't ignore the earlier rules", "never silently install"): that line
+# forbids the act. No word slot.
 _NEGATED = re.compile(r"\b(?:do\s+not|don't|don’t|never)\s+$", re.IGNORECASE)
+# Instruction rules read a markdown paragraph (soft-wrapped lines joined);
+# command rules read a logical line (a line ending in \, |, && or || joined
+# with the next). Both read at most _LINT_LIMIT characters of one joined line,
+# which bounds the regex work; a longer one is disclosed, never skipped.
+_INSTRUCTION_RULES = {"SQA-EXT-001", "SQA-EXT-002"}
+_LINT_LIMIT = 4000
+_LONG_LINE = ("SQA-EXT-017", "high", "line too long to lint fully")
+_CONTINUED = re.compile(r"(\\|\||&&)\s*$")
+_FENCE = re.compile(r"^\s*(?:```|~~~)")
 _EXECUTABLE_ASSET = ("SQA-EXT-010", "high", "executable_assets", "ships an executable file")
 _SCRIPT_ASSET = ("SQA-EXT-011", "medium", "scripts", "ships a script the skill may run")
 _BINARY_SUFFIXES = {".exe", ".dll", ".so", ".dylib", ".bin", ".com", ".msi", ".jar", ".app"}
@@ -442,11 +481,11 @@ def rollback_external_skill(
     with _lock_guard(lock_base):
         lock = _read_lock(lock_base)
         paths = _rollback_paths(skill, scope, agent, lock["skills"])
-        _check_no_dependent_link(lock_base, paths, lock["skills"])
-        for path in paths:
-            _check_unchanged(lock_base / path, path, lock["skills"][path])
         history = lock.get("history", {})
         previous = next((history[p][-1] for p in paths if history.get(p)), None)
+        _check_no_dependent_link(lock_base, paths, lock["skills"], previous is not None)
+        for path in paths:
+            _check_unchanged(lock_base / path, path, lock["skills"][path])
         if previous is None:
             for path in paths:
                 folder = lock_base / path
@@ -458,7 +497,8 @@ def rollback_external_skill(
                 del lock["skills"][path]
             _write_lock(lock_base, lock)
             return {"skill": skill, "scope": scope, "action": "removed", "removed": paths}
-    if previous["skill"] not in _candidate_skill_names(skill):
+    # The same test _rollback_paths applies: the CLI writes both to one folder.
+    if _candidate_skill_names(previous["skill"])[0] != _candidate_skill_names(skill)[0]:
         raise ExternalSkillProvenanceError(
             f"the history record to restore is for skill {previous['skill']!r}, not {skill!r}; "
             "refusing to install it"
@@ -526,21 +566,38 @@ def _rollback_paths(skill: str, scope: str, agent: str, skills: dict[str, Any]) 
     return list(found)
 
 
-def _check_no_dependent_link(lock_base: Path, paths: list[str], skills: dict[str, Any]) -> None:
-    """Refuse a rollback of a folder another recorded install links into (another
-    agent's link to a shared canonical copy): removing or replacing it breaks that."""
-    targets = {path: (lock_base / path).resolve() for path in paths}
+def _check_no_dependent_link(
+    lock_base: Path, paths: list[str], skills: dict[str, Any], restore: bool
+) -> None:
+    """Refuse a rollback that would break or rewrite another agent's install.
+
+    A removal unlinks this install's links, which breaks no other link, so only
+    its real folders count. A restore rewrites the canonical copy its links
+    point at, so their targets count too, and a target recorded as another
+    agent's folder is refused outright: the restore would overwrite its record.
+    """
+    targets = {
+        path: (lock_base / path).resolve()
+        for path in paths
+        if restore or not (lock_base / path).is_symlink()
+    }
+    mine = {skills[p].get("agent") for p in paths if isinstance(skills[p], dict)}
     for other, record in skills.items():
-        link = lock_base / other
-        if other in targets or not link.is_symlink():
+        if other in paths:
             continue
-        resolved = link.resolve()
+        entry = lock_base / other
+        owner = record.get("agent") if isinstance(record, dict) else None
+        resolved = entry.resolve()
         for path, target in targets.items():
-            if resolved == target or target in resolved.parents:
-                owner = record.get("agent") if isinstance(record, dict) else None
+            if entry.is_symlink() and (resolved == target or target in resolved.parents):
                 raise ExternalSkillProvenanceError(
                     f"{other} (agent {owner!r}) links into {path}, which this rollback would "
                     f"remove or replace; roll back {other} first"
+                )
+            if restore and resolved == target and owner not in mine:
+                raise ExternalSkillProvenanceError(
+                    f"{path} links into {other}, recorded for agent {owner!r}: restoring it "
+                    f"would rewrite that agent's install and its record; roll back {other} first"
                 )
 
 
@@ -558,7 +615,8 @@ def _check_unchanged(folder: Path, path: str, record: Any) -> None:
 
 
 def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list[dict[str, Any]]:
-    """Safety-lint one payload file: one finding per rule it trips, at its first line."""
+    """Safety-lint one payload file: one finding per rule it trips, at the first
+    line of the first (joined) line or paragraph that trips it."""
     findings = []
     suffix = Path(relpath).suffix.lower()
     if executable or suffix in _BINARY_SUFFIXES or suffix in _SCRIPT_SUFFIXES:
@@ -566,22 +624,67 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
             _EXECUTABLE_ASSET if executable or suffix in _BINARY_SUFFIXES else _SCRIPT_ASSET
         )
         findings.append(_finding(rule, severity, message, relpath, None, 1))
-    lines = data.decode("utf-8", errors="replace").splitlines()
+    lines = _logical_lines(data.decode("utf-8", errors="replace").splitlines())
+    long = [number for number, text in lines if len(text) > _LINT_LIMIT]
+    lines = [(number, text[:_LINT_LIMIT]) for number, text in lines]
+    paragraphs = _paragraphs(lines)
     for rule, severity, _, message, pattern in _TEXT_RULES:
-        hits = [number for number, line in enumerate(lines, 1) if _line_hits(rule, pattern, line)]
+        units = paragraphs if rule in _INSTRUCTION_RULES else lines
+        hits = [number for number, text in units if _line_hits(rule, pattern, text)]
         if hits:
             findings.append(_finding(rule, severity, message, relpath, hits[0], len(hits)))
+    if long:
+        findings.append(_finding(*_LONG_LINE, relpath, long[0], len(long)))
     return findings
 
 
+def _logical_lines(lines: list[str]) -> list[tuple[int, str]]:
+    """Join a line ending in a backslash, |, && or || with the next, numbered by
+    its first line. A markdown table row (``| a | b |``) is not continued."""
+    joined: list[tuple[int, str]] = []
+    parts: list[str] = []
+    for number, line in enumerate(lines, 1):
+        if not parts:
+            start = number
+        continued = _CONTINUED.search(line)
+        if continued and continued.group(1) == "\\":
+            line = line[: continued.start()]
+        parts.append(line)
+        if not continued or line.lstrip().startswith("|"):
+            joined.append((start, " ".join(parts)))
+            parts = []
+    if parts:
+        joined.append((start, " ".join(parts)))
+    return joined
+
+
+def _paragraphs(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Markdown paragraphs: runs of non-blank lines joined, split at blank lines
+    and code fences (a fence line stands alone), numbered by their first line."""
+    paragraphs: list[tuple[int, str]] = []
+    run: list[tuple[int, str]] = []
+    for number, text in [*lines, (0, "")]:
+        fence = _FENCE.match(text)
+        if run and (fence or not text.strip()):
+            paragraphs.append((run[0][0], " ".join(t for _, t in run)))
+            run = []
+        if fence:
+            paragraphs.append((number, text))
+        elif text.strip():
+            run.append((number, text))
+    return paragraphs
+
+
 def _line_hits(rule: str, pattern: re.Pattern[str], line: str) -> bool:
-    """Whether ``line`` trips ``rule``: any match does, except an SQA-EXT-001 match
-    directly negated; every match position counts, overlapping ones included."""
+    """Whether ``line`` trips ``rule``: any match does, except an SQA-EXT-001 or
+    002 match directly negated; every match position counts, overlapping ones
+    included."""
     match = pattern.search(line)
-    if rule != "SQA-EXT-001":
+    if rule not in _INSTRUCTION_RULES:
         return match is not None
     while match:
-        if not _NEGATED.search(line, 0, match.start()):
+        # A window, not the whole prefix: each check stays O(1) on a long line.
+        if not _NEGATED.search(line, max(0, match.start() - 32), match.start()):
             return True
         match = pattern.search(line, match.start() + 1)
     return False
@@ -1628,9 +1731,10 @@ def _merge_into_lock(base: Path, records: list[dict[str, Any]], restore: bool = 
     """Merge records into the lock; the caller holds ``_lock_guard``.
 
     A record replacing one with other content pushes it onto that folder's
-    history; a restore pops the history entry it brought back instead, and
-    that original record (its requested ref) is reinstated in ``records`` too,
-    keyed to the folder written and with the restore's trust and time.
+    history; a restore pops the history entry it brought back instead (only
+    where that entry holds the restored content), and that original record (its
+    requested ref) is reinstated in ``records`` too, keyed to the folder written
+    and with the restore's trust, time and installer CLI.
     """
     lock = _read_lock(base)
     history = lock.setdefault("history", {})
@@ -1642,12 +1746,12 @@ def _merge_into_lock(base: Path, records: list[dict[str, Any]], restore: bool = 
                 # The original record, under the folder actually written, with
                 # this restore's own trust decision and time.
                 records[index] = record = {
-                    **stack[-1],
+                    **stack.pop(),
                     "path": record["path"],
                     "trust": record["trust"],
                     "installed_at": record["installed_at"],
+                    "installer": record["installer"],
                 }
-            stack[-1:] = []
         elif (
             isinstance(current, dict) and current.get("content_digest") != record["content_digest"]
         ):
