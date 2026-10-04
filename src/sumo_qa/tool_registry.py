@@ -138,20 +138,26 @@ def _invalid(value: str) -> ValueError:
 def resolve_profile(env: Mapping[str, str] | None = None) -> str:
     """Return the profile named by ``SUMO_QA_MCP_PROFILE`` in ``env`` (default:
     the process env); unset or empty falls back to the saved profile file every
-    launch path shares (``sumo-qa-install --profile`` writes it), then ``full``.
+    launch path shares, found from the same ``env`` (``sumo-qa-install --profile`` writes it), then ``full``.
     Any other value raises: it is never coerced."""
-    value = (os.environ if env is None else env).get(PROFILE_ENV)
+    env = os.environ if env is None else env
+    value = env.get(PROFILE_ENV)
     if value:
         if value not in PROFILES:
             raise _invalid(value)
         return value
-    path = mcp_profile_path()
+    path = mcp_profile_path(env)
     try:
-        value = path.read_text(encoding="utf-8").strip()
+        value = path.read_text(encoding="utf-8-sig").strip()
     except FileNotFoundError:
         return DEFAULT_PROFILE
     except OSError as exc:
         raise ValueError(f"cannot read {path}: {exc.strerror or exc}") from None
+    except UnicodeError:
+        raise ValueError(
+            f"cannot read {path}: not UTF-8 text; rewrite it with "
+            f"`sumo-qa-install --profile <{'|'.join(PROFILES)}>`"
+        ) from None
     if value and value not in PROFILES:
         raise ValueError(
             f"{path} holds {value!r}, which is not a valid MCP tool profile; "

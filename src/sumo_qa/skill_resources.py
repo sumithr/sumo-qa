@@ -49,12 +49,13 @@ def _dumps(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-def register_skill_resources(mcp: Any) -> None:
+def register_skill_resources(mcp: Any, profile: str | None = None) -> None:
     """Register the skill index static resource + the four resource-templates.
 
     Mirrors ``skill_prompts.register_skills_as_prompts``: takes the MCPServer
     server and attaches resources via its decorator API. Idempotent per
-    server instance (each ``build_mcp_server`` builds a fresh ``mcp``)."""
+    server instance (each ``build_mcp_server`` builds a fresh ``mcp``).
+    ``profile`` is the server's build-time profile the skill gate checks."""
 
     @mcp.resource(
         "sumoqa://skills",
@@ -82,7 +83,7 @@ def register_skill_resources(mcp: Any) -> None:
         mime_type="application/json",
     )
     def skill_manifest_resource(skill_name: str) -> str:
-        return _dumps(load_skill_context(skill_name, "manifest"))
+        return _dumps(load_skill_context(skill_name, "manifest", profile=profile))
 
     @mcp.resource(
         "sumoqa://skills/{skill_name}/sections/{section_id}",
@@ -95,7 +96,9 @@ def register_skill_resources(mcp: Any) -> None:
         mime_type="application/json",
     )
     def skill_section_resource(skill_name: str, section_id: str) -> str:
-        return _dumps(load_skill_context(skill_name, "section", section=section_id))
+        return _dumps(
+            load_skill_context(skill_name, "section", section=section_id, profile=profile)
+        )
 
     @mcp.resource(
         "sumoqa://skills/{skill_name}/modules/{module_id}",
@@ -108,7 +111,7 @@ def register_skill_resources(mcp: Any) -> None:
         mime_type="application/json",
     )
     def skill_module_resource(skill_name: str, module_id: str) -> str:
-        return _dumps(load_skill_context(skill_name, "module", module=module_id))
+        return _dumps(load_skill_context(skill_name, "module", module=module_id, profile=profile))
 
     @mcp.resource(
         "sumoqa://skills/{skill_name}/full",
@@ -122,4 +125,4 @@ def register_skill_resources(mcp: Any) -> None:
         mime_type="application/json",
     )
     def skill_full_resource(skill_name: str) -> str:
-        return _dumps(load_skill_context(skill_name, "full"))
+        return _dumps(load_skill_context(skill_name, "full", profile=profile))

@@ -20,7 +20,12 @@ def pytest_configure(config):
     temp dir here runs before collection-time imports and every fixture scope;
     tests that need a profile set it explicitly."""
     os.environ.pop(PROFILE_ENV, None)
-    os.environ["XDG_DATA_HOME"] = tempfile.mkdtemp(prefix="sumo-qa-test-data-")
+    config._sumo_qa_data_home = tempfile.TemporaryDirectory(prefix="sumo-qa-test-data-")
+    os.environ["XDG_DATA_HOME"] = config._sumo_qa_data_home.name
+
+
+def pytest_unconfigure(config):
+    config._sumo_qa_data_home.cleanup()
 
 
 @pytest.fixture(autouse=True)

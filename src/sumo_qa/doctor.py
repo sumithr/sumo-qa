@@ -1294,8 +1294,9 @@ def _host_entry_command(
       VAR is empty; an unset VAR with no default stays as written).
     - ``claude-desktop``: launched as written. It is a GUI app that does not
       inherit the doctor shell's env, so the env sets an empty
-      ``SUMO_QA_MCP_PROFILE`` (the saved profile, else the server default)
-      unless the entry sets one.
+      ``SUMO_QA_MCP_PROFILE`` (the saved profile, else the server default) and
+      an empty ``XDG_DATA_HOME`` (the saved profile under the default data dir)
+      unless the entry sets them.
       The Claude Code CLI and VS Code keep the shell's value
       (docs/CONFIGURATION.md).
     """
@@ -1308,7 +1309,8 @@ def _host_entry_command(
     args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
     env = _installer._string_env(entry.get("env"))
     if host == "claude-desktop":
-        return McpCommand(command, args, env={PROFILE_ENV: "", **env}, source=str(source))
+        gui_env = {PROFILE_ENV: "", "XDG_DATA_HOME": "", **env}
+        return McpCommand(command, args, env=gui_env, source=str(source))
     if host == "vscode":
 
         def expand(value: str) -> str:

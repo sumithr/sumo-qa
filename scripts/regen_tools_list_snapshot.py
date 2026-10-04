@@ -28,16 +28,14 @@ FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
 PROFILE_ENV = "SUMO_QA_MCP_PROFILE"
 
 
-def _spawn(profile: str | None) -> subprocess.Popen:
+def _spawn(profile: str | None, data_home: str) -> subprocess.Popen:
     src_path = str(REPO_ROOT / "src")
     existing = os.environ.get("PYTHONPATH", "")
     pythonpath = f"{src_path}{os.pathsep}{existing}" if existing else src_path
     env = {k: v for k, v in os.environ.items() if k != PROFILE_ENV}
     if profile is not None:
         env[PROFILE_ENV] = profile
-    # An empty data dir, so a profile saved with `sumo-qa-install --profile`
-    # cannot turn the default (full) snapshot into another profile's.
-    env["XDG_DATA_HOME"] = tempfile.mkdtemp(prefix="sumo-qa-regen-")
+    env["XDG_DATA_HOME"] = data_home
     return subprocess.Popen(
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,
@@ -50,7 +48,13 @@ def _spawn(profile: str | None) -> subprocess.Popen:
 
 
 def _tools_list(profile: str | None) -> list[dict]:
-    proc = _spawn(profile)
+    # An empty data dir, so a profile saved with `sumo-qa-install --profile`
+    # cannot turn the default (full) snapshot into another profile's.
+    with tempfile.TemporaryDirectory(prefix="sumo-qa-regen-") as data_home:
+        return _query_tools_list(profile, _spawn(profile, data_home))
+
+
+def _query_tools_list(profile: str | None, proc: subprocess.Popen) -> list[dict]:
     try:
         proc.stdin.write(
             json.dumps(

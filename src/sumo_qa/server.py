@@ -622,14 +622,17 @@ def _apply_profile(mcp: Any, profile: str) -> None:
             mcp.remove_tool(tool.name)
 
 
-def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
+def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | None = None) -> Any:
+    """Build the server for ``profile`` (default: resolved now). Every
+    profile-dependent tool, resource and gate uses this one value for the
+    process's life, so a mid-session edit of the saved file changes nothing."""
     try:
         from mcp.server.mcpserver import MCPServer
         from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError("The MCP SDK is not installed. Run `pip install -e .`.") from exc
 
-    profile = resolve_profile()
+    profile = profile or resolve_profile()
     qa_service = service or build_service()
     mcp = MCPServer(
         "sumo-qa",
@@ -2098,13 +2101,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 classification=classification,
                 modules=modules,
                 include_body=include_body,
+                profile=profile,
             ),
             ensure_ascii=False,
             indent=2,
         )
 
-    register_skills_as_prompts(mcp)
-    register_skill_resources(mcp)
+    register_skills_as_prompts(mcp, profile=profile)
+    register_skill_resources(mcp, profile=profile)
     _apply_profile(mcp, profile)
     _slim_tool_schemas(mcp)
     _clean_tool_descriptions(mcp)
@@ -2113,5 +2117,4 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
 
 def main() -> None:
-    resolve_profile_or_exit()
-    build_mcp_server().run()
+    build_mcp_server(profile=resolve_profile_or_exit()).run()

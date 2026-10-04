@@ -150,7 +150,9 @@ def _parse_frontmatter(text: str) -> dict:
     return parsed or {}
 
 
-def register_skills_as_prompts(mcp: Any, token_cap: int | None = None) -> None:
+def register_skills_as_prompts(
+    mcp: Any, token_cap: int | None = None, profile: str | None = None
+) -> None:
     """Register every SKILL.md under skills/ as an MCP tool.
 
     Name kept as the historic `register_skills_as_prompts` for backwards
@@ -161,7 +163,8 @@ def register_skills_as_prompts(mcp: Any, token_cap: int | None = None) -> None:
     Body: full file content (including frontmatter), read fresh on each call
     so editing the SKILL.md propagates without restart. An over-cap body is
     served as a progressive-loading pointer instead (#393); `token_cap`
-    overrides the resolved cap and is used by tests.
+    overrides the resolved cap and is used by tests. `profile` is the server's
+    build-time profile the capability gate checks (default: resolved per call).
     """
     skills_dir = _skills_dir()
     if not skills_dir.is_dir():
@@ -180,7 +183,7 @@ def register_skills_as_prompts(mcp: Any, token_cap: int | None = None) -> None:
         # hosts that render descriptions inline don't show stray newlines.
         if isinstance(description, str):
             description = " ".join(description.split())
-        _bind_tool(mcp, name, description, skill_path, token_cap=token_cap)
+        _bind_tool(mcp, name, description, skill_path, token_cap=token_cap, profile=profile)
 
 
 def _oversize_pointer_text(skill_name: str, tokens: int, cap: int) -> str:
@@ -232,7 +235,12 @@ def _make_skill_callable(path: Path, token_cap: int | None = None):
 
 
 def _bind_tool(
-    mcp: Any, name: str, description: str, path: Path, token_cap: int | None = None
+    mcp: Any,
+    name: str,
+    description: str,
+    path: Path,
+    token_cap: int | None = None,
+    profile: str | None = None,
 ) -> None:
     """Bind one SKILL.md as an MCP tool named `name`. The tool returns the
     SKILL.md body, which the host LLM follows, or a progressive-loading pointer
@@ -246,7 +254,7 @@ def _bind_tool(
     body_fn = _make_skill_callable(path, token_cap=token_cap)
 
     def fn() -> str:
-        text = unavailable_capability(name) or body_fn()
+        text = unavailable_capability(name, profile) or body_fn()
         maybe_capture(
             tool=name,
             args={},

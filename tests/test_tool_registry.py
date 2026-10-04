@@ -110,6 +110,30 @@ def test_resolve_profile_rejects_an_unknown_saved_profile_naming_the_file(
     )
 
 
+# Windows users write the file by hand (docs/CONFIGURATION.md): PowerShell 5.1
+# `Set-Content -Encoding UTF8` adds a BOM, `Out-File` / `>` write UTF-16.
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("\ufeffcore\r\n".encode(), "core"), ("\ufefffull".encode(), "full")],
+)
+def test_resolve_profile_reads_a_saved_profile_with_a_utf8_bom(
+    monkeypatch, tmp_path, raw, expected
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_bytes(raw)
+    assert resolve_profile() == expected
+
+
+def test_resolve_profile_names_the_file_when_it_is_not_utf8(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_bytes("core\r\n".encode("utf-16"))
+    with pytest.raises(ValueError) as exc:
+        resolve_profile()
+    assert str(exc.value).startswith(f"cannot read {mcp_profile_path()}: not UTF-8 text")
+
+
 def test_resolve_profile_reports_an_unreadable_saved_profile(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     mcp_profile_path().mkdir(parents=True)  # a directory where the file belongs
@@ -324,3 +348,42 @@ def test_load_skill_context_keeps_its_never_raises_contract_on_a_bad_profile(
         "error": f"{PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
         "expected one of: core, full"
     }
+
+
+# The profile is resolved once per process (#809 review): rewriting the saved
+# file mid-session must not make the skill gate, the skill loader or its
+# resources disagree with the tools/list and capability discovery fixed at
+# build time. Technique: state transition over saved file -> build -> rewrite,
+# both directions plus a corrupted rewrite.
+@pytest.mark.parametrize(
+    ("saved", "rewritten"),
+    [("core", "full\n"), ("full", "core\n"), ("core", "bogus\n")],
+)
+def test_skill_tools_keep_the_build_time_profile_after_the_file_changes(saved, rewritten) -> None:
+    import json
+
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text(f"{saved}\n", encoding="utf-8")
+    mcp = server.build_mcp_server()
+    mcp_profile_path().write_text(rewritten, encoding="utf-8")
+
+    def call(name: str, args: dict) -> str:
+        return asyncio.run(mcp.call_tool(name, args)).content[0].text
+
+    def read(uri: str) -> str:
+        return next(iter(asyncio.run(mcp.read_resource(uri)))).content
+
+    assert set(_live_names(mcp)) == profile_tool_names(saved)
+    assert json.loads(call("sumo_qa_capabilities", {}))["active_profile"] == saved
+    gated = saved == "core"
+    tool_text = call(_EXTERNAL_SKILL.replace("-", "_"), {})
+    assert (tool_text.splitlines()[:3] == _ACTIVATION) is gated
+    loaded = json.loads(
+        call("sumo_qa_load_skill_context", {"skill_name": _EXTERNAL_SKILL, "mode": "manifest"})
+    )
+    resource = json.loads(read(f"sumoqa://skills/{_EXTERNAL_SKILL}/manifest"))
+    for out in (loaded, resource):
+        if gated:
+            assert out["error"].splitlines()[:3] == _ACTIVATION
+        else:
+            assert "error" not in out and out["skill_name"] == _EXTERNAL_SKILL

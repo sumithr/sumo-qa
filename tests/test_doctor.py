@@ -1801,6 +1801,24 @@ def _no_claude_config_dir(monkeypatch) -> None:
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _gui_data_root(tmp_path_factory: pytest.TempPathFactory, monkeypatch) -> None:
+    """The Claude Desktop probe drops the shell's ``XDG_DATA_HOME`` (a GUI app
+    does not inherit it), so its saved profile lives under ``HOME`` (POSIX) or
+    ``LOCALAPPDATA`` (Windows): point both at an empty temp dir so no probe
+    reads the real user's file."""
+    root = tmp_path_factory.mktemp("gui-data-root")
+    monkeypatch.setenv("HOME", str(root))
+    monkeypatch.setenv("LOCALAPPDATA", str(root))
+
+
+def _saved_profile_for(host: str) -> Path:
+    """The saved profile file ``host``'s launch reads."""
+    if host == "claude-desktop":
+        return mcp_profile_path({**os.environ, "XDG_DATA_HOME": ""})
+    return mcp_profile_path()
+
+
 @pytest.mark.usefixtures("_no_claude_config_dir")
 @pytest.mark.parametrize("host", _PROBE_HOSTS)
 def test_probe_fails_on_an_invalid_profile_in_the_host_entry_env(tmp_path: Path, host) -> None:
@@ -1839,17 +1857,54 @@ def test_probe_fails_on_an_invalid_saved_profile_and_names_the_installer_fix(
     """With no profile in the entry or shell env, the server reads the saved
     profile file (#809), so a bogus one there fails the probe and points at
     the installer flag that rewrites it, not at an env var."""
-    mcp_profile_path().parent.mkdir(parents=True)
-    mcp_profile_path().write_text("bogus\n", encoding="utf-8")
+    saved = _saved_profile_for(host)
+    saved.parent.mkdir(parents=True)
+    saved.write_text("bogus\n", encoding="utf-8")
     handshake, tools = _probe_host_entry(tmp_path, host, {})
     assert handshake.status == "FAIL"
     assert handshake.summary == (
-        f"sumo-qa: {mcp_profile_path()} holds 'bogus', which is not a valid MCP tool "
+        f"sumo-qa: {saved} holds 'bogus', which is not a valid MCP tool "
         "profile; expected one of: core, full. "
         "Save a valid one with `sumo-qa-install --profile <core|full>`"
     )
     assert handshake.details["kind"] == "invalid_profile"
     assert tools.status == "FAIL"
+
+
+# The saved file is found from the env the host launches with (#809 review):
+# an entry's own XDG_DATA_HOME moves it, and Claude Desktop, a GUI app, never
+# sees the shell's. Technique: equivalence partitioning over where the file
+# sits (entry data dir, shell data dir) x host.
+@pytest.mark.usefixtures("_no_claude_config_dir")
+@pytest.mark.parametrize("host", _PROBE_HOSTS)
+@pytest.mark.parametrize(("saved", "expected_kind"), [("core", None), ("bogus", "invalid_profile")])
+def test_probe_reads_the_saved_profile_from_the_entry_data_dir(
+    tmp_path: Path, host, saved, expected_kind
+) -> None:
+    entry_data = tmp_path / "entry-data"
+    (entry_data / "sumo-qa").mkdir(parents=True)
+    (entry_data / "sumo-qa" / "mcp-profile").write_text(f"{saved}\n", encoding="utf-8")
+    handshake, tools = _probe_host_entry(tmp_path, host, {"XDG_DATA_HOME": str(entry_data)})
+    if expected_kind is None:
+        assert handshake.status == "OK", handshake
+        assert tools.status == "OK", tools
+        assert tools.details["advertised_count"] == len(profile_tool_names(saved))
+    else:
+        assert handshake.details["kind"] == expected_kind
+        assert str(entry_data / "sumo-qa" / "mcp-profile") in handshake.summary
+
+
+@pytest.mark.usefixtures("_no_claude_config_dir")
+def test_claude_desktop_probe_ignores_a_profile_saved_under_the_shell_data_dir(
+    tmp_path: Path,
+) -> None:
+    """A profile saved under the shell's ``XDG_DATA_HOME`` is one the real
+    Claude Desktop never reads, so its probe launches ``full``."""
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text("core\n", encoding="utf-8")
+    handshake, tools = _probe_host_entry(tmp_path, "claude-desktop", {})
+    assert handshake.status == "OK", handshake
+    assert tools.details["advertised_count"] == len(profile_tool_names("full"))
 
 
 @pytest.mark.usefixtures("_no_claude_config_dir")

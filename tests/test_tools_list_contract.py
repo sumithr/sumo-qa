@@ -45,6 +45,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import warnings
 from collections import Counter, deque
@@ -411,7 +412,7 @@ def test_regen_script_refuses_to_pin_a_tool_without_capability_metadata(monkeypa
     monkeypatch.setattr(
         regen,
         "_spawn",
-        lambda _profile: subprocess.Popen(
+        lambda _profile, _data_home: subprocess.Popen(
             [sys.executable, "-c", _STALE_TOOL_SERVER],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -435,3 +436,36 @@ def test_regen_script_default_snapshot_ignores_a_saved_profile() -> None:
     mcp_profile_path().write_text("core\n", encoding="utf-8")
     regen = _load_regen_script()
     assert {t["name"] for t in regen._tools_list(None)} == profile_tool_names("full")
+
+
+def test_regen_script_removes_its_empty_data_dir(tmp_path, monkeypatch) -> None:
+    """Each server launch gets an empty data dir; none is left behind."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    regen = _load_regen_script()
+    regen._tools_list(None)
+    assert not list(tmp_path.glob("sumo-qa-regen-*"))
+
+
+def test_the_suite_removes_its_session_data_dir(tmp_path) -> None:
+    """``conftest.pytest_configure`` points ``XDG_DATA_HOME`` at a temp dir for
+    the run; the run removes it."""
+    env = {**os.environ, "TMPDIR": str(tmp_path), "TEMP": str(tmp_path), "TMP": str(tmp_path)}
+    run = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "--no-cov",
+            "-p",
+            "no:cacheprovider",
+            "tests/test_paths.py::test_unknown_scope_raises",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert not list(tmp_path.glob("sumo-qa-test-data-*"))

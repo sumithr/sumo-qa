@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Tests for sumo_qa.paths — scope-keyed user-pack directory resolution."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,18 @@ def test_posix_global_root(tmp_path, monkeypatch):
     # any host (no os.name flip, which would break pathlib's Path class choice).
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     assert paths._posix_global_root() == tmp_path / ".local" / "share" / "sumo-qa"
+
+
+def test_mcp_profile_path_follows_a_passed_env(tmp_path, monkeypatch):
+    """The doctor finds the file a host's launch env points at, not its own."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "own"))
+    assert paths.mcp_profile_path({"XDG_DATA_HOME": str(tmp_path / "entry")}) == (
+        tmp_path / "entry" / "sumo-qa" / "mcp-profile"
+    )
+    if os.name != "nt":
+        assert paths.mcp_profile_path({"HOME": str(tmp_path / "h")}) == (
+            tmp_path / "h" / ".local" / "share" / "sumo-qa" / "mcp-profile"
+        )
 
 
 def test_windows_global_root_uses_localappdata(tmp_path, monkeypatch):

@@ -33,7 +33,8 @@ python -m sumo_qa.installer --vscode                   # VS Code workspace (cwd-
 python -m sumo_qa.installer --vscode --workspace /path/to/repo
 python -m sumo_qa.installer --jetbrains                # Prints JetBrains UI steps only
 python -m sumo_qa.installer --vscode --skip-mcp-install   # Skip uv reinstall for speed
-python -m sumo_qa.installer --profile core             # Save the MCP tool profile every host launches with
+python -m sumo_qa.installer --profile core             # Save the MCP tool profile, then configure every detected host
+python -m sumo_qa.installer --profile core --vscode    # Save the profile, then configure VS Code only
 ```
 
 Re-runs are idempotent.

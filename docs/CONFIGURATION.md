@@ -26,13 +26,18 @@ for every host:
 sumo-qa-install --profile core    # or full
 ```
 
+Like a plain `sumo-qa-install`, this also configures every detected host; add a
+host flag (for example `--vscode`) to configure only that one. The saved
+profile applies to every host either way.
+
 This writes `core` or `full` to the `mcp-profile` file in the global data dir
 (`$XDG_DATA_HOME/sumo-qa/`, else `~/.local/share/sumo-qa/`;
 `%LOCALAPPDATA%\sumo-qa\` on Windows). The server reads that file at every
 launch, whichever way it was started: the `sumo-qa` command, `python -m
-sumo_qa`, the Claude Code and Codex plugins (`uvx`), and the entries the
-installer writes for Claude Code, Claude Desktop and VS Code or prints for
-JetBrains and Junie. None of those entries carries a profile, so all of them
+sumo_qa`, the Claude Code and Codex plugins (`uvx`), the entries the
+installer writes for Claude Code, Claude Desktop and VS Code, the JetBrains
+entry whose Settings steps it prints, and the Junie entry written by hand from
+[INSTALL.md](INSTALL.md). None of those entries carries a profile, so all of them
 serve the saved one and keep serving it after a restart. A plugin-only install
 has no `sumo-qa-install` on `PATH`; write `core` or `full` into that file
 yourself. If you set

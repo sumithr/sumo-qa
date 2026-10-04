@@ -262,6 +262,28 @@ class HostResult:
         return line
 
 
+def _save_profile(profile: str) -> None:
+    """Save ``profile`` atomically (a concurrent launch never reads a
+    half-written file) and warn when this shell's env var overrides it."""
+    from sumo_qa.ingest import _atomic_write_fallback
+
+    saved = mcp_profile_path()
+    try:
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_fallback(saved, f"{profile}\n")
+    except OSError as exc:
+        raise SystemExit(
+            f"sumo-qa-install: cannot save the profile to {saved}: {exc.strerror or exc}"
+        ) from None
+    print(f"MCP tool profile `{profile}` saved to {saved}")
+    shell = os.environ.get(PROFILE_ENV)
+    if shell and shell != profile:
+        print(
+            f"WARNING: {PROFILE_ENV}={shell} in this shell overrides the saved "
+            "profile for hosts launched from it"
+        )
+
+
 def main() -> int:
     import argparse
 
@@ -339,6 +361,8 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.uninstall and args.profile:
+        parser.error("--profile cannot be used with --uninstall")
 
     # If no host flag is set, default to all.
     explicit_hosts = bool(args.claude_code or args.vscode or args.jetbrains or args.claude_desktop)
@@ -386,10 +410,7 @@ def main() -> int:
         return 0
 
     if args.profile:
-        saved = mcp_profile_path()
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        saved.write_text(f"{args.profile}\n", encoding="utf-8")
-        print(f"MCP tool profile `{args.profile}` saved to {saved}")
+        _save_profile(args.profile)
     # The verify step derives the tool surface from the profile; stop on a bad
     # one before any host config is written.
     resolve_profile_or_exit()

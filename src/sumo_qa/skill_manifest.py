@@ -418,6 +418,7 @@ def load_skill_context(
     classification: str | None = None,
     modules: str | None = None,
     include_body: bool = True,
+    profile: str | None = None,
 ) -> dict[str, Any]:
     """Load a slice of one skill's context.
 
@@ -448,7 +449,9 @@ def load_skill_context(
     valid choices. ``skill_name`` and ``mode`` are accepted as optional (default
     ``None``) so that a host omitting a required argument gets the documented
     error envelope rather than a schema-level rejection before this runs.
-    Path-traversal in ``section``/``module`` is rejected."""
+    Path-traversal in ``section``/``module`` is rejected. ``profile`` is the
+    server's build-time profile the capability gate checks (default: resolved
+    per call)."""
     records = _skill_records()
     valid_modes = ["manifest", "section", "module", "full", "bundle"]
 
@@ -464,7 +467,7 @@ def load_skill_context(
         )
     record = records[skill_name]
     try:
-        unavailable = unavailable_capability(skill_name)
+        unavailable = unavailable_capability(skill_name, profile)
     except ValueError as exc:  # an invalid SUMO_QA_MCP_PROFILE or saved profile
         return _error(str(exc))
     if unavailable is not None:

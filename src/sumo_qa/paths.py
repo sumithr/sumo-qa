@@ -15,35 +15,39 @@ already used by the installer.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 SCOPES = ("project", "global")
 
 
-def _windows_global_root() -> Path:
+def _windows_global_root(env: Mapping[str, str] | None = None) -> Path:
     """Windows user-data dir: ``%LOCALAPPDATA%\\sumo-qa`` else ``~/AppData/Local/sumo-qa``."""
-    local = os.environ.get("LOCALAPPDATA")
+    local = (os.environ if env is None else env).get("LOCALAPPDATA")
     if local:
         return Path(local) / "sumo-qa"
     return Path.home() / "AppData" / "Local" / "sumo-qa"
 
 
-def _posix_global_root() -> Path:
-    """POSIX user-data dir: ``~/.local/share/sumo-qa``."""
-    return Path.home() / ".local" / "share" / "sumo-qa"
+def _posix_global_root(env: Mapping[str, str] | None = None) -> Path:
+    """POSIX user-data dir: ``~/.local/share/sumo-qa``, ``~`` taken from a
+    passed ``env``'s ``HOME`` when it sets one."""
+    home = None if env is None else env.get("HOME")
+    return (Path(home) if home else Path.home()) / ".local" / "share" / "sumo-qa"
 
 
-def _global_root() -> Path:
+def _global_root(env: Mapping[str, str] | None = None) -> Path:
     # XDG override wins on any platform; otherwise dispatch to the platform
     # default. The two dispatch arms are platform-conditional (only one runs on
     # a given OS), so they're pragma-excluded; the helpers they call are tested
-    # directly on every platform to keep real coverage.
-    xdg = os.environ.get("XDG_DATA_HOME")
+    # directly on every platform to keep real coverage. ``env`` (default: this
+    # process's) is the environment of the process whose root is wanted.
+    xdg = (os.environ if env is None else env).get("XDG_DATA_HOME")
     if xdg:
         return Path(xdg) / "sumo-qa"
     if os.name == "nt":  # pragma: no cover -- platform-conditional (Windows only)
-        return _windows_global_root()
-    return _posix_global_root()  # pragma: no cover -- platform-conditional (POSIX only)
+        return _windows_global_root(env)
+    return _posix_global_root(env)  # pragma: no cover -- platform-conditional (POSIX only)
 
 
 def user_pack_root(scope: str) -> Path:
@@ -95,7 +99,8 @@ def feedback_memory_path(scope: str) -> Path:
     return user_pack_root(scope) / "feedback" / "review_feedback.yaml"
 
 
-def mcp_profile_path() -> Path:
-    """Return the saved MCP tool profile file. Global only: a host launches the
-    server from any cwd, so a per-project file would differ by launch path."""
-    return _global_root() / "mcp-profile"
+def mcp_profile_path(env: Mapping[str, str] | None = None) -> Path:
+    """Return the saved MCP tool profile file a process with ``env`` (default:
+    this one's) reads. Global only: a host launches the server from any cwd, so
+    a per-project file would differ by launch path."""
+    return _global_root(env) / "mcp-profile"
