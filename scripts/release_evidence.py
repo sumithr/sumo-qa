@@ -9,15 +9,20 @@ before anything else is installed. It writes ``build-info.json``: source commit
 and ref, workflow run, runner, Python, the exact version of every package in
 the build environment (the build runs with ``--no-isolation``, so that
 environment is the whole set of build inputs) and the SHA-256 of the wheel and
-sdist. Those digests are fixed here; nothing later can change them unnoticed.
+sdist. The build job then publishes the digest of ``build-info.json`` as a job
+output, outside the artifact store, and the attest job checks the file against
+it, so a later job can change neither the file nor, through it, the packages.
 
 ``sums DIST`` runs once the CycloneDX SBOM (``sbom.cdx.json``, generated in a
-separate job) has joined the build job's files. It writes ``SHA256SUMS``: the
-digest of every other file in DIST, in ``sha256sum`` format. The
-build-provenance attestation takes its subjects from this file.
+separate job, of whose artifact the attest job takes only that file) has joined
+the build job's files. It writes ``SHA256SUMS``: the digest of every other file
+in DIST, in ``sha256sum`` format. The build-provenance attestation takes its
+subjects from this file.
 
-``verify DIST [--commit SHA]`` is the gate before signing. It fails when a
-required file is missing, a file is unlisted in or absent from ``SHA256SUMS``,
+``verify DIST [--commit SHA]`` is the gate before signing. It fails when DIST
+holds anything but one wheel, one sdist, ``sbom.cdx.json``, ``build-info.json``
+and ``SHA256SUMS``, a required file is missing, a file is unlisted in or absent
+from ``SHA256SUMS``,
 a digest does not match, a package does not match the digest
 ``build-info.json`` recorded in the build job, the SBOM has no non-empty
 ``serialNumber`` (``actions/attest`` requires one, of any form) or does not
@@ -179,7 +184,11 @@ def verify(dist: Path, commit: str | None = None) -> list[str]:
     if len(wheels) != 1 or len(sdists) != 1:
         return [f"expected one wheel and one sdist, found {len(wheels)} and {len(sdists)}"]
     version = _version(wheels[0])
-    errors = _check_sums(dist)
+    allowed = {p.name for p in wheels + sdists} | {SBOM, BUILD_INFO, SUMS}
+    errors = [
+        f"{p.name} is not a release file" for p in sorted(dist.iterdir()) if p.name not in allowed
+    ]
+    errors += _check_sums(dist)
     if _version(sdists[0]) != version:
         errors.append(f"sdist version {_version(sdists[0])} is not wheel version {version}")
     errors += _check_sbom(dist, version)

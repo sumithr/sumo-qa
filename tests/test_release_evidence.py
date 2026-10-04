@@ -98,8 +98,18 @@ def test_wheel_changed_after_record_fails_even_when_resummed(dist: Path) -> None
 
 
 def test_unlisted_file_fails(dist: Path) -> None:
+    sums = dist / evidence.SUMS
+    sums.write_text("".join(x for x in sums.read_text().splitlines(True) if evidence.SBOM not in x))
+    assert evidence.verify(dist) == ["sbom.cdx.json is not listed in SHA256SUMS"]
+
+
+def test_extra_file_fails_even_when_listed(dist: Path) -> None:
+    """Equivalence partitioning: a file outside the fixed release set fails
+    the gate even once SHA256SUMS lists it, as it would when injected before
+    the attest job writes the sums."""
     (dist / "extra.txt").write_text("x")
-    assert evidence.verify(dist) == ["extra.txt is not listed in SHA256SUMS"]
+    _resum(dist)
+    assert evidence.verify(dist) == ["extra.txt is not a release file"]
 
 
 def test_listed_but_missing_file_fails(dist: Path) -> None:

@@ -37,7 +37,7 @@ We aim to acknowledge a valid report within a few days and will keep you updated
 Each GitHub release carries the wheel, the sdist and three evidence files:
 
 - `SHA256SUMS`: the SHA-256 of every other release file.
-- `sbom.cdx.json`: a CycloneDX SBOM of the dependency set the wheel installs on the release runner (Linux, CPython 3.13). It is that one resolution: dependencies gated on an older Python (such as `tomli`) or on another platform (such as `pywin32` on Windows) are not in it.
+- `sbom.cdx.json`: a CycloneDX SBOM of the dependency set the wheel installs on the release runner (Linux, CPython 3.13). It is that one resolution: dependencies gated on an older Python (such as `tomli`) or on another platform (such as `pywin32` on Windows) are not in it. The job that generates it installs those dependencies without hashes, so the SBOM describes that resolution and is not itself a tamper-proof inventory (a compromised dependency could omit itself); the provenance attestation and the package digests are what bind the packages.
 - `build-info.json`: source commit and ref, workflow run, runner, Python, the exact build-tool versions and the package digests.
 
 Every file listed in `SHA256SUMS` has a signed build-provenance attestation from `.github/workflows/release.yml`, and the wheel and sdist also have an SBOM attestation. Pass `--source-ref` so only an attestation from the release tag counts: a manual dry run of the workflow from another branch also signs attestations, with that branch as the source ref. The packages on PyPI are the same bytes and carry PyPI's own trusted-publishing attestations.

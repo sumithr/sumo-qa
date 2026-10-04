@@ -21,6 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Kept outside the artifact store, so no later job can change it: the
+    # attest job checks build-info.json, and through it the packages, against it.
+    outputs:
+      build_info_sha256: ${{ steps.record.outputs.build_info_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,7 +46,10 @@ jobs:
         run: python -m build --no-isolation
 
       - name: Record build info and package digests
-        run: python scripts/release_evidence.py record dist
+        id: record
+        run: |
+          python scripts/release_evidence.py record dist
+          echo "build_info_sha256=$(sha256sum dist/build-info.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       # Every later job takes the package bytes from this artifact.
       - name: Upload packages
@@ -53,8 +60,8 @@ jobs:
           if-no-files-found: error
 
   # Installs the wheel's dependencies from PyPI without hashes, so this job
-  # gets no signing permissions and uploads only the SBOM: the package bytes
-  # on this runner never leave it.
+  # gets no signing permissions and the attest job takes only sbom.cdx.json
+  # from it: the package bytes on this runner never reach a release.
   sbom:
     name: SBOM
     needs: build
@@ -122,18 +129,27 @@ jobs:
           python-version: "3.13"
 
       # The packages and build-info.json from the build job; the SBOM job
-      # contributes only sbom.cdx.json.
+      # contributes only sbom.cdx.json. The build job's build_info_sha256
+      # output anchors build-info.json, whose digests anchor the packages.
       - name: Download packages
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: packages
           path: dist/
 
+      - name: Check build info against the build job's digest
+        env:
+          BUILD_INFO_SHA256: ${{ needs.build.outputs.build_info_sha256 }}
+        run: printf '%s  dist/build-info.json\n' "$BUILD_INFO_SHA256" | sha256sum --check --strict
+
       - name: Download SBOM
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: sbom
-          path: dist/
+          path: sbom/
+
+      - name: Take only the SBOM
+        run: cp sbom/sbom.cdx.json dist/
 
       - name: Write SHA256SUMS
         run: python scripts/release_evidence.py sums dist
