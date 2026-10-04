@@ -28,7 +28,10 @@ sumo-qa-install --profile core    # or full
 
 Like a plain `sumo-qa-install`, this also configures every detected host; add a
 host flag (for example `--vscode`) to configure only that one. The saved
-profile applies to every host either way.
+profile applies to every host either way, as long as each host reads the same
+data dir: a host that does not inherit the shell's `XDG_DATA_HOME` (Claude
+Desktop started from the Dock) reads the default dir, so a profile saved with a
+custom `XDG_DATA_HOME` does not reach it (see below).
 
 This writes `core` or `full` to the `mcp-profile` file in the global data dir
 (`$XDG_DATA_HOME/sumo-qa/`, else `~/.local/share/sumo-qa/`;

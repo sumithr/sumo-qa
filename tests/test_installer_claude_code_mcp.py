@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
@@ -744,6 +746,8 @@ def test_main_profile_flag_replaces_the_saved_file_atomically(tmp_path: Path, mo
     mcp_profile_path().parent.mkdir(parents=True)
     mcp_profile_path().write_text("core\n", encoding="utf-8")
     with (
+        # os.rename on POSIX (dir-fd path), os.replace on Windows (fallback)
+        patch("sumo_qa.ingest.os.rename", side_effect=PermissionError(13, "Permission denied")),
         patch("sumo_qa.ingest.os.replace", side_effect=PermissionError(13, "Permission denied")),
         pytest.raises(SystemExit) as exc,
     ):
@@ -753,6 +757,20 @@ def test_main_profile_flag_replaces_the_saved_file_atomically(tmp_path: Path, mo
     )
     assert mcp_profile_path().read_text(encoding="utf-8") == "core\n"
     assert list(mcp_profile_path().parent.iterdir()) == [mcp_profile_path()]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+@pytest.mark.parametrize("umask", [0o022, 0o077])
+def test_main_profile_flag_saves_the_file_with_the_umask_mode(
+    tmp_path: Path, monkeypatch, umask: int
+) -> None:
+    """The saved file gets a normal write's mode, not the temp file's 0600."""
+    old = os.umask(umask)
+    try:
+        _run_profile_install(tmp_path, monkeypatch, "core")
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(mcp_profile_path().stat().st_mode) == 0o666 & ~umask
 
 
 def test_main_profile_flag_reports_an_unwritable_data_dir(tmp_path: Path, monkeypatch) -> None:

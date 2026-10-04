@@ -111,7 +111,7 @@ def test_resolve_profile_rejects_an_unknown_saved_profile_naming_the_file(
 
 
 # Windows users write the file by hand (docs/CONFIGURATION.md): PowerShell 5.1
-# `Set-Content -Encoding UTF8` adds a BOM, `Out-File` / `>` write UTF-16.
+# `Set-Content -Encoding UTF8` adds a BOM, `Out-File` / `>` write UTF-16 LE with a BOM.
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [("\ufeffcore\r\n".encode(), "core"), ("\ufefffull".encode(), "full")],
@@ -125,13 +125,27 @@ def test_resolve_profile_reads_a_saved_profile_with_a_utf8_bom(
     assert resolve_profile() == expected
 
 
-def test_resolve_profile_names_the_file_when_it_is_not_utf8(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+def test_resolve_profile_reads_a_utf16_saved_profile_with_a_bom(
+    monkeypatch, tmp_path, codec
+) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     mcp_profile_path().parent.mkdir(parents=True)
-    mcp_profile_path().write_bytes("core\r\n".encode("utf-16"))
+    mcp_profile_path().write_bytes("\ufeffcore\r\n".encode(codec))
+    assert resolve_profile() == "core"
+
+
+def test_resolve_profile_names_the_file_when_it_is_not_text(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_bytes(b"\xffcore\n")  # not UTF-8, no UTF-16 BOM
     with pytest.raises(ValueError) as exc:
         resolve_profile()
-    assert str(exc.value).startswith(f"cannot read {mcp_profile_path()}: not UTF-8 text")
+    assert str(exc.value) == (
+        f"cannot read {mcp_profile_path()}: not UTF-8 or UTF-16 text; rewrite it "
+        "as plain text holding core or full (PowerShell: `Set-Content -Encoding "
+        "ascii`), or run `sumo-qa-install --profile <core|full>`"
+    )
 
 
 def test_resolve_profile_reports_an_unreadable_saved_profile(monkeypatch, tmp_path) -> None:

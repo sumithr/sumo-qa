@@ -148,15 +148,19 @@ def resolve_profile(env: Mapping[str, str] | None = None) -> str:
         return value
     path = mcp_profile_path(env)
     try:
-        value = path.read_text(encoding="utf-8-sig").strip()
+        raw = path.read_bytes()
+        # PowerShell 5.1 `>` / `Out-File` write UTF-16 with a BOM; the codec strips it.
+        codec = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
+        value = raw.decode(codec).strip()
     except FileNotFoundError:
         return DEFAULT_PROFILE
     except OSError as exc:
         raise ValueError(f"cannot read {path}: {exc.strerror or exc}") from None
     except UnicodeError:
         raise ValueError(
-            f"cannot read {path}: not UTF-8 text; rewrite it with "
-            f"`sumo-qa-install --profile <{'|'.join(PROFILES)}>`"
+            f"cannot read {path}: not UTF-8 or UTF-16 text; rewrite it as plain "
+            f"text holding {' or '.join(PROFILES)} (PowerShell: `Set-Content -Encoding "
+            f"ascii`), or run `sumo-qa-install --profile <{'|'.join(PROFILES)}>`"
         ) from None
     if value and value not in PROFILES:
         raise ValueError(

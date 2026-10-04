@@ -112,8 +112,8 @@ def _derive_required_tool_names() -> tuple[str, ...]:
     return _required_tool_names_for(resolve_profile_or_exit())
 
 
-# Keyed on the profile: ``build_mcp_server`` reads the same env var, so a
-# profile changed later in the process derives its own surface.
+# Keyed on the profile it builds, so a profile changed later in the process
+# derives its own surface.
 @functools.cache
 def _required_tool_names_for(_profile: str) -> tuple[str, ...]:
     """Compute the canonical atomic tool surface from the live MCP registry.
@@ -127,7 +127,7 @@ def _required_tool_names_for(_profile: str) -> tuple[str, ...]:
     from sumo_qa import skill_prompts
     from sumo_qa.server import build_mcp_server
 
-    mcp = build_mcp_server()
+    mcp = build_mcp_server(profile=_profile)
     live_tool_names = set(mcp._tool_manager._tools.keys())
 
     skills_dir = skill_prompts._skills_dir()
@@ -265,12 +265,14 @@ class HostResult:
 def _save_profile(profile: str) -> None:
     """Save ``profile`` atomically (a concurrent launch never reads a
     half-written file) and warn when this shell's env var overrides it."""
-    from sumo_qa.ingest import _atomic_write_fallback
+    from sumo_qa.ingest import _write_atomic
 
     saved = mcp_profile_path()
+    umask = os.umask(0)
+    os.umask(umask)
     try:
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_fallback(saved, f"{profile}\n")
+        _write_atomic(saved, f"{profile}\n")
+        saved.chmod(0o666 & ~umask)  # a normal write's mode, not the temp file's 0600
     except OSError as exc:
         raise SystemExit(
             f"sumo-qa-install: cannot save the profile to {saved}: {exc.strerror or exc}"

@@ -25,7 +25,9 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
-    config._sumo_qa_data_home.cleanup()
+    data_home = getattr(config, "_sumo_qa_data_home", None)
+    if data_home is not None:
+        data_home.cleanup()
 
 
 @pytest.fixture(autouse=True)
