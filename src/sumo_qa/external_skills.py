@@ -232,7 +232,9 @@ _TEXT_RULES = tuple(
             # or handed to iex anywhere after the download
             _after_first(
                 rf"\b{_DOWNLOADER}\b",
-                r"(?:.*\|\s*(?:sudo(?:\s+-\S+(?:\s+[\w.-]+)?)*\s+)?"
+                # a flag's argument never starts with "-", so each flag token
+                # has one reading and a run of flags cannot backtrack
+                r"(?:.*\|\s*(?:sudo(?:\s+-\S+(?:\s+(?!-)[\w.-]+)?)*\s+)?"
                 r"(?:(?:/[\w.-]+)*/)?(?:env\s+(?:-\S+\s+)*)?(?:(?:/[\w.-]+)*/)?"
                 rf"{_INTERPRETER}\b|.*\b(?:iex|invoke-expression)\b)",
             )
@@ -267,9 +269,12 @@ _TEXT_RULES = tuple(
             "critical",
             "destructive_shell",
             "deletes recursively from the filesystem root or home folder",
-            # any recursive flag among short, long or split flags (and --),
-            # then root or home, then the end of the word
-            r"\brm(?:\s+-[\w-]*)*?\s+(?:-[a-z]*r[a-z]*|--recursive)\b(?:\s+-[\w-]*)*\s+"
+            # a run of short, long or split flags (and --) holding a recursive
+            # one, then root or home, then the end of the word. The lookahead
+            # (atomic) finds the recursive flag and the run is read once after
+            # it, so no flag token is tried by two sub-patterns.
+            r"\brm(?=(?:\s+-[\w-]*)*?\s+(?:-(?=[a-z]*r)[a-z]+|--recursive)(?=\s))"
+            r"(?:\s+-[\w-]*)*\s+"
             rf"[\"']?(?:/|{_HOME})/?\*?[\"']?(?=[\s\"'`;&|)]|$)",
         ),
         (
@@ -338,13 +343,18 @@ _TEXT_RULES = tuple(
 _NEGATED = re.compile(r"\b(?:do\s+not|don't|don’t|never)\s+$", re.IGNORECASE)
 # Instruction rules read a markdown paragraph (soft-wrapped lines joined);
 # command rules read a logical line (a line ending in \, |, && or || joined
-# with the next). Both read at most _LINT_LIMIT characters of one joined line,
-# which bounds the regex work; a longer one is disclosed, never skipped.
+# with the next). A unit longer than _LINT_LIMIT is read as overlapping windows
+# (_LINT_LIMIT wide, half that apart, so a shape up to half as long lies wholly
+# in one) and line by line, which bounds the regex work; it is also disclosed,
+# since a shape spread wider than a window and over lines can still be missed.
 _INSTRUCTION_RULES = {"SQA-EXT-001", "SQA-EXT-002"}
 _LINT_LIMIT = 4000
-_LONG_LINE = ("SQA-EXT-017", "high", "line too long to lint fully")
+_LONG_LINE = ("SQA-EXT-017", "high", "long_lines", "line too long to lint fully")
 _CONTINUED = re.compile(r"(\\|\||&&)\s*$")
 _FENCE = re.compile(r"^\s*(?:```|~~~)")
+_HEADING = re.compile(r"^\s{0,3}#{1,6}(?:\s|$)")
+# A line that starts a new markdown block: a heading, blockquote or list item.
+_BLOCK_START = re.compile(r"^\s{0,3}(?:#{1,6}(?:\s|$)|>)|^\s*(?:[-*+]|\d{1,9}[.)])(?:\s|$)")
 _EXECUTABLE_ASSET = ("SQA-EXT-010", "high", "executable_assets", "ships an executable file")
 _SCRIPT_ASSET = ("SQA-EXT-011", "medium", "scripts", "ships a script the skill may run")
 _BINARY_SUFFIXES = {".exe", ".dll", ".so", ".dylib", ".bin", ".com", ".msi", ".jar", ".app"}
@@ -483,7 +493,7 @@ def rollback_external_skill(
         paths = _rollback_paths(skill, scope, agent, lock["skills"])
         history = lock.get("history", {})
         previous = next((history[p][-1] for p in paths if history.get(p)), None)
-        _check_no_dependent_link(lock_base, paths, lock["skills"], previous is not None)
+        _check_no_dependent_link(lock_base, paths, lock["skills"], history, previous is not None)
         for path in paths:
             _check_unchanged(lock_base / path, path, lock["skills"][path])
         if previous is None:
@@ -497,11 +507,19 @@ def rollback_external_skill(
                 del lock["skills"][path]
             _write_lock(lock_base, lock)
             return {"skill": skill, "scope": scope, "action": "removed", "removed": paths}
+        agents = {
+            lock["skills"][p].get("agent") for p in paths if isinstance(lock["skills"][p], dict)
+        }
     # The same test _rollback_paths applies: the CLI writes both to one folder.
-    if _candidate_skill_names(previous["skill"])[0] != _candidate_skill_names(skill)[0]:
+    if _candidate_skill_names(str(previous["skill"]))[0] != _candidate_skill_names(skill)[0]:
         raise ExternalSkillProvenanceError(
             f"the history record to restore is for skill {previous['skill']!r}, not {skill!r}; "
             "refusing to install it"
+        )
+    if previous["agent"] not in agents:
+        raise ExternalSkillProvenanceError(
+            f"the history record to restore is for agent {previous['agent']!r}, not "
+            f"{', '.join(sorted(map(repr, agents)))}; refusing to install it"
         )
     # ponytail: the guard is released before the restore takes it again, so an
     # install of the same skill landing in between is the one rolled over.
@@ -567,20 +585,28 @@ def _rollback_paths(skill: str, scope: str, agent: str, skills: dict[str, Any]) 
 
 
 def _check_no_dependent_link(
-    lock_base: Path, paths: list[str], skills: dict[str, Any], restore: bool
+    lock_base: Path,
+    paths: list[str],
+    skills: dict[str, Any],
+    history: dict[str, Any],
+    restore: bool,
 ) -> None:
     """Refuse a rollback that would break or rewrite another agent's install.
 
-    A removal unlinks this install's links, which breaks no other link, so only
-    its real folders count. A restore rewrites the canonical copy its links
-    point at, so their targets count too, and a target recorded as another
-    agent's folder is refused outright: the restore would overwrite its record.
+    A removal unlinks this install's links, which breaks only a link chained
+    through one of them, so its real folders count and its links only as a hop.
+    A restore rewrites the canonical copy its links point at, so their targets
+    count too, and a target recorded as another agent's folder is refused
+    outright: the restore would overwrite its record. When the other install
+    could not be rolled back first either (it restores into this one's folder),
+    the refusal says so instead of sending the caller round in a circle.
     """
     targets = {
         path: (lock_base / path).resolve()
         for path in paths
         if restore or not (lock_base / path).is_symlink()
     }
+    hops = {path: _located(lock_base / path) for path in paths}
     mine = {skills[p].get("agent") for p in paths if isinstance(skills[p], dict)}
     for other, record in skills.items():
         if other in paths:
@@ -588,17 +614,49 @@ def _check_no_dependent_link(
         entry = lock_base / other
         owner = record.get("agent") if isinstance(record, dict) else None
         resolved = entry.resolve()
-        for path, target in targets.items():
-            if entry.is_symlink() and (resolved == target or target in resolved.parents):
+        chain = _link_chain(entry)
+        for path in paths:
+            target = targets.get(path)
+            if hops[path] in chain or (
+                target and entry.is_symlink() and (resolved == target or target in resolved.parents)
+            ):
+                way_out = (
+                    _CIRCULAR
+                    if history.get(other) and owner not in mine
+                    else f"roll back {other} first"
+                )
                 raise ExternalSkillProvenanceError(
                     f"{other} (agent {owner!r}) links into {path}, which this rollback would "
-                    f"remove or replace; roll back {other} first"
+                    f"remove or replace; {way_out}"
                 )
             if restore and resolved == target and owner not in mine:
                 raise ExternalSkillProvenanceError(
                     f"{path} links into {other}, recorded for agent {owner!r}: restoring it "
-                    f"would rewrite that agent's install and its record; roll back {other} first"
+                    f"would rewrite that agent's install and its record; {_CIRCULAR}"
                 )
+
+
+# Two agents' installs that share a folder and each have history block each
+# other's rollback, whichever is tried first.
+_CIRCULAR = (
+    "each install blocks rolling back the other, so neither install can be rolled back "
+    "alone: remove one agent's install by hand (its folder and its lock record) or "
+    "reinstall the skill"
+)
+
+
+def _located(path: Path) -> Path:
+    """``path`` with its folder resolved but not itself, so a link names itself."""
+    return path.parent.resolve() / path.name
+
+
+def _link_chain(entry: Path) -> list[Path]:
+    """The links ``entry`` passes through after itself on the way to its target."""
+    chain: list[Path] = []
+    while entry.is_symlink() and len(chain) < 40:
+        chain.append(_located(entry))
+        entry = _located(entry).parent / os.readlink(entry)
+    return chain[1:]
 
 
 def _check_unchanged(folder: Path, path: str, record: Any) -> None:
@@ -624,69 +682,109 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
             _EXECUTABLE_ASSET if executable or suffix in _BINARY_SUFFIXES else _SCRIPT_ASSET
         )
         findings.append(_finding(rule, severity, message, relpath, None, 1))
-    lines = _logical_lines(data.decode("utf-8", errors="replace").splitlines())
-    long = [number for number, text in lines if len(text) > _LINT_LIMIT]
-    lines = [(number, text[:_LINT_LIMIT]) for number, text in lines]
+    physical = data.decode("utf-8", errors="replace").splitlines()
+    lines = _logical_lines(physical)
     paragraphs = _paragraphs(lines)
+    long = sorted({start for start, _, text in [*lines, *paragraphs] if len(text) > _LINT_LIMIT})
     for rule, severity, _, message, pattern in _TEXT_RULES:
         units = paragraphs if rule in _INSTRUCTION_RULES else lines
-        hits = [number for number, text in units if _line_hits(rule, pattern, text)]
+        hits = [
+            start
+            for start, end, text in units
+            if any(
+                _line_hits(rule, pattern, part, offset)
+                for part, offset in _parts(text, start, end, physical)
+            )
+        ]
         if hits:
             findings.append(_finding(rule, severity, message, relpath, hits[0], len(hits)))
     if long:
-        findings.append(_finding(*_LONG_LINE, relpath, long[0], len(long)))
+        rule, severity, _, message = _LONG_LINE
+        findings.append(_finding(rule, severity, message, relpath, long[0], len(long)))
     return findings
 
 
-def _logical_lines(lines: list[str]) -> list[tuple[int, str]]:
-    """Join a line ending in a backslash, |, && or || with the next, numbered by
-    its first line. A markdown table row (``| a | b |``) is not continued."""
-    joined: list[tuple[int, str]] = []
+def _parts(text: str, start: int, end: int, physical: list[str]) -> list[tuple[str, int]]:
+    """What to lint for one unit, as (text, window offset): itself, or when it is
+    over _LINT_LIMIT its overlapping windows plus each of its physical lines,
+    windowed the same way."""
+    if len(text) <= _LINT_LIMIT:
+        return [(text, 0)]
+    lines = physical[start - 1 : end] if end > start else []
+    step = _LINT_LIMIT // 2
+    return [(part, i) for part in [text, *lines] for i in range(0, max(len(part) - step, 1), step)]
+
+
+def _is_table_row(line: str) -> bool:
+    line = line.strip()
+    return len(line) > 1 and line.startswith("|") and line.endswith("|")
+
+
+def _logical_lines(lines: list[str]) -> list[tuple[int, int, str]]:
+    """Join a line ending in a backslash, |, && or || with the next, as (first
+    line, last line, text). A markdown table row (starting and ending in |) is
+    not continued, and nothing is joined into or out of a code fence line."""
+    joined: list[tuple[int, int, str]] = []
     parts: list[str] = []
+    start = 1
     for number, line in enumerate(lines, 1):
+        fence = _FENCE.match(line)
+        if parts and fence:
+            joined.append((start, number - 1, " ".join(parts)))
+            parts = []
         if not parts:
             start = number
         continued = _CONTINUED.search(line)
         if continued and continued.group(1) == "\\":
             line = line[: continued.start()]
         parts.append(line)
-        if not continued or line.lstrip().startswith("|"):
-            joined.append((start, " ".join(parts)))
+        if not continued or fence or _is_table_row(line):
+            joined.append((start, number, " ".join(parts)))
             parts = []
     if parts:
-        joined.append((start, " ".join(parts)))
+        joined.append((start, len(lines), " ".join(parts)))
     return joined
 
 
-def _paragraphs(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    """Markdown paragraphs: runs of non-blank lines joined, split at blank lines
-    and code fences (a fence line stands alone), numbered by their first line."""
-    paragraphs: list[tuple[int, str]] = []
-    run: list[tuple[int, str]] = []
-    for number, text in [*lines, (0, "")]:
+def _paragraphs(lines: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
+    """Markdown paragraphs: runs of soft-wrapped lines joined, as (first line,
+    last line, text). A blank line, heading, blockquote, list item, table row or
+    fence line starts a new one; a heading, table row or fence line, and every
+    line inside a fence, stands alone."""
+    paragraphs: list[tuple[int, int, str]] = []
+    run: list[tuple[int, int, str]] = []
+    fenced = False
+    for start, end, text in [*lines, (0, 0, "")]:
         fence = _FENCE.match(text)
-        if run and (fence or not text.strip()):
-            paragraphs.append((run[0][0], " ".join(t for _, t in run)))
+        alone = fence or fenced or _HEADING.match(text) or _is_table_row(text)
+        if run and (alone or not text.strip() or _BLOCK_START.match(text)):
+            paragraphs.append((run[0][0], run[-1][1], " ".join(t for _, _, t in run)))
             run = []
         if fence:
-            paragraphs.append((number, text))
+            fenced = not fenced
+        if alone:
+            if text.strip():
+                paragraphs.append((start, end, text))
         elif text.strip():
-            run.append((number, text))
+            run.append((start, end, text))
     return paragraphs
 
 
-def _line_hits(rule: str, pattern: re.Pattern[str], line: str) -> bool:
-    """Whether ``line`` trips ``rule``: any match does, except an SQA-EXT-001 or
-    002 match directly negated; every match position counts, overlapping ones
-    included."""
-    match = pattern.search(line)
+def _line_hits(rule: str, pattern: re.Pattern[str], line: str, offset: int = 0) -> bool:
+    """Whether the _LINT_LIMIT window of ``line`` at ``offset`` trips ``rule``:
+    any match does, except an SQA-EXT-001 or 002 match directly negated (read
+    in ``line``, so a window starting after its "never" still sees it); every
+    match position counts, overlapping ones included."""
+    window = line[offset : offset + _LINT_LIMIT]
+    match = pattern.search(window)
     if rule not in _INSTRUCTION_RULES:
         return match is not None
     while match:
+        at = offset + match.start()
         # A window, not the whole prefix: each check stays O(1) on a long line.
-        if not _NEGATED.search(line, max(0, match.start() - 32), match.start()):
+        if not _NEGATED.search(line, max(0, at - 32), at):
             return True
-        match = pattern.search(line, match.start() + 1)
+        match = pattern.search(window, match.start() + 1)
     return False
 
 
@@ -1225,7 +1323,9 @@ def _inspect_payload(folder: Path) -> dict[str, Any]:
     findings.sort(key=lambda f: (_SEVERITIES.index(f["severity"]), f["rule"], f["file"]))
     rules = {f["rule"] for f in findings}
     capabilities = {cap for rule, _, cap, _, _ in _TEXT_RULES if rule in rules and cap}
-    capabilities |= {cap for rule, _, cap, _ in (_EXECUTABLE_ASSET, _SCRIPT_ASSET) if rule in rules}
+    capabilities |= {
+        cap for rule, _, cap, _ in (_EXECUTABLE_ASSET, _SCRIPT_ASSET, _LONG_LINE) if rule in rules
+    }
     return {
         "files": files,
         "total_size": sum(f["size"] or 0 for f in files),
@@ -1662,6 +1762,7 @@ def _read_lock(base: Path) -> dict[str, Any]:
             and all(
                 isinstance(record, dict)
                 and all(isinstance(record.get(key), str) for key in _HISTORY_KEYS)
+                and record["skill"]
                 for record in stack
             )
             for stack in history.values()
