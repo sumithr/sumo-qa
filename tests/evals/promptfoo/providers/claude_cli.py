@@ -84,6 +84,9 @@ _OBJECT_START = re.compile(r"""\{\s*["']""")
 # Text ending in a quoted key and its colon (`"inner": ` or `"axes": [`): an object after it
 # is that key's value, inside an outer object that closed early on an unescaped `"}`.
 _KEY_BEFORE = re.compile(r"""["']\s*:\s*(?:\[\s*)?\Z""")
+# An object followed by `,` `"` `'` `:` `}` or `]` was cut out of a larger structure (an
+# outer object that closed early on an unescaped quote), so its siblings are not top level.
+_CUT_AFTER = re.compile(r"""\s*[,"':}\]]""")
 
 
 def call_api(prompt, options=None, context=None):
@@ -229,6 +232,8 @@ def _verdict(text):
                 return None, "has a malformed verdict object"
             start = text.find("{", start + 1)
             continue
+        if _CUT_AFTER.match(text, end):
+            return None, "has a malformed verdict object"
         # Top level only: an object nested inside a decoded one is never scanned on its own.
         # Objects without "pass" (a quoted snippet, trailing notes) are not verdicts.
         if isinstance(value, dict) and "pass" in value:

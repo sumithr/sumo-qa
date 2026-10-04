@@ -631,9 +631,11 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   the value of a quoted key (`"inner": {...}`). Every `"pass"` key in the reply must sit
   inside that verdict, except in the rubric's exact format template (`{"pass":
   <true|false>`), and no `{` that opens a quoted key may fail to decode (truncated, a
-  trailing comma, unescaped quotes). Prose braces (`{x}`, `{0: 1`) and objects without
-  `"pass"` are ignored. A reply that mentions a pass key outside its verdict, or quotes
-  an unclosed JSON fragment, is retried and may error; it is never graded from a guess.
+  trailing comma, unescaped quotes). Any decoded object followed by `,`, `"`, `'`, `:`,
+  `}` or `]` was cut out of a larger structure, so the reply is refused. Prose braces
+  (`{x}`, `{0: 1`) and objects without `"pass"` are ignored. A reply that mentions a
+  pass key outside its verdict, or quotes an unclosed JSON fragment, is retried and may
+  error; it is never graded from a guess.
   A reply with no valid verdict is asked once more; when the second fails too, both
   replies are written in full, redacted, to `tests/evals/results/judge-replies/`
   (gitignored), and the error names that file.

@@ -297,6 +297,16 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
             {"pass": True, "score": 0.9, "reason": "ok"},
             id="a-spaced-format-template-before-the-verdict",
         ),
+        # A verdict followed by prose punctuation, a newline, a fence or more prose stays
+        # graded: only structural characters after an object mean it was cut out.
+        pytest.param(json.dumps(_VERDICT) + ".", _VERDICT, id="a-verdict-then-a-full-stop"),
+        pytest.param(json.dumps(_VERDICT) + "\n", _VERDICT, id="a-verdict-then-a-newline"),
+        pytest.param("```\n" + json.dumps(_VERDICT) + "```", _VERDICT, id="a-verdict-then-a-fence"),
+        pytest.param(
+            json.dumps(_VERDICT) + " Both axes were weighed.",
+            _VERDICT,
+            id="a-verdict-then-more-prose",
+        ),
         pytest.param(
             '{x} {"pass": true, "score": 1, "reason": "ok"}',
             {"pass": True, "score": 1, "reason": "ok"},
@@ -472,6 +482,18 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             '{"reason": "x "} y", "inner": [{"pass": true, "score": 1, "reason": "x"}]}',
             "malformed verdict",
             id="a-quoted-closing-brace-before-a-verdict-in-a-list",
+        ),
+        # An object followed by `,` `"` `:` `}` or `]` was cut out of a larger structure,
+        # so a verdict after it may be nested, never top level.
+        pytest.param(
+            '{"reason": "x "} y", "axes": [{"a": 1}, {"pass": true}]}',
+            "malformed verdict",
+            id="a-quoted-closing-brace-before-a-sibling-of-a-nested-verdict",
+        ),
+        pytest.param(
+            '{"a": 1}, {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="an-object-followed-by-a-comma-before-the-verdict",
         ),
         pytest.param(
             '{"reason": "it printed "}" alone", "axes": [{"pass": true, "score": 1}], '
