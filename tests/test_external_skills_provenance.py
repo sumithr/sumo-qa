@@ -3170,7 +3170,9 @@ def test_rollback_refuses_a_skill_another_agent_is_recorded_for_only_in_history(
     _refused_as_shared(toolchain, "codex", "'claude-code', 'codex'")
 
 
-@pytest.mark.parametrize("meanwhile", ["another agent installs", "the user edits"])
+@pytest.mark.parametrize(
+    "meanwhile", ["another agent installs", "the user edits", "a newer version lands"]
+)
 def test_a_restore_rechecks_under_its_guard(monkeypatch, toolchain, meanwhile) -> None:
     """A change landing between the rollback's checks and the restore's write
     is refused, not overwritten."""
@@ -3181,19 +3183,25 @@ def test_a_restore_rechecks_under_its_guard(monkeypatch, toolchain, meanwhile) -
     def change_meanwhile(*args, **kwargs):
         if meanwhile == "another agent installs":
             _second_agent_copy(toolchain)
+        elif meanwhile == "a newer version lands":
+            monkeypatch.setattr(ext, "_checkout_commit", checkout)
+            toolchain.bodies["a" * 40] = "# v3\n"
+            toolchain.remote_sha = "a" * 40
+            _install(toolchain, approved_digest=_preview(toolchain)["content_digest"])
+            toolchain.remote_sha = SHA
         else:
             _skill_md(toolchain).write_text("# edited by the user\n", "utf-8")
         before["lock"] = _lock(toolchain.cwd)
         before["body"] = _skill_md(toolchain).read_text("utf-8")
+        before["adds"] = len(toolchain.install_adds())
         return checkout(*args, **kwargs)
 
     monkeypatch.setattr(ext, "_checkout_commit", change_meanwhile)
-    adds = len(toolchain.install_adds())
 
-    with pytest.raises(ext.ExternalSkillError, match="shared with|changed since"):
+    with pytest.raises(ext.ExternalSkillError, match="shared with|changed (since|during)"):
         _rollback(toolchain)
 
-    assert len(toolchain.install_adds()) == adds
+    assert len(toolchain.install_adds()) == before["adds"]
     assert _lock(toolchain.cwd) == before["lock"]
     assert _skill_md(toolchain).read_text("utf-8") == before["body"]
 
