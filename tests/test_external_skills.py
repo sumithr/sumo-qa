@@ -409,7 +409,7 @@ def test_external_skill_server_tools_route_hint_by_exception_type(monkeypatch) -
         (ext.ExternalSkillApprovalError("x"), "cannot be restored", "approved_digest"),
         (ext.ExternalSkillTrustError("x"), "retry the rollback with elevated_trust", "candidate"),
         (ext.ExternalSkillPolicyError("x"), "current version stays", "candidate"),
-        (ext.ExternalSkillError("several installs"), "retry with agent", "install it first"),
+        (ext.ExternalSkillError("shared"), "do not retry with another agent", "install it first"),
         (ext.ExternalSkillProvenanceError("x"), "nothing was removed", "Do not execute"),
         (ext.ExternalSkillRolledBackError("x"), "may now be missing", "nothing was removed"),
         (ext.ExternalSkillTrustPolicyError("x"), "trust policy file", "elevated_trust"),

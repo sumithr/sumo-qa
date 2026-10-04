@@ -2983,25 +2983,6 @@ def _second_agent_copy(toolchain: FakeToolchain) -> Path:
     return copy
 
 
-def test_rollback_of_installs_for_several_agents_needs_an_agent(toolchain) -> None:
-    _install(toolchain)
-    copy = _second_agent_copy(toolchain)
-
-    with pytest.raises(
-        ext.ExternalSkillError,
-        match=r"shared with 'claude-code', 'codex'.*\.agents/skills/find-skills.*\.claude",
-    ):
-        _rollback(toolchain)
-    assert copy.exists() and _skill_md(toolchain).exists()
-
-    rolled = _rollback(toolchain, agent="claude-code")
-
-    assert rolled["removed"] == [".claude/skills/find-skills"]
-    assert not copy.exists()
-    assert _skill_md(toolchain).exists()
-    assert list(_lock(toolchain.cwd)["skills"]) == [".agents/skills/find-skills"]
-
-
 def test_rollback_of_a_first_install_refuses_a_folder_changed_since(toolchain) -> None:
     _install(toolchain)
     _skill_md(toolchain).write_text("# edited by the user\n", "utf-8")
@@ -3156,9 +3137,65 @@ def _refused_as_shared(toolchain: FakeToolchain, agent: str, shared_with: str) -
         f"'find-skills' is shared with {shared_with}; sumo-qa rolls back single-agent "
         "installs only. Remove or reinstall it by hand: "
     )
+    assert "retry" not in message
     assert len(toolchain.install_adds()) == adds
     assert _lock(toolchain.cwd) == lock_before
     assert {p: ext.skill_content_digest(p) for p in tree_before} == tree_before
+
+
+@pytest.mark.parametrize("agent", ["claude-code", "codex", ""])
+def test_rollback_refuses_a_skill_recorded_for_two_agents_in_separate_copies(
+    toolchain, agent
+) -> None:
+    """The CLI writes the canonical .agents folder for every agent, so a
+    claude-code restore would rewrite codex's folder beside its own copy."""
+    _two_versions(toolchain)
+    _second_agent_copy(toolchain)
+
+    _refused_as_shared(toolchain, agent, "'claude-code', 'codex'")
+
+
+def test_rollback_refuses_a_skill_another_agent_is_recorded_for_only_in_history(
+    toolchain,
+) -> None:
+    _install(toolchain)
+    lock = _lock(toolchain.cwd)
+    entry = {
+        **lock["skills"][".agents/skills/find-skills"],
+        "agent": "claude-code",
+        "path": ".claude/skills/find-skills",
+    }
+    _write_lock(toolchain.cwd, lock["skills"], {".claude/skills/find-skills": [entry]})
+
+    _refused_as_shared(toolchain, "codex", "'claude-code', 'codex'")
+
+
+@pytest.mark.parametrize("meanwhile", ["another agent installs", "the user edits"])
+def test_a_restore_rechecks_under_its_guard(monkeypatch, toolchain, meanwhile) -> None:
+    """A change landing between the rollback's checks and the restore's write
+    is refused, not overwritten."""
+    _two_versions(toolchain)
+    checkout = ext._checkout_commit
+    before = {}
+
+    def change_meanwhile(*args, **kwargs):
+        if meanwhile == "another agent installs":
+            _second_agent_copy(toolchain)
+        else:
+            _skill_md(toolchain).write_text("# edited by the user\n", "utf-8")
+        before["lock"] = _lock(toolchain.cwd)
+        before["body"] = _skill_md(toolchain).read_text("utf-8")
+        return checkout(*args, **kwargs)
+
+    monkeypatch.setattr(ext, "_checkout_commit", change_meanwhile)
+    adds = len(toolchain.install_adds())
+
+    with pytest.raises(ext.ExternalSkillError, match="shared with|changed since"):
+        _rollback(toolchain)
+
+    assert len(toolchain.install_adds()) == adds
+    assert _lock(toolchain.cwd) == before["lock"]
+    assert _skill_md(toolchain).read_text("utf-8") == before["body"]
 
 
 def _two_versions(toolchain: FakeToolchain) -> None:
@@ -3186,7 +3223,7 @@ def test_rollback_refuses_a_folder_another_agents_link_resolves_to(toolchain, hi
         _install(toolchain)
     _hand_to(toolchain, ".claude/skills/find-skills", "claude-code")
 
-    _refused_as_shared(toolchain, "codex", "'claude-code'")
+    _refused_as_shared(toolchain, "codex", "'claude-code', 'codex'")
 
 
 @pytest.mark.parametrize("history", [False, True])
@@ -3198,7 +3235,7 @@ def test_rollback_refuses_a_link_that_resolves_to_another_agents_folder(toolchai
         _install(toolchain)
     _hand_to(toolchain, ".claude/skills/find-skills", "claude-code")
 
-    _refused_as_shared(toolchain, "claude-code", "'codex'")
+    _refused_as_shared(toolchain, "claude-code", "'claude-code', 'codex'")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
@@ -3221,7 +3258,7 @@ def test_rollback_refuses_a_link_another_agents_link_chains_through(toolchain) -
     }
     _write_lock(toolchain.cwd, skills)
 
-    _refused_as_shared(toolchain, "codex", "'other'")
+    _refused_as_shared(toolchain, "codex", "'codex', 'other'")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
@@ -3244,6 +3281,27 @@ def test_rollback_refuses_a_folder_another_agents_link_points_into(toolchain) ->
     )
     _write_lock(toolchain.cwd, lock["skills"], lock["history"])
 
+    _refused_as_shared(toolchain, "codex", "'claude-code', 'codex'")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_rollback_refuses_a_folder_another_skills_link_resolves_to(toolchain) -> None:
+    """One agent records find-skills, but another agent's record for a different
+    skill is a link into its folder: still shared."""
+    _install(toolchain)
+    canonical = _skill_md(toolchain).parent
+    link = toolchain.cwd / ".claude" / "skills" / "other-skill"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(canonical, target_is_directory=True)
+    lock = _lock(toolchain.cwd)
+    lock["skills"][".claude/skills/other-skill"] = {
+        **lock["skills"][".agents/skills/find-skills"],
+        "skill": "other-skill",
+        "agent": "claude-code",
+        "path": ".claude/skills/other-skill",
+    }
+    _write_lock(toolchain.cwd, lock["skills"])
+
     _refused_as_shared(toolchain, "codex", "'claude-code'")
 
 
@@ -3255,8 +3313,8 @@ def test_rollback_refuses_a_folder_another_agent_reinstalled(toolchain) -> None:
         toolchain.remote_sha = sha
         _install(toolchain, agent=agent, approved_digest=_preview(toolchain)["content_digest"])
 
-    _refused_as_shared(toolchain, "claude-code", "'codex'")
-    _refused_as_shared(toolchain, "codex", "'claude-code'")
+    _refused_as_shared(toolchain, "claude-code", "'claude-code', 'codex'")
+    _refused_as_shared(toolchain, "codex", "'claude-code', 'codex'")
     _refused_as_shared(toolchain, "", "'claude-code', 'codex'")
 
 
@@ -3267,7 +3325,7 @@ def test_rollback_refuses_a_folder_with_another_agents_history_record(toolchain)
     lock["history"][".agents/skills/find-skills"].append(other)
     _write_lock(toolchain.cwd, lock["skills"], lock["history"])
 
-    _refused_as_shared(toolchain, "codex", "'claude-code'")
+    _refused_as_shared(toolchain, "codex", "'claude-code', 'codex'")
 
 
 @pytest.mark.parametrize(
@@ -3335,6 +3393,18 @@ def test_rollback_needs_confirmation_and_a_valid_scope(toolchain) -> None:
         {"p": ["x"]},
         {"p": [{}]},
         {"p": [{"skill": "a", "source": "b", "content_digest": "c", "agent": "d"}]},
+        {
+            "p": [
+                {
+                    "skill": "a",
+                    "source": "b",
+                    "resolved_ref": "r",
+                    "content_digest": "c",
+                    "path": "p",
+                }
+            ]
+        },
+        {"p": [{"skill": "a", "source": "b", "content_digest": "c", "agent": "d", "path": "p"}]},
         {
             "p": [
                 {

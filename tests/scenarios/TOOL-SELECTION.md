@@ -197,7 +197,7 @@ Sixteen of the eighteen atomic non-skill tools each get a dedicated scenario bel
 
 **Expected tool:** `sumo_qa_rollback_external_skill(skill="mypy-type-checking", scope="project", confirmed=true)`.
 
-**Expected use of result:** the LLM reports whether the previous approved version was restored or the first install removed; on an `isError` it follows the rollback hint (asks which agent when several installs match, asks before retrying with `elevated_trust=true` for an unlisted source) and never retries silently.
+**Expected use of result:** the LLM reports whether the previous approved version was restored or the first install removed; on an `isError` it follows the rollback hint (tells the user a skill shared between agents is removed or reinstalled by hand, asks before retrying with `elevated_trust=true` for an unlisted source) and never retries silently.
 
 **Anti-pick:** deletes the skill folder or edits the lock with file tools; reinstalls an older version through `sumo_qa_install_external_skill`; passes `elevated_trust=true` without asking.
 

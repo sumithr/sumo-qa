@@ -2049,7 +2049,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         """After user confirmation, restore the previous approved version of an
         external skill sumo-qa installed, or remove a first install.
 
-        `agent`: which agent's install, when there are several. `elevated_trust`:
+        `agent`: optional, the one agent recorded; a skill recorded for several
+        agents is shared and refused. `elevated_trust`:
         only when the user grants it for the restored version's unlisted source.
         """
         try:
