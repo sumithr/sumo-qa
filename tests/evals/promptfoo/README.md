@@ -627,11 +627,12 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   without reading strings: a `}` inside the judge's `reason` dropped the grade as
   unparseable, and a `{` there could turn a failing verdict into a silent pass.
   The verdict is the reply's one top-level object with a `"pass"` key, wherever it sits;
-  other objects and prose around it are ignored. Two different verdicts, or any `{`
-  that opens a quoted key and does not decode (truncated, a trailing comma, unescaped
-  quotes), are an error: no object nested inside a broken one is graded. Prose braces
-  that open no quoted key (`{x}`, `{a: 1}`) and the rubric's own format template
-  (`{"pass": <true|false>, ...}`) are skipped. A reply with no valid verdict is asked
+  other objects, prose and braces that do not decode (`{x}`, `{'a': 1}`) are ignored.
+  Two different verdicts are an error, and so is any `"pass"` key outside every decoded
+  top-level object, other than the rubric's own format template
+  (`{"pass": <true|false>, ...}`): it belongs to a verdict that did not decode
+  (truncated, a trailing comma, unescaped quotes), and no object nested inside a broken
+  verdict is graded in its place. A reply with no valid verdict is asked
   once more; when the second has none either, both replies are written in full,
   redacted, to `tests/evals/results/judge-replies/` (gitignored), and the error names
   that file.

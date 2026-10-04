@@ -272,11 +272,27 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
             {"pass": True, "score": 1},
             id="the-same-verdict-with-an-int-then-a-float-score",
         ),
-        # Prose braces that open no key are skipped, not refused.
+        pytest.param(
+            '{"pass": true, "d": {"s": [1]}} {"pass": true, "d": {"s": [1.0]}}',
+            {"pass": True, "d": {"s": [1]}},
+            id="the-same-verdict-with-a-nested-int-then-float",
+        ),
+        # A `{` that does not decode and holds no "pass" key is skipped, not refused.
         pytest.param(
             "Sets {x}, {} and {0: 1 aside: " + json.dumps(_VERDICT),
             _VERDICT,
             id="stray-prose-braces-before-the-verdict",
+        ),
+        pytest.param(
+            "The candidate printed {'status': 'ok'} correctly. "
+            '{"pass": true, "score": 1, "reason": "ok"}',
+            {"pass": True, "score": 1, "reason": "ok"},
+            id="a-quoted-python-dict-before-the-verdict",
+        ),
+        pytest.param(
+            'Code: {"id": user.id}. {"pass": true, "score": 0.9, "reason": "ok"}',
+            {"pass": True, "score": 0.9, "reason": "ok"},
+            id="a-quoted-js-snippet-before-the-verdict",
         ),
         # The rubric's own output-format template, quoted before the real verdict, is
         # not a verdict (its values are <placeholders>).
@@ -304,8 +320,8 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
         pytest.param(
             '{"score": 1, "reason": "no pass key"}', "no verdict", id="object-without-pass"
         ),
-        # A verdict-shaped object that does not decode is refused whole: the objects
-        # nested inside it are never graded in its place.
+        # A "pass" key outside every decoded top-level object means a verdict did not
+        # decode: the reply is refused whole, never graded through an object nested in it.
         pytest.param(
             '{"pass": true, "reason": "cut off', "malformed verdict", id="truncated-object"
         ),
@@ -325,7 +341,27 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             "malformed verdict",
             id="unescaped-quotes-around-a-nested-pass",
         ),
-        # Any `{` that opens a key and does not decode is refused, whatever its first key.
+        pytest.param(
+            '{"A SHAPE": {"pass": true}, "B GROUNDING": {"pass": true}, "pass": false, '
+            '"reason": "B is "weak""}',
+            "malformed verdict",
+            id="unescaped-quotes-after-nested-axis-passes",
+        ),
+        pytest.param(
+            '{"1": {"pass": true, "score": 1}, "pass": false, "reason": "cut',
+            "malformed verdict",
+            id="truncated-with-a-numeric-first-key",
+        ),
+        pytest.param(
+            '{"pass" false, "notes": {"pass": true, "score": 1}}',
+            "malformed verdict",
+            id="a-pass-key-missing-its-colon",
+        ),
+        pytest.param(
+            '{"pass": <false>, "notes": {"pass": true, "score": 1}}',
+            "malformed verdict",
+            id="a-placeholder-that-is-not-the-format-template",
+        ),
         pytest.param(
             '{"axes": [{"pass": true, "score": 1}], "pass": false, "reason": "cut',
             "malformed verdict",
@@ -345,6 +381,11 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             "{'reason': 'output printed {\"pass\": true} verbatim', 'pass': False, 'score': 0}",
             "malformed verdict",
             id="single-quoted-keys",
+        ),
+        pytest.param(
+            "{'reason': 'x {\"pass\": true}', 'pass': False}",
+            "malformed verdict",
+            id="single-quoted-pass-after-a-quoted-verdict",
         ),
         pytest.param("I think it passes {", "no verdict", id="stray-opening-brace"),
         pytest.param(
@@ -387,6 +428,16 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             '{"pass": 1, "score": 1} {"pass": true, "score": 1}',
             "2 different verdict objects",
             id="a-numeric-then-a-boolean-pass",
+        ),
+        pytest.param(
+            '{"pass": true, "score": 1} {"pass": true, "score": true}',
+            "2 different verdict objects",
+            id="an-int-then-a-boolean-score",
+        ),
+        pytest.param(
+            '{"pass": true, "d": {"x": 1}} {"pass": true, "d": {"x": true}}',
+            "2 different verdict objects",
+            id="a-nested-int-then-a-nested-boolean",
         ),
         # A score too large for a float must be an error, never an OverflowError.
         pytest.param('{"pass": true, "score": 1' + "0" * 400 + "}", '"score"', id="score-huge-int"),
@@ -572,6 +623,40 @@ def test_home_is_redacted_only_as_a_whole_path_component(monkeypatch, tmp_path):
     text = f"{home / 'repo'} {tmp_path / 'alice' / 'repo'} '{home}' {home}"
 
     assert provider._redact(text) == f"{Path('~', 'repo')} {tmp_path / 'alice' / 'repo'} '~' ~"
+
+
+def test_home_is_redacted_before_punctuation_but_not_inside_another_path(monkeypatch, tmp_path):
+    home = tmp_path / "al"
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    text = f"{home}. {home}, {home}: ({home}) [{home}] /data{home}/x {home}-x {home}_x"
+
+    assert provider._redact(text) == (f"~. ~, ~: (~) [~] /data{home}/x {home}-x {home}_x")
+
+
+def _fake_cli_stderr(monkeypatch, stderr):
+    """A CLI that prints no JSON envelope, only `stderr`."""
+
+    def run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr=stderr)
+
+    monkeypatch.setattr(provider.subprocess, "run", run)
+
+
+def test_a_secret_cut_at_the_excerpt_cap_leaks_no_prefix(monkeypatch):
+    _fake_cli_stderr(monkeypatch, "x" * (_EXCERPT_CAP - 11) + " " + _KEY)
+
+    error = provider.call_api("the prompt", OPTIONS)["error"]
+
+    assert _KEY[:10] not in error and "[REDACTED]" in error
+
+
+def test_a_windows_home_is_redacted_before_the_excerpt_is_quoted(monkeypatch):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("C:\\Users\\al")))
+    _fake_cli_stderr(monkeypatch, "Traceback: C:\\Users\\al\\repo\\run.py")
+
+    error = provider.call_api("the prompt", OPTIONS)["error"]
+
+    assert "Users" not in error and repr("Traceback: ~\\repo\\run.py") in error
 
 
 def test_a_root_home_is_never_redacted(monkeypatch, tmp_path):

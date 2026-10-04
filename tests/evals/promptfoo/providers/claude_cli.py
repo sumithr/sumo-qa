@@ -74,11 +74,11 @@ _SECRET = re.compile(
     r"|eyJ[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,})",
     re.DOTALL,
 )
-# A `{` that opens a quoted key. When it does not decode, the reply is refused. An unquoted
-# key (`{a: 1}` in prose) or none (`{x}`, `{}`, `{0: 1`) opens no object and is skipped.
-_KEYED_OBJECT = re.compile(r"""\{\s*(["'])[A-Za-z_][\w-]*\1\s*:""")
-# ...unless its first value is a `<placeholder>`: the rubric's own output-format template.
-_TEMPLATE = re.compile(r"""\{\s*(["'])[A-Za-z_][\w-]*\1\s*:\s*<""")
+# A "pass" key in either quote style, also one whose colon is missing (`"pass" false`).
+# Each one must sit inside a decoded top-level object, or a verdict did not decode.
+_PASS_KEY = re.compile(r"""(["'])pass\1\s*(?::|<|(?:true|false|True|False|null)\b)""")
+# The rubrics' own output-format template: its "pass" key is not a verdict.
+_FORMAT_TEMPLATE = '{"pass": <true|false>'
 
 
 def call_api(prompt, options=None, context=None):
@@ -155,9 +155,12 @@ def _ask(argv, prompt):
     except ValueError:
         envelope = None
     if not isinstance(envelope, dict):
+        # Redacted before the cut, so no secret prefix survives it, and before `!r`,
+        # which doubles a Windows path's backslashes.
+        stdout, stderr = _redact(done.stdout)[:_EXCERPT], _redact(done.stderr)[:_EXCERPT]
         return {
             "error": f"claude exited {done.returncode} without a JSON envelope: "
-            f"stdout={done.stdout[:_EXCERPT]!r} stderr={done.stderr[:_EXCERPT]!r}"
+            f"stdout={stdout!r} stderr={stderr!r}"
         }
 
     # Success is established positively; every other shape is an error.
@@ -169,11 +172,11 @@ def _ask(argv, prompt):
         or envelope.get("is_error")
         or envelope.get("api_error_status")
     ):
-        error = f"claude call failed (exit {done.returncode}): {done.stdout[:_EXCERPT]}"
+        error = f"claude call failed (exit {done.returncode}): {_redact(done.stdout)[:_EXCERPT]}"
     elif not isinstance(result, str) or not result.strip():
         error = f"claude reported success but returned no answer: {result!r}"
     elif _USAGE_LIMIT.search(result):
-        error = f"claude usage limit: {result[:_EXCERPT]}"
+        error = f"claude usage limit: {_redact(result)[:_EXCERPT]}"
     else:
         return {"result": result, "envelope": envelope}
     return {"error": error, "envelope": envelope}
@@ -199,40 +202,40 @@ def _redact(text):
     home = Path.home()
     if home.parent == home:  # a filesystem-root home names no one
         return text
-    # Only the whole home path: `/home/al` must not turn `/home/alice` into `~ice`.
-    return re.sub(re.escape(str(home)) + r"""(?![^\\/"'\s])""", "~", text)
+    # Only the whole home path: `/home/al` must not turn `/home/alice` into `~ice`, nor
+    # `/data/home/al` into `/data~`.
+    return re.sub(r"(?<![\w.-])" + re.escape(str(home)) + r"(?![\w-])", "~", text)
 
 
 def _verdict(text):
     """(verdict, None) for the reply's one verdict object, else (None, the problem)."""
-    verdicts = []
+    verdicts, seen, spans = [], set(), []
     start = text.find("{")
     while start != -1:
         try:
             value, end = _DECODER.raw_decode(text, start)
         except ValueError:
-            # A broken object (truncated, a trailing comma, unescaped quotes), whatever its
-            # first key, is refused whole: scanning inside it would grade an object nested
-            # in it instead.
-            if _KEYED_OBJECT.match(text, start) and not _TEMPLATE.match(text, start):
-                return None, "has a malformed verdict object"
-            # Any other `{` that does not decode (stray prose, the format template) starts
-            # no object.
+            # A `{` that does not decode (prose, a quoted snippet, a broken verdict) starts
+            # no object; a broken verdict is caught by its "pass" key below.
             start = text.find("{", start + 1)
             continue
+        spans.append((start, end))
         # Top level only: an object nested inside another one is never scanned on its own.
         # Objects without "pass" (a quoted snippet, trailing notes) are not verdicts.
-        # Python equality merges `"score": 1` and `1.0`; the type check keeps `"pass": 1`
-        # a different verdict from `"pass": true`.
-        if (
-            isinstance(value, dict)
-            and "pass" in value
-            and not any(
-                value == seen and type(value["pass"]) is type(seen["pass"]) for seen in verdicts
-            )
-        ):
-            verdicts.append(value)
+        if isinstance(value, dict) and "pass" in value:
+            canonical = json.dumps(_canonical(value), sort_keys=True)
+            if canonical not in seen:
+                seen.add(canonical)
+                verdicts.append(value)
         start = text.find("{", end)
+    # Any "pass" key outside every decoded object belongs to a verdict that did not decode
+    # (truncated, a trailing comma, unescaped quotes). The reply is refused whole: grading
+    # it would grade an object nested inside the broken verdict instead.
+    templates = {m.start() + 1 for m in re.finditer(re.escape(_FORMAT_TEMPLATE), text)}
+    for key in _PASS_KEY.finditer(text):
+        at = key.start()
+        if at not in templates and not any(s <= at < e for s, e in spans):
+            return None, "has a malformed verdict object"
     if not verdicts:
         return None, 'has no verdict object with a "pass" key'
     # Two different verdicts (a quoted example and the grade, or a changed mind) leave the
@@ -247,6 +250,18 @@ def _verdict(text):
     if not isinstance(verdict.get("reason", ""), str):
         return None, '"reason" is not a string'
     return verdict, None
+
+
+def _canonical(value):
+    """The value with integral floats as ints at every depth, so `1` and `1.0` compare
+    equal while `1` and `true` stay apart once JSON-encoded."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _canonical(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_canonical(item) for item in value]
+    return value
 
 
 def _finite(value):
