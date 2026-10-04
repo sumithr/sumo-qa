@@ -266,8 +266,12 @@ The default source, `vercel-labs/skills`, is trusted; add or deny others in
 }
 ```
 
-Entries use the install-source forms (`owner/repo` or a git URL). A denied
-source is rejected by preview and install. The file is read only from your home
+Entries use the install-source forms (`owner/repo` or a git URL) without a
+`#ref` or `@skill` (an entry with one fails closed). Every spelling of a
+repository matches its entry: the scheme, user, port, `www.`, trailing `/` and
+`.git` are ignored, the host is case-insensitive, and on github.com so are the
+owner and repository. A denied source is rejected by preview, install, and a
+rollback that would restore it. The file is read only from your home
 directory: a project cannot ship one that raises trust in its own sources. An
 unreadable or invalid file fails closed. See
 [TOOLS.md](TOOLS.md#external-skill-lifecycle) for the preview, safety lint, and

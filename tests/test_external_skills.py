@@ -335,10 +335,19 @@ def test_external_skill_server_tools_success(monkeypatch) -> None:
         elevated_trust=True,
     )
     assert (install["approved_digest"], install["elevated_trust"]) == ("sha256:abc", True)
-    assert _invoke_tool(mcp, "sumo_qa_rollback_external_skill", skill="mypy", confirmed=True) == {
+    assert _invoke_tool(
+        mcp,
+        "sumo_qa_rollback_external_skill",
+        skill="mypy",
+        confirmed=True,
+        agent="claude-code",
+        elevated_trust=True,
+    ) == {
         "skill": "mypy",
         "scope": "project",
         "confirmed": True,
+        "agent": "claude-code",
+        "elevated_trust": True,
     }
 
 
@@ -392,6 +401,35 @@ def test_external_skill_server_tools_route_hint_by_exception_type(monkeypatch) -
     assert "install it first" in execute["error"]["actionable_hint"]
     assert "elevated_trust=true" in preview["error"]["actionable_hint"]
     assert "confirmed=true" in rollback["error"]["actionable_hint"]
+
+
+@pytest.mark.parametrize(
+    ("exception", "expected", "install_only"),
+    [
+        (ext.ExternalSkillApprovalError("x"), "cannot be restored", "approved_digest"),
+        (ext.ExternalSkillTrustError("x"), "retry the rollback with elevated_trust", "candidate"),
+        (ext.ExternalSkillPolicyError("x"), "current version stays", "candidate"),
+        (ext.ExternalSkillError("several installs"), "retry with agent", "install it first"),
+        (ext.ExternalSkillProvenanceError("x"), "nothing was removed", "Do not execute"),
+        (ValueError("bad scope"), "tool arguments", "candidate"),
+    ],
+)
+def test_rollback_errors_carry_rollback_hints(
+    monkeypatch, exception, expected, install_only
+) -> None:
+    monkeypatch.setattr(
+        sumo_server,
+        "_rollback_external_skill",
+        lambda **kwargs: (_ for _ in ()).throw(exception),
+    )
+    mcp = sumo_server.build_mcp_server()
+
+    hint = _invoke_tool(mcp, "sumo_qa_rollback_external_skill", skill="mypy", confirmed=True)[
+        "error"
+    ]["actionable_hint"]
+
+    assert expected in hint
+    assert install_only not in hint
 
 
 @pytest.mark.skipif(shutil.which("npx") is None, reason="npx not installed")

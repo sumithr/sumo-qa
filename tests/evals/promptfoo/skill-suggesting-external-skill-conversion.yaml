@@ -319,7 +319,7 @@ tests:
         ## Prior turn in THIS conversation (your own last message)
         You asked the install gate: *"This PDF can't be ingested directly — it
         needs converting to markdown first. Install `pdf-to-markdown` from
-        `vercel-labs/skills` for the current agent in `project` scope, then run it
+        `acme-labs/skills` for the current agent in `project` scope, then run it
         to produce the markdown and re-ingest with the right content_type? [y/N]"*
         The user answered `y`.
         ## MCP tool results

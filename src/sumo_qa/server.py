@@ -30,6 +30,9 @@ from sumo_qa.external_skills import (
     rollback_external_skill as _rollback_external_skill,
 )
 from sumo_qa.external_skills import (
+    rollback_hint_for_exception as _rollback_hint_for_exception,
+)
+from sumo_qa.external_skills import (
     search_external_skills as _search_external_skills,
 )
 from sumo_qa.feedback_memory import (
@@ -2040,16 +2043,34 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         skill: str,
         scope: str = "project",
         confirmed: bool = False,
+        agent: str = "",
+        elevated_trust: bool = False,
     ) -> RollbackExternalSkillOutput | ErrorEnvelope:
         """After user confirmation, restore the previous approved version of an
-        external skill sumo-qa installed, or remove a first install."""
+        external skill sumo-qa installed, or remove a first install.
+
+        `agent`: which agent's install, when there are several. `elevated_trust`:
+        only when the user grants it for the restored version's unlisted source.
+        """
         try:
-            output = _rollback_external_skill(skill=skill, scope=scope, confirmed=confirmed)
+            output = _rollback_external_skill(
+                skill=skill,
+                scope=scope,
+                confirmed=confirmed,
+                agent=agent,
+                elevated_trust=elevated_trust,
+            )
         except Exception as exc:  # noqa: BLE001
-            output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
+            output = _error_envelope(exc, _rollback_hint_for_exception(exc))
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_rollback_external_skill",
-            args={"skill": skill, "scope": scope, "confirmed": confirmed},
+            args={
+                "skill": skill,
+                "scope": scope,
+                "confirmed": confirmed,
+                "agent": agent,
+                "elevated_trust": elevated_trust,
+            },
             output=output,
         )
 

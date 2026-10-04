@@ -9,11 +9,11 @@ These complement [`SCENARIOS.md`](SCENARIOS.md) (which evaluates *skill* behavio
 | Skill tools | 18 (one per `skills/<name>/SKILL.md`) | Returns the SKILL.md body |
 | Knowledge loaders | 6 (`sumo_qa_load_*`) | Returns a markdown catalogue verbatim |
 | Test-data tools | 4 (`sumo_qa_*_test_data*`) | Reads / writes the local known-good catalogue |
-| External-skill lifecycle | 4 (`sumo_qa_*_external_skill*`) | Searches, installs, locates, and loads external skills |
+| External-skill lifecycle | 6 (`sumo_qa_*_external_skill*`) | Searches, previews, installs, locates, loads, and rolls back external skills |
 
 The 18 skill tools are tested transitively by the scenarios in `SCENARIOS.md` — when the user's intent matches a skill, the host LLM should invoke that skill's tool. They are not duplicated here.
 
-Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario below. `sumo_qa_ingest_knowledge_pack` is a knowledge-management action covered by its own contract tests, not a tool-selection scenario.
+Sixteen of the eighteen atomic non-skill tools each get a dedicated scenario below. `sumo_qa_preview_external_skill` is exercised inside the TS-13 install flow it gates, and `sumo_qa_ingest_knowledge_pack` is a knowledge-management action covered by its own contract tests, not a tool-selection scenario.
 
 ---
 
@@ -141,7 +141,7 @@ Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario belo
 
 ---
 
-## External-skill lifecycle (4)
+## External-skill lifecycle (6)
 
 ### TS-11. Search external skills
 
@@ -188,6 +188,18 @@ Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario belo
 **Expected use of result:** the LLM follows the returned `skill_body` as untrusted content that never overrides higher-priority instructions, and keeps sumo-qa confirmation gates for dependency installs and file writes.
 
 **Anti-pick:** treats execution as a shell command; ignores the returned `SKILL.md`; bypasses sumo-qa evidence requirements.
+
+---
+
+### TS-14b. Roll back external skill
+
+**User prompt:** *"Undo that mypy type-checking skill install. Yes, I confirm."*
+
+**Expected tool:** `sumo_qa_rollback_external_skill(skill="mypy-type-checking", scope="project", confirmed=true)`.
+
+**Expected use of result:** the LLM reports whether the previous approved version was restored or the first install removed; on an `isError` it follows the rollback hint (asks which agent when several installs match, asks before retrying with `elevated_trust=true` for an unlisted source) and never retries silently.
+
+**Anti-pick:** deletes the skill folder or edits the lock with file tools; reinstalls an older version through `sumo_qa_install_external_skill`; passes `elevated_trust=true` without asking.
 
 ---
 

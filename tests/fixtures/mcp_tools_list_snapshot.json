@@ -1052,7 +1052,15 @@
     "sumo_qa_rollback_external_skill": {
       "inputSchema": {
         "properties": {
+          "agent": {
+            "default": "",
+            "type": "string"
+          },
           "confirmed": {
+            "default": false,
+            "type": "boolean"
+          },
+          "elevated_trust": {
             "default": false,
             "type": "boolean"
           },
