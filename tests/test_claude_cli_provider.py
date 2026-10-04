@@ -124,7 +124,7 @@ def test_a_failed_call_is_an_error_never_graded_output(monkeypatch, stdout, retu
 
     response = provider.call_api("the prompt", OPTIONS)
 
-    assert set(response) == {"error"}
+    assert "output" not in response and response["error"]
 
 
 @pytest.mark.parametrize(
@@ -138,7 +138,9 @@ def test_a_cli_that_cannot_run_is_an_error(monkeypatch, exc):
 
     monkeypatch.setattr(provider.subprocess, "run", run)
 
-    assert set(provider.call_api("the prompt", OPTIONS)) == {"error"}
+    response = provider.call_api("the prompt", OPTIONS)
+
+    assert "output" not in response and response["error"]
 
 
 def test_a_config_without_a_model_is_an_error(monkeypatch):
@@ -164,6 +166,17 @@ def test_malformed_accounting_keeps_the_answer(monkeypatch, envelope):
 
     assert response["output"] == "the answer"
     assert isinstance(response["cost"], float)
+
+
+def test_a_call_that_fails_after_reporting_usage_is_still_counted(monkeypatch):
+    limit = {**SUCCESS, "result": "Claude AI usage limit reached|1789400000"}
+    _fake_cli(monkeypatch, json.dumps(limit))
+
+    response = provider.call_api("the prompt", OPTIONS)
+
+    assert response["error"].startswith("claude usage limit: ")
+    assert response["tokenUsage"] == {"prompt": 123, "completion": 7, "total": 130}
+    assert response["cost"] == 0.25
 
 
 def test_an_answer_that_quotes_the_usage_limit_phrase_is_still_graded(monkeypatch):
@@ -248,11 +261,31 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
             {"pass": True, "score": 0.9, "reason": "A SHAPE: PASS.\nB GROUNDING:\tPASS."},
             id="raw-control-characters-in-the-reason",
         ),
-        # The same verdict twice is one grade.
+        # The same verdict twice is one grade, and 1 and 1.0 are the same score.
         pytest.param(
             json.dumps(_VERDICT) + " Restated: " + json.dumps(_VERDICT),
             _VERDICT,
             id="the-same-verdict-repeated",
+        ),
+        pytest.param(
+            '{"pass": true, "score": 1} {"pass": true, "score": 1.0}',
+            {"pass": True, "score": 1},
+            id="the-same-verdict-with-an-int-then-a-float-score",
+        ),
+        # Prose braces that open no key are skipped, not refused.
+        pytest.param(
+            "Sets {x}, {} and {0: 1 aside: " + json.dumps(_VERDICT),
+            _VERDICT,
+            id="stray-prose-braces-before-the-verdict",
+        ),
+        # The rubric's own output-format template, quoted before the real verdict, is
+        # not a verdict (its values are <placeholders>).
+        pytest.param(
+            'Required format {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": '
+            '"<grounding/relevance or redirect verdict>"}. Here: '
+            '{"pass": true, "score": 0.9, "reason": "ok"}',
+            {"pass": True, "score": 0.9, "reason": "ok"},
+            id="the-rubric-format-template-before-the-verdict",
         ),
     ],
 )
@@ -291,6 +324,27 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             '"score": 1} for every row, and its config sets {"threshold": 0.5}. VERDICT: FAIL."}',
             "malformed verdict",
             id="unescaped-quotes-around-a-nested-pass",
+        ),
+        # Any `{` that opens a key and does not decode is refused, whatever its first key.
+        pytest.param(
+            '{"axes": [{"pass": true, "score": 1}], "pass": false, "reason": "cut',
+            "malformed verdict",
+            id="truncated-with-a-non-verdict-first-key",
+        ),
+        pytest.param(
+            '{"verdict": "FAIL", "pass": false, "notes": {"pass": true, "score": 1}, }',
+            "malformed verdict",
+            id="trailing-comma-with-a-non-verdict-first-key",
+        ),
+        pytest.param(
+            '{"verdict": "fail", "pass": false, "reason": "it said "see {"pass": true}" here"}',
+            "malformed verdict",
+            id="unescaped-quotes-with-a-non-verdict-first-key",
+        ),
+        pytest.param(
+            "{'reason': 'output printed {\"pass\": true} verbatim', 'pass': False, 'score': 0}",
+            "malformed verdict",
+            id="single-quoted-keys",
         ),
         pytest.param("I think it passes {", "no verdict", id="stray-opening-brace"),
         pytest.param(
@@ -346,7 +400,8 @@ def test_a_json_reply_without_a_boolean_verdict_is_an_error(monkeypatch, reply, 
     assert "output" not in response
     assert response["error"].startswith("judge reply ")
     assert problem in response["error"]
-    assert reply[:40] in response["error"]
+    # The excerpt is the reply's repr, which escapes a quote the reply mixes with the other.
+    assert repr(reply[:40])[1:-1] in response["error"]
 
 
 # Real judge replies (tests/fixtures/judge_replies.json). The replies the old parser
@@ -462,6 +517,25 @@ def test_a_second_reply_without_a_verdict_is_kept_in_full_and_redacted(monkeypat
     assert response["cost"] == 0.5
 
 
+_KEY = "sk-ant-api03-" + "a" * 30
+
+
+def test_the_console_excerpt_of_an_unparsed_reply_is_redacted(monkeypatch):
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": f"no verdict, key {_KEY}"}))
+
+    error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+
+    assert _KEY not in error and "no verdict, key [REDACTED]" in error
+
+
+def test_a_failed_cli_call_error_is_redacted(monkeypatch):
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": f"key {_KEY}"}), returncode=1)
+
+    error = provider.call_api("the prompt", OPTIONS)["error"]
+
+    assert error.startswith("claude call failed") and _KEY not in error and "[REDACTED]" in error
+
+
 def test_a_retry_that_fails_keeps_the_first_reply(monkeypatch, _reply_dir):
     _fake_cli(
         monkeypatch,
@@ -476,19 +550,36 @@ def test_a_retry_that_fails_keeps_the_first_reply(monkeypatch, _reply_dir):
     assert error.startswith("claude usage limit: ")
     assert error.endswith(f"; the earlier judge reply is kept at {kept}")
     assert json.loads(kept.read_text(encoding="utf-8"))[0]["reply"] == "I think it passes."
-    # The first call was spent and is still counted.
-    assert response["tokenUsage"] == {"prompt": 123, "completion": 7, "total": 130}
-    assert response["cost"] == 0.25
+    # Both calls reported usage, so both are counted, the failed one too.
+    assert response["tokenUsage"] == {"prompt": 246, "completion": 14, "total": 260}
+    assert response["cost"] == 0.5
 
 
 def test_the_kept_reply_path_names_home_as_a_tilde(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    # Path.home, not HOME: on Windows it reads USERPROFILE.
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
     _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": "no verdict"}))
 
     error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
 
-    assert "kept at ~/judge-replies/judge-reply-" in error
+    assert f"kept at {Path('~', 'judge-replies', 'judge-reply-')}" in error
     assert str(tmp_path) not in error
+
+
+def test_home_is_redacted_only_as_a_whole_path_component(monkeypatch, tmp_path):
+    home = tmp_path / "al"
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    text = f"{home / 'repo'} {tmp_path / 'alice' / 'repo'} '{home}' {home}"
+
+    assert provider._redact(text) == f"{Path('~', 'repo')} {tmp_path / 'alice' / 'repo'} '~' ~"
+
+
+def test_a_root_home_is_never_redacted(monkeypatch, tmp_path):
+    root = Path(tmp_path.anchor)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: root))
+    text = str(tmp_path / "repo")
+
+    assert provider._redact(text) == text
 
 
 @pytest.mark.parametrize(
@@ -501,6 +592,7 @@ def test_the_kept_reply_path_names_home_as_a_tilde(monkeypatch, tmp_path):
         "ASIA" + "ABCDEFGHIJKLMNOP",
         "xoxb-" + "1234567890-abcdef",
         "eyJhbGciOiJ.eyJzdWIiOiIx.c2lnbmF0dXJl",
+        "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----",
     ],
     ids=[
         "anthropic",
@@ -510,6 +602,7 @@ def test_the_kept_reply_path_names_home_as_a_tilde(monkeypatch, tmp_path):
         "aws-asia",
         "slack",
         "jwt",
+        "pem-private-key",
     ],
 )
 def test_a_kept_reply_has_bare_secrets_redacted(monkeypatch, _reply_dir, secret):

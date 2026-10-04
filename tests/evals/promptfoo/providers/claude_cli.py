@@ -60,19 +60,25 @@ _USAGE_LIMIT = re.compile(r"usage limit reached\|\d+", re.IGNORECASE)
 _DECODER = json.JSONDecoder(strict=False)
 # Judge replies that never gave a verdict are kept here in full (gitignored).
 REPLY_DIR = Path(__file__).resolve().parents[2] / "results" / "judge-replies"
-# Bare secret values: the shapes src/sumo_qa/feedback_memory.py refuses, plus `sk-` API keys
-# and fine-grained `github_pat_` tokens. A copy, not an import: promptfoo runs this file under
-# PROMPTFOO_PYTHON or the `python3` on PATH, where sumo_qa need not be installed.
+# Bare secret values and PEM private-key blocks, drawn from the shapes
+# src/sumo_qa/feedback_memory.py refuses, plus `sk-` API keys and fine-grained `github_pat_`
+# tokens. A copy, not an import: promptfoo runs this file under PROMPTFOO_PYTHON or the
+# `python3` on PATH, where sumo_qa need not be installed.
 _SECRET = re.compile(
-    r"\b(?:sk-[A-Za-z0-9_-]{16,}"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)"
+    r"|\b(?:sk-[A-Za-z0-9_-]{16,}"
     r"|gh[pousr]_[A-Za-z0-9]{20,}"
     r"|github_pat_[A-Za-z0-9_]{20,}"
     r"|(?:AKIA|ASIA)[0-9A-Z]{16}\b"
     r"|xox[bpoas]-[0-9A-Za-z-]{10,}"
-    r"|eyJ[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,})"
+    r"|eyJ[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,})",
+    re.DOTALL,
 )
-# A `{` that opens what reads as a verdict; when it does not decode the reply is refused.
-_VERDICT_START = re.compile(r'\{\s*"(?:pass|score|reason)"')
+# A `{` that opens a quoted key. When it does not decode, the reply is refused. An unquoted
+# key (`{a: 1}` in prose) or none (`{x}`, `{}`, `{0: 1`) opens no object and is skipped.
+_KEYED_OBJECT = re.compile(r"""\{\s*(["'])[A-Za-z_][\w-]*\1\s*:""")
+# ...unless its first value is a `<placeholder>`: the rubric's own output-format template.
+_TEMPLATE = re.compile(r"""\{\s*(["'])[A-Za-z_][\w-]*\1\s*:\s*<""")
 
 
 def call_api(prompt, options=None, context=None):
@@ -91,13 +97,9 @@ def call_api(prompt, options=None, context=None):
     cost = 0.0
     for _ in range(2 if config.get("jsonReply") else 1):
         answer = _ask(argv, prompt)
-        if "error" in answer:
-            if unparsed:
-                answer["error"] += f"; the earlier judge reply is kept at {_keep(unparsed)}"
-                answer.update(_spent(prompt_tokens, completion_tokens, cost))
-            return answer
-        result, envelope = answer["result"], answer["envelope"]
         # Accounting is best effort: a malformed usage field must not throw away an answer.
+        # A call that failed after the CLI reported its usage is still counted.
+        envelope = answer.get("envelope", {})
         usage = envelope.get("usage")
         if not isinstance(usage, dict):
             usage = {}
@@ -108,13 +110,19 @@ def call_api(prompt, options=None, context=None):
         completion_tokens += _number(usage.get("output_tokens"))
         # List-price notional cost from the CLI; nothing is invoiced.
         cost += float(_number(envelope.get("total_cost_usd"), float))
+        if "error" in answer:
+            error = _redact(answer["error"])
+            if unparsed:
+                error += f"; the earlier judge reply is kept at {_keep(unparsed)}"
+            return {"error": error, **_spent(prompt_tokens, completion_tokens, cost)}
+        result = answer["result"]
         output, problem = _verdict(result) if config.get("jsonReply") else (result, None)
         if not problem:
             return {"output": output, **_spent(prompt_tokens, completion_tokens, cost)}
         unparsed.append({"problem": problem, "reply": result})
     return {
         "error": f"judge reply {problem} (asked twice; both replies kept at "
-        f"{_keep(unparsed)}): {result[:_EXCERPT]!r}",
+        f"{_keep(unparsed)}): {_redact(result)[:_EXCERPT]!r}",
         **_spent(prompt_tokens, completion_tokens, cost),
     }
 
@@ -132,7 +140,8 @@ def _spent(prompt_tokens, completion_tokens, cost):
 
 
 def _ask(argv, prompt):
-    """{"result", "envelope"} for a successful CLI answer, else {"error"}."""
+    """{"result", "envelope"} for a successful CLI answer, else {"error"} (with the
+    "envelope" when the CLI sent one, so its usage is counted)."""
     try:
         # The prompt goes in on stdin: a rendered eval prompt reaches ~22k tokens.
         done = subprocess.run(
@@ -160,12 +169,14 @@ def _ask(argv, prompt):
         or envelope.get("is_error")
         or envelope.get("api_error_status")
     ):
-        return {"error": f"claude call failed (exit {done.returncode}): {done.stdout[:_EXCERPT]}"}
-    if not isinstance(result, str) or not result.strip():
-        return {"error": f"claude reported success but returned no answer: {result!r}"}
-    if _USAGE_LIMIT.search(result):
-        return {"error": f"claude usage limit: {result[:_EXCERPT]}"}
-    return {"result": result, "envelope": envelope}
+        error = f"claude call failed (exit {done.returncode}): {done.stdout[:_EXCERPT]}"
+    elif not isinstance(result, str) or not result.strip():
+        error = f"claude reported success but returned no answer: {result!r}"
+    elif _USAGE_LIMIT.search(result):
+        error = f"claude usage limit: {result[:_EXCERPT]}"
+    else:
+        return {"result": result, "envelope": envelope}
+    return {"error": error, "envelope": envelope}
 
 
 def _keep(unparsed):
@@ -184,32 +195,43 @@ def _keep(unparsed):
 
 def _redact(text):
     """The text with bare secrets and the home directory scrubbed."""
-    return _SECRET.sub("[REDACTED]", text).replace(str(Path.home()), "~")
+    text = _SECRET.sub("[REDACTED]", text)
+    home = Path.home()
+    if home.parent == home:  # a filesystem-root home names no one
+        return text
+    # Only the whole home path: `/home/al` must not turn `/home/alice` into `~ice`.
+    return re.sub(re.escape(str(home)) + r"""(?![^\\/"'\s])""", "~", text)
 
 
 def _verdict(text):
     """(verdict, None) for the reply's one verdict object, else (None, the problem)."""
-    verdicts, seen = [], set()
+    verdicts = []
     start = text.find("{")
     while start != -1:
         try:
             value, end = _DECODER.raw_decode(text, start)
         except ValueError:
-            # A broken verdict (truncated, a trailing comma, unescaped quotes) is refused
-            # whole: scanning inside it would grade an object nested in it instead.
-            if _VERDICT_START.match(text, start):
+            # A broken object (truncated, a trailing comma, unescaped quotes), whatever its
+            # first key, is refused whole: scanning inside it would grade an object nested
+            # in it instead.
+            if _KEYED_OBJECT.match(text, start) and not _TEMPLATE.match(text, start):
                 return None, "has a malformed verdict object"
-            # Any other `{` that does not decode (stray prose) starts no object.
+            # Any other `{` that does not decode (stray prose, the format template) starts
+            # no object.
             start = text.find("{", start + 1)
             continue
         # Top level only: an object nested inside another one is never scanned on its own.
         # Objects without "pass" (a quoted snippet, trailing notes) are not verdicts.
-        # Compared as JSON text, so `"pass": 1` is not the same verdict as `"pass": true`.
-        if isinstance(value, dict) and "pass" in value:
-            key = json.dumps(value, sort_keys=True)
-            if key not in seen:
-                seen.add(key)
-                verdicts.append(value)
+        # Python equality merges `"score": 1` and `1.0`; the type check keeps `"pass": 1`
+        # a different verdict from `"pass": true`.
+        if (
+            isinstance(value, dict)
+            and "pass" in value
+            and not any(
+                value == seen and type(value["pass"]) is type(seen["pass"]) for seen in verdicts
+            )
+        ):
+            verdicts.append(value)
         start = text.find("{", end)
     if not verdicts:
         return None, 'has no verdict object with a "pass" key'
