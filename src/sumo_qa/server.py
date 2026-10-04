@@ -1940,7 +1940,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         or {"installed": false, "skill", "scope"} when the skill is absent.
         """
         try:
-            output = _check_external_skill_installed(skill, scope=scope) or {
+            output: dict[str, Any] = _check_external_skill_installed(skill, scope=scope) or {
                 "installed": False,
                 "skill": skill.strip(),
                 "scope": scope,
@@ -1950,7 +1950,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_check_external_skill_installed",
             args={"skill": skill, "scope": scope},
-            output=output,  # type: ignore[arg-type]
+            output=output,
         )
 
     @mcp.tool(annotations=_writer_external)
