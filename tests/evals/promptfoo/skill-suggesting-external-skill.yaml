@@ -103,7 +103,7 @@ prompts:
 
     > {{user_prompt}}
 
-    This eval cannot run MCP tools. The local install check was null and
+    This eval cannot run MCP tools. The local install check returned `installed: false` and
     `sumo_qa_search_external_skills` returned the supplied candidate. Produce
     only the permission gate the loaded skill requires. Name only the supplied
     external skill. Do not recommend a direct CLI command. Do not install
@@ -124,7 +124,7 @@ tests:
         fits this QA surface and routed here.
 
         ## MCP tool results supplied to this eval
-        - `sumo_qa_check_external_skill_installed(skill="playwright-e2e")` returned null.
+        - `sumo_qa_check_external_skill_installed(skill="playwright-e2e")` returned `{"installed": false, "skill": "playwright-e2e", "scope": "auto"}`.
         - `sumo_qa_search_external_skills(query="playwright e2e")` returned:
           ```
           {

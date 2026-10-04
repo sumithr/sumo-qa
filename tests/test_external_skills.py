@@ -1,6 +1,8 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -168,6 +170,39 @@ def test_check_external_skill_installed_finds_project_and_global_paths(tmp_path:
 def test_check_external_skill_installed_validates_inputs(skill, scope, message) -> None:
     with pytest.raises(ValueError, match=message):
         ext.check_external_skill_installed(skill, scope=scope)
+
+
+def _call_check_installed(**args) -> tuple[bool, str]:
+    result = asyncio.run(
+        sumo_server.build_mcp_server().call_tool("sumo_qa_check_external_skill_installed", args)
+    )
+    return result.is_error, "\n".join(block.text for block in result.content)
+
+
+def test_check_external_skill_installed_dispatch_separates_found_absent_and_error(
+    _empty_claude_home: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Technique: equivalence partitioning over the three outcomes, through real
+    MCP dispatch with an empty HOME and cwd. Absent used to serialize as empty
+    content, indistinguishable from an output-less call (#821)."""
+    monkeypatch.chdir(tmp_path)
+    skill_path = tmp_path / ".codex" / "skills" / "mypy-type-checking" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text("# Mypy skill", encoding="utf-8")
+
+    _, found = _call_check_installed(skill="mypy-type-checking")
+    is_error, absent = _call_check_installed(skill=" missing-skill ", scope="global")
+    _, error = _call_check_installed(skill=" ")
+
+    assert json.loads(found) == {
+        "name": "mypy-type-checking",
+        "path": skill_path.resolve().as_posix(),
+        "agent": "codex",
+        "scope": "project",
+    }
+    assert is_error is False
+    assert json.loads(absent) == {"installed": False, "skill": "missing-skill", "scope": "global"}
+    assert json.loads(error)["isError"] is True
 
 
 def test_execute_external_skill_returns_handoff_payload(tmp_path: Path) -> None:

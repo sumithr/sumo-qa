@@ -73,6 +73,7 @@ from sumo_qa.knowledge_loaders import (
 )
 from sumo_qa.server_schemas import (
     CheckExternalSkillInstalledOutput,
+    CheckExternalSkillNotInstalledOutput,
     DiffImpactOutput,
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
@@ -1932,20 +1933,24 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     def sumo_qa_check_external_skill_installed(
         skill: str,
         scope: str = "auto",
-    ) -> CheckExternalSkillInstalledOutput | ErrorEnvelope | None:
+    ) -> CheckExternalSkillInstalledOutput | CheckExternalSkillNotInstalledOutput | ErrorEnvelope:
         """Locate an installed external SKILL.md file for Codex, Claude, or agents paths.
 
         Returns the first matching path for project or global skill locations,
-        or null when the skill is absent.
+        or {"installed": false, "skill", "scope"} when the skill is absent.
         """
         try:
-            output = _check_external_skill_installed(skill, scope=scope)
+            output: dict[str, Any] = _check_external_skill_installed(skill, scope=scope) or {
+                "installed": False,
+                "skill": skill.strip(),
+                "scope": scope,
+            }
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_check_external_skill_installed",
             args={"skill": skill, "scope": scope},
-            output=output,  # type: ignore[arg-type]
+            output=output,
         )
 
     @mcp.tool(annotations=_writer_external)
