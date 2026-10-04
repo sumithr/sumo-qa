@@ -598,6 +598,19 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             'nested "pass"',
             id="a-nested-pass-in-a-list-that-contradicts-the-verdict",
         ),
+        # The rubrics ask the reason to end in the verdict: a stated verdict word, or a
+        # PASS/FAIL "verdict" value inside the verdict, that contradicts "pass" is ambiguous.
+        pytest.param(
+            '{"pass": true, "score": 0.45, "reason": "A SHAPE: FAIL. B GROUNDING: PASS. '
+            'VERDICT: FAIL."}',
+            "contradicts",
+            id="a-reason-verdict-word-that-contradicts-pass",
+        ),
+        pytest.param(
+            '{"pass": true, "score": 1, "reason": "ok", "verdict": "FAIL"}',
+            "contradicts",
+            id="a-string-verdict-key-that-contradicts-pass",
+        ),
         # Only an exact format template is exempt: a filled-in placeholder is not one.
         pytest.param(
             '{"pass": <true|false> false, "score": 0.1}\n{"pass": true, "score": 1, "reason": "ok"}',
@@ -704,6 +717,22 @@ def test_a_real_verdict_contradicted_later_in_the_reply_is_an_error(monkeypatch,
     _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply + "\n\n" + flipped}))
 
     assert "2 different verdict objects" in provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "claude-opus-5, retrospective regression case, pass 0.88",
+        "claude-opus-5-5, hook-environment seed (#769), fail 0.45",
+    ],
+)
+def test_a_real_verdict_whose_reason_contradicts_its_pass_is_an_error(monkeypatch, key):
+    reply = _REPLIES["verdicts"][key]
+    was = json.loads(reply)["pass"]
+    flipped = reply.replace(f'"pass": {json.dumps(was)}', f'"pass": {json.dumps(not was)}', 1)
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": flipped}))
+
+    assert "contradicts" in provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
 
 
 def test_a_real_answer_with_no_verdict_is_an_error_after_two_calls(monkeypatch):

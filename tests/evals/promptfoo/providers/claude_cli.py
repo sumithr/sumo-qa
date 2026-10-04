@@ -107,6 +107,10 @@ _KEY_BEFORE = re.compile(r"""["']\s*:\s*(?:\[\s*)?\Z""")
 # An object followed by `,` `"` `'` `:` `}` or `]` was cut out of a larger structure (an
 # outer object that closed early on an unescaped quote), so its siblings are not top level.
 _CUT_AFTER = re.compile(r"""\s*[,"':}\]]""")
+# Every rubric asks the reason to end in its verdict ("Verdict PASS.", "VERDICT: FAIL").
+_VERDICT_WORD = re.compile(r"\bverdict\b\W{0,6}(pass|fail)\b", re.IGNORECASE)
+# A string a "verdict", "passed" or "result" key may state the grade in.
+_STATED = {"pass": True, "true": True, "fail": False, "false": False}
 
 
 def call_api(prompt, options=None, context=None):
@@ -286,6 +290,10 @@ def _verdict(text):
         return None, '"score" is not a finite number'
     if not isinstance(verdict.get("reason", ""), str):
         return None, '"reason" is not a string'
+    # A verdict word anywhere in the reply, or a stated grade inside the verdict, must agree.
+    stated = [m[1].casefold() == "pass" for m in _VERDICT_WORD.finditer(text)]
+    if any(said != verdict["pass"] for said in stated + _stated(verdict)):
+        return None, 'states a verdict that contradicts "pass"'
     return verdict, None
 
 
@@ -295,12 +303,31 @@ def _children(value):
     return value if isinstance(value, list) else []
 
 
+def _word(text):
+    return re.sub(r"[\W_]", "", text).casefold()
+
+
+def _stated(value):
+    """The PASS/FAIL or true/false strings under a "verdict", "passed" or "result" key at
+    any depth, as booleans."""
+    said = []
+    if isinstance(value, dict):
+        said = [
+            _STATED[_word(item)]
+            for key, item in value.items()
+            if _word(key) in ("verdict", "passed", "result")
+            and isinstance(item, str)
+            and _word(item) in _STATED
+        ]
+    return said + [s for child in _children(value) for s in _stated(child)]
+
+
 def _variant_key(value):
     """True when a dict at any depth has a key spelled like "pass" that is not exactly
     "pass" (`"Pass"`, `" pass"`), or a "passed" or "verdict" key holding a boolean."""
     if isinstance(value, dict):
         for key, item in value.items():
-            word = re.sub(r"[\W_]", "", key).casefold()
+            word = _word(key)
             if (word == "pass" and key != "pass") or (
                 word in ("passed", "verdict") and isinstance(item, bool)
             ):
