@@ -303,6 +303,34 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
             {"pass": True, "score": 0.9, "reason": "ok"},
             id="the-rubric-format-template-before-the-verdict",
         ),
+        pytest.param(
+            '{ "pass": <true|false>, ... } Here: {"pass": true, "score": 0.9, "reason": "ok"}',
+            {"pass": True, "score": 0.9, "reason": "ok"},
+            id="a-spaced-format-template-before-the-verdict",
+        ),
+        # A "pass" key in plain prose, outside every object that failed to decode, is not
+        # a verdict.
+        pytest.param(
+            'Rubric requires "pass": true only if A.\n{"pass": false, "score": 0.2, "reason": "bad"}',
+            {"pass": False, "score": 0.2, "reason": "bad"},
+            id="a-pass-key-in-prose-before-the-verdict",
+        ),
+        pytest.param(
+            'Axis A: "pass": true. Axis B: "pass": false. '
+            '{"pass": false, "score": 0.4, "reason": "B fails"}',
+            {"pass": False, "score": 0.4, "reason": "B fails"},
+            id="per-axis-pass-keys-in-prose-before-the-verdict",
+        ),
+        pytest.param(
+            '{"id": user.id}. {"pass": true, "score": 1, "reason": "ok"}',
+            {"pass": True, "score": 1, "reason": "ok"},
+            id="a-closed-undecodable-object-before-the-verdict",
+        ),
+        pytest.param(
+            '{x} {"pass": true, "score": 1, "reason": "ok"}',
+            {"pass": True, "score": 1, "reason": "ok"},
+            id="a-prose-brace-pair-before-the-verdict",
+        ),
     ],
 )
 def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, verdict):
@@ -387,6 +415,33 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             "malformed verdict",
             id="single-quoted-pass-after-a-quoted-verdict",
         ),
+        # A verdict that starts inside an object that does not decode is part of that
+        # object, never the grade.
+        pytest.param(
+            '{"summary": {"pass": true, "score": 1}, "reason": "the answer is "fine""}',
+            "malformed verdict",
+            id="a-verdict-inside-an-object-with-unescaped-quotes",
+        ),
+        pytest.param(
+            '{"summary": {"pass": true, "score": 1}, "reason": "x",}',
+            "malformed verdict",
+            id="a-verdict-inside-an-object-with-a-trailing-comma",
+        ),
+        pytest.param(
+            '{"axes": [{"pass": true, "score": 1}], "reason": "cut',
+            "malformed verdict",
+            id="a-verdict-inside-a-truncated-object",
+        ),
+        pytest.param(
+            '{"A SHAPE": {"pass": true, "score": 1}, "B GROUNDING": ',
+            "malformed verdict",
+            id="an-axis-verdict-inside-a-truncated-object",
+        ),
+        pytest.param(
+            '{"PASS": false, "notes": {"pass": true, "score": 1}, "reason": "cut',
+            "malformed verdict",
+            id="a-verdict-inside-a-truncated-object-with-an-upper-case-pass",
+        ),
         pytest.param("I think it passes {", "no verdict", id="stray-opening-brace"),
         pytest.param(
             '{"summary": {"pass": true, "score": 1}}',
@@ -453,6 +508,16 @@ def test_a_json_reply_without_a_boolean_verdict_is_an_error(monkeypatch, reply, 
     assert problem in response["error"]
     # The excerpt is the reply's repr, which escapes a quote the reply mixes with the other.
     assert repr(reply[:40])[1:-1] in response["error"]
+
+
+@pytest.mark.parametrize("comma", ["", ","], ids=["no-comma", "trailing-comma"])
+def test_a_verdict_nested_in_a_non_verdict_object_is_never_graded(monkeypatch, comma):
+    reply = '{"summary": {"pass": true, "score": 1}, "reason": "x"' + comma + "}"
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
+
+    response = provider.call_api("the prompt", JUDGE_OPTIONS)
+
+    assert "output" not in response and response["error"].startswith("judge reply ")
 
 
 # Real judge replies (tests/fixtures/judge_replies.json). The replies the old parser
@@ -633,6 +698,13 @@ def test_home_is_redacted_before_punctuation_but_not_inside_another_path(monkeyp
     assert provider._redact(text) == (f"~. ~, ~: (~) [~] /data{home}/x {home}-x {home}_x")
 
 
+def test_home_is_redacted_before_a_full_stop_but_not_before_a_dotted_name(monkeypatch):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/Users/al")))
+    text = "/Users/al.smith/x /Users/al.old see /Users/al."
+
+    assert provider._redact(text) == "/Users/al.smith/x /Users/al.old see ~."
+
+
 def _fake_cli_stderr(monkeypatch, stderr):
     """A CLI that prints no JSON envelope, only `stderr`."""
 
@@ -648,6 +720,33 @@ def test_a_secret_cut_at_the_excerpt_cap_leaks_no_prefix(monkeypatch):
     error = provider.call_api("the prompt", OPTIONS)["error"]
 
     assert _KEY[:10] not in error and "[REDACTED]" in error
+
+
+def _secret_at(prefix, render=lambda result: result):
+    """A result whose _KEY starts 10 characters before the excerpt cap of `render(result)`,
+    the text the error excerpt is cut from."""
+    pad = _EXCERPT_CAP - 10 - render(prefix + " " + _KEY).index(_KEY)
+    return prefix + "x" * pad + " " + _KEY
+
+
+def test_a_failed_call_excerpt_is_redacted_before_the_cut(monkeypatch):
+    result = _secret_at("", lambda result: json.dumps({**SUCCESS, "result": result}))
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": result}), returncode=1)
+
+    error = provider.call_api("the prompt", OPTIONS)["error"]
+
+    assert error.startswith("claude call failed") and "sk-ant-api" not in error
+
+
+def test_a_usage_limit_excerpt_is_redacted_before_the_cut(monkeypatch):
+    _fake_cli(
+        monkeypatch,
+        json.dumps({**SUCCESS, "result": _secret_at("Claude AI usage limit reached|1789400000")}),
+    )
+
+    error = provider.call_api("the prompt", OPTIONS)["error"]
+
+    assert error.startswith("claude usage limit: ") and "sk-ant-api" not in error
 
 
 def test_a_windows_home_is_redacted_before_the_excerpt_is_quoted(monkeypatch):

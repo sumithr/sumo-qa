@@ -628,14 +628,15 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   unparseable, and a `{` there could turn a failing verdict into a silent pass.
   The verdict is the reply's one top-level object with a `"pass"` key, wherever it sits;
   other objects, prose and braces that do not decode (`{x}`, `{'a': 1}`) are ignored.
-  Two different verdicts are an error, and so is any `"pass"` key outside every decoded
-  top-level object, other than the rubric's own format template
-  (`{"pass": <true|false>, ...}`): it belongs to a verdict that did not decode
-  (truncated, a trailing comma, unescaped quotes), and no object nested inside a broken
-  verdict is graded in its place. A reply with no valid verdict is asked
-  once more; when the second has none either, both replies are written in full,
-  redacted, to `tests/evals/results/judge-replies/` (gitignored), and the error names
-  that file.
+  Two different verdicts are an error. So is a verdict, or any `"pass"` key, inside an
+  object that opens with a quoted key but does not decode (truncated, a trailing comma,
+  unescaped quotes), counted to its closing brace outside quoted strings, or to the end
+  of the reply: that object's own verdict is unknown, and nothing nested in it is graded
+  in its place. The rubric's own format template (`{"pass": <true|false>, ...}`) and a
+  `"pass"` key in prose outside every such object are not verdicts. A reply with no
+  valid verdict is asked once more; when the second has none either, both replies are
+  written in full, redacted, to `tests/evals/results/judge-replies/` (gitignored), and
+  the error names that file.
 
 ### Claude-pair baseline
 
