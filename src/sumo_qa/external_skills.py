@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import os
@@ -261,7 +262,8 @@ _TEXT_RULES = tuple(
             "critical",
             "writes_outside_project",
             "writes to a shell profile or a system path outside the project",
-            rf"(?:>>?|\btee\s+(?:-a\s+|--append\s+)?)\s*"
+            # each whitespace run read by one token, so a long run is not split
+            rf"(?:>>?\s*|\btee\s+(?:(?:-a|--append)\s+)?)"
             rf"(?:{_SHELL_PROFILE}|[\"']?/(?:etc|usr|bin|sbin|System)/)",
         ),
         (
@@ -337,24 +339,27 @@ _TEXT_RULES = tuple(
         ),
     )
 )
-# "do not", "don't" or "never" immediately before an SQA-EXT-001 or 002 verb
-# ("don't ignore the earlier rules", "never silently install"): that line
-# forbids the act. No word slot.
+# "do not", "don't" or "never" immediately before an SQA-EXT-001 or 002 verb,
+# on the verb's own line ("don't ignore the earlier rules", "never silently
+# install"): that line forbids the act. No word slot.
 _NEGATED = re.compile(r"\b(?:do\s+not|don't|don’t|never)\s+$", re.IGNORECASE)
-# Instruction rules read a markdown paragraph (soft-wrapped lines joined);
-# command rules read a logical line (a line ending in \, |, && or || joined
-# with the next). A unit longer than _LINT_LIMIT is read as overlapping windows
+# Instruction rules read the whole file as one text: markdown markers stripped
+# from each line (_MARKERS) and every whitespace run, newlines included, made
+# one space, so no soft wrap anywhere splits a phrase. Command rules read a
+# logical line (a line ending in \, |, && or || joined with the next). Either
+# text, when longer than _LINT_LIMIT, is read as overlapping windows
 # (_LINT_LIMIT wide, half that apart, so a shape up to half as long lies wholly
-# in one) and line by line, which bounds the regex work; it is also disclosed,
-# since a shape spread wider than a window and over lines can still be missed.
+# in one), which bounds the regex work. An instruction shape is far shorter
+# than that once whitespace is collapsed, so its windows miss nothing; a long
+# logical line is also read line by line and disclosed (_LONG_LINE), since a
+# command spread wider than a window and over lines can still be missed.
 _INSTRUCTION_RULES = {"SQA-EXT-001", "SQA-EXT-002"}
 _LINT_LIMIT = 4000
 _LONG_LINE = ("SQA-EXT-017", "high", "long_lines", "line too long to lint fully")
 _CONTINUED = re.compile(r"(\\|\||&&)\s*$")
 _FENCE = re.compile(r"^\s*(?:```|~~~)")
-_HEADING = re.compile(r"^\s{0,3}#{1,6}(?:\s|$)")
-# A line that starts a new markdown block: a heading, blockquote or list item.
-_BLOCK_START = re.compile(r"^\s{0,3}(?:#{1,6}(?:\s|$)|>)|^\s*(?:[-*+]|\d{1,9}[.)])(?:\s|$)")
+# Leading blockquote, list, table and heading markers, and a closing table pipe.
+_MARKERS = re.compile(r"^(?:\s*(?:>|[-*+](?=\s)|\d{1,9}[.)](?=\s)|#{1,6}(?=\s|$)|\|))*|\|\s*$")
 _EXECUTABLE_ASSET = ("SQA-EXT-010", "high", "executable_assets", "ships an executable file")
 _SCRIPT_ASSET = ("SQA-EXT-011", "medium", "scripts", "ships a script the skill may run")
 _BINARY_SUFFIXES = {".exe", ".dll", ".so", ".dylib", ".bin", ".com", ".msi", ".jar", ".app"}
@@ -492,7 +497,15 @@ def rollback_external_skill(
         lock = _read_lock(lock_base)
         paths = _rollback_paths(skill, scope, agent, lock["skills"])
         history = lock.get("history", {})
-        previous = next((history[p][-1] for p in paths if history.get(p)), None)
+        agents = {
+            lock["skills"][p].get("agent") for p in paths if isinstance(lock["skills"][p], dict)
+        }
+        # Another agent's install may have written the folder before this one:
+        # only this agent's own records are its previous versions.
+        previous = next(
+            (r for p in paths for r in reversed(history.get(p, [])) if r["agent"] in agents),
+            None,
+        )
         _check_no_dependent_link(lock_base, paths, lock["skills"], history, previous is not None)
         for path in paths:
             _check_unchanged(lock_base / path, path, lock["skills"][path])
@@ -505,21 +518,14 @@ def rollback_external_skill(
                         f"could not remove {folder}; the lock is unchanged, so retry the rollback"
                     )
                 del lock["skills"][path]
+                history.pop(path, None)  # only other agents' records, for a folder now gone
             _write_lock(lock_base, lock)
             return {"skill": skill, "scope": scope, "action": "removed", "removed": paths}
-        agents = {
-            lock["skills"][p].get("agent") for p in paths if isinstance(lock["skills"][p], dict)
-        }
     # The same test _rollback_paths applies: the CLI writes both to one folder.
     if _candidate_skill_names(str(previous["skill"]))[0] != _candidate_skill_names(skill)[0]:
         raise ExternalSkillProvenanceError(
             f"the history record to restore is for skill {previous['skill']!r}, not {skill!r}; "
             "refusing to install it"
-        )
-    if previous["agent"] not in agents:
-        raise ExternalSkillProvenanceError(
-            f"the history record to restore is for agent {previous['agent']!r}, not "
-            f"{', '.join(sorted(map(repr, agents)))}; refusing to install it"
         )
     # ponytail: the guard is released before the restore takes it again, so an
     # install of the same skill landing in between is the one rolled over.
@@ -598,8 +604,10 @@ def _check_no_dependent_link(
     A restore rewrites the canonical copy its links point at, so their targets
     count too, and a target recorded as another agent's folder is refused
     outright: the restore would overwrite its record. When the other install
-    could not be rolled back first either (it restores into this one's folder),
-    the refusal says so instead of sending the caller round in a circle.
+    could not be rolled back first either (it restores through the same
+    folder), the refusal says so instead of sending the caller round in a
+    circle; a link into a subfolder does not block the other's restore, but
+    that restore may link here again, so the refusal names both steps.
     """
     targets = {
         path: (lock_base / path).resolve()
@@ -620,11 +628,18 @@ def _check_no_dependent_link(
             if hops[path] in chain or (
                 target and entry.is_symlink() and (resolved == target or target in resolved.parents)
             ):
-                way_out = (
-                    _CIRCULAR
-                    if history.get(other) and owner not in mine
-                    else f"roll back {other} first"
+                restores = owner not in mine and any(
+                    r["agent"] == owner for r in history.get(other, [])
                 )
+                if not restores:
+                    way_out = f"roll back {other} first"
+                elif hops[path] in chain or resolved == target:
+                    way_out = _CIRCULAR
+                else:  # a link into a subfolder: its own rollback is not blocked
+                    way_out = (
+                        f"roll back {other} first; if it still links here after that, remove "
+                        "it by hand (the link and its lock record)"
+                    )
                 raise ExternalSkillProvenanceError(
                     f"{other} (agent {owner!r}) links into {path}, which this rollback would "
                     f"remove or replace; {way_out}"
@@ -674,7 +689,7 @@ def _check_unchanged(folder: Path, path: str, record: Any) -> None:
 
 def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list[dict[str, Any]]:
     """Safety-lint one payload file: one finding per rule it trips, at the first
-    line of the first (joined) line or paragraph that trips it."""
+    line that trips it (an instruction rule's verb, a joined line's first)."""
     findings = []
     suffix = Path(relpath).suffix.lower()
     if executable or suffix in _BINARY_SUFFIXES or suffix in _SCRIPT_SUFFIXES:
@@ -684,18 +699,20 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
         findings.append(_finding(rule, severity, message, relpath, None, 1))
     physical = data.decode("utf-8", errors="replace").splitlines()
     lines = _logical_lines(physical)
-    paragraphs = _paragraphs(lines)
-    long = sorted({start for start, _, text in [*lines, *paragraphs] if len(text) > _LINT_LIMIT})
+    text, starts = _collapsed(physical)
+    long = sorted({start for start, _, unit in lines if len(unit) > _LINT_LIMIT})
     for rule, severity, _, message, pattern in _TEXT_RULES:
-        units = paragraphs if rule in _INSTRUCTION_RULES else lines
-        hits = [
-            start
-            for start, end, text in units
-            if any(
-                _line_hits(rule, pattern, part, offset)
-                for part, offset in _parts(text, start, end, physical)
-            )
-        ]
+        if rule in _INSTRUCTION_RULES:
+            hits = _instruction_hits(pattern, text, starts)
+        else:
+            hits = [
+                start
+                for start, end, unit in lines
+                if any(
+                    _line_hits(pattern, part, offset)
+                    for part, offset in _parts(unit, start, end, physical)
+                )
+            ]
         if hits:
             findings.append(_finding(rule, severity, message, relpath, hits[0], len(hits)))
     if long:
@@ -711,8 +728,51 @@ def _parts(text: str, start: int, end: int, physical: list[str]) -> list[tuple[s
     if len(text) <= _LINT_LIMIT:
         return [(text, 0)]
     lines = physical[start - 1 : end] if end > start else []
+    return [(part, i) for part in [text, *lines] for i in _windows(part)]
+
+
+def _windows(text: str) -> range:
+    """Start offsets of the overlapping _LINT_LIMIT windows covering ``text``."""
     step = _LINT_LIMIT // 2
-    return [(part, i) for part in [text, *lines] for i in range(0, max(len(part) - step, 1), step)]
+    return range(0, max(len(text) - step, 1), step)
+
+
+def _collapsed(physical: list[str]) -> tuple[str, list[tuple[int, int]]]:
+    """The whole file as one line for the instruction rules: each line's
+    markdown markers stripped, every whitespace run made one space. Returns it
+    with (offset, line number) for the start of each non-blank line."""
+    parts: list[str] = []
+    starts: list[tuple[int, int]] = []
+    offset = 0
+    for number, line in enumerate(physical, 1):
+        words = _MARKERS.sub("", line).split()
+        if words:
+            starts.append((offset, number))
+            part = " ".join(words)
+            parts.append(part)
+            offset += len(part) + 1
+    return " ".join(parts), starts
+
+
+def _instruction_hits(
+    pattern: re.Pattern[str], text: str, starts: list[tuple[int, int]]
+) -> list[int]:
+    """Lines of every match in ``text`` (read in windows) that is not directly
+    negated on its own line, in order."""
+    hits: set[int] = set()
+    for offset in _windows(text):
+        window = text[offset : offset + _LINT_LIMIT]
+        match = pattern.search(window)
+        while match:
+            at = offset + match.start()
+            line_start, number = starts[
+                bisect.bisect_right(starts, at, key=lambda start: start[0]) - 1
+            ]
+            # A bounded look back: each check stays O(1) on a long line.
+            if not _NEGATED.search(text, max(line_start, at - 32), at):
+                hits.add(number)
+            match = pattern.search(window, match.start() + 1)
+    return sorted(hits)
 
 
 def _is_table_row(line: str) -> bool:
@@ -746,46 +806,9 @@ def _logical_lines(lines: list[str]) -> list[tuple[int, int, str]]:
     return joined
 
 
-def _paragraphs(lines: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
-    """Markdown paragraphs: runs of soft-wrapped lines joined, as (first line,
-    last line, text). A blank line, heading, blockquote, list item, table row or
-    fence line starts a new one; a heading, table row or fence line, and every
-    line inside a fence, stands alone."""
-    paragraphs: list[tuple[int, int, str]] = []
-    run: list[tuple[int, int, str]] = []
-    fenced = False
-    for start, end, text in [*lines, (0, 0, "")]:
-        fence = _FENCE.match(text)
-        alone = fence or fenced or _HEADING.match(text) or _is_table_row(text)
-        if run and (alone or not text.strip() or _BLOCK_START.match(text)):
-            paragraphs.append((run[0][0], run[-1][1], " ".join(t for _, _, t in run)))
-            run = []
-        if fence:
-            fenced = not fenced
-        if alone:
-            if text.strip():
-                paragraphs.append((start, end, text))
-        elif text.strip():
-            run.append((start, end, text))
-    return paragraphs
-
-
-def _line_hits(rule: str, pattern: re.Pattern[str], line: str, offset: int = 0) -> bool:
-    """Whether the _LINT_LIMIT window of ``line`` at ``offset`` trips ``rule``:
-    any match does, except an SQA-EXT-001 or 002 match directly negated (read
-    in ``line``, so a window starting after its "never" still sees it); every
-    match position counts, overlapping ones included."""
-    window = line[offset : offset + _LINT_LIMIT]
-    match = pattern.search(window)
-    if rule not in _INSTRUCTION_RULES:
-        return match is not None
-    while match:
-        at = offset + match.start()
-        # A window, not the whole prefix: each check stays O(1) on a long line.
-        if not _NEGATED.search(line, max(0, at - 32), at):
-            return True
-        match = pattern.search(window, match.start() + 1)
-    return False
+def _line_hits(pattern: re.Pattern[str], line: str, offset: int = 0) -> bool:
+    """Whether the _LINT_LIMIT window of ``line`` at ``offset`` trips a command rule."""
+    return pattern.search(line[offset : offset + _LINT_LIMIT]) is not None
 
 
 def _finding(
@@ -1843,11 +1866,15 @@ def _merge_into_lock(base: Path, records: list[dict[str, Any]], restore: bool = 
         stack = history.setdefault(record["path"], [])
         current = lock["skills"].get(record["path"])
         if restore:
-            if stack and stack[-1]["content_digest"] == record["content_digest"]:
-                # The original record, under the folder actually written, with
-                # this restore's own trust decision and time.
+            # The newest entry with the restored content (another agent's may
+            # be newer), under the folder actually written, with this
+            # restore's own trust decision and time.
+            found = [
+                i for i, e in enumerate(stack) if e["content_digest"] == record["content_digest"]
+            ]
+            if found:
                 records[index] = record = {
-                    **stack.pop(),
+                    **stack.pop(found[-1]),
                     "path": record["path"],
                     "trust": record["trust"],
                     "installed_at": record["installed_at"],
