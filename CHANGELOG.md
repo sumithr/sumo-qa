@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.74.0](https://github.com/sumithr/sumo-qa/compare/v0.73.1...v0.74.0) (2026-10-04)
+
+
+### Features
+
+* **installer:** save the MCP tool profile once for every launch path ([#836](https://github.com/sumithr/sumo-qa/issues/836)) ([b9215a8](https://github.com/sumithr/sumo-qa/commit/b9215a8b7478fba418c7deb1f55bc2ed56939302))
+* **release:** ship SBOM, build provenance and digests, and pin every action to a commit SHA ([#838](https://github.com/sumithr/sumo-qa/issues/838)) ([df310e6](https://github.com/sumithr/sumo-qa/commit/df310e6c87f3281659b854ce8464fd3c83f24afc))
+
+
+### Miscellaneous Chores
+
+* **evals:** grade a judge reply only when its verdict is unambiguous, retry once, and keep the reply ([#839](https://github.com/sumithr/sumo-qa/issues/839)) ([237ea59](https://github.com/sumithr/sumo-qa/commit/237ea593169e6666292cf644a98a879088d27639))
+
 ## [0.73.1](https://github.com/sumithr/sumo-qa/compare/v0.73.0...v0.73.1) (2026-10-04)
 
 
