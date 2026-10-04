@@ -413,6 +413,7 @@ _PROVENANCE = {
     "resolved_ref": "0123456789abcdef0123456789abcdef01234567",
     "content_digest": "sha256:" + "a" * 64,
     "agent": "codex",
+    "agents": ["codex"],
     "scope": "project",
     "path": ".codex/skills/mypy-type-checking",
     "installed_at": "2026-09-29T12:00:00+00:00",

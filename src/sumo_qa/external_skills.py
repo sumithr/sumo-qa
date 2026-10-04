@@ -66,6 +66,14 @@ class ExternalSkillApprovalError(ExternalSkillError):
     """Raised when an install has no approved preview digest, or the payload no longer matches it."""
 
 
+class ExternalSkillDeclinedError(ExternalSkillError):
+    """Raised when the user declines or dismisses sumo-qa's approval prompt; nothing was written."""
+
+
+class ExternalSkillApprovalUnavailableError(ExternalSkillError):
+    """Raised when sumo-qa cannot ask the user directly; nothing was written."""
+
+
 class ExternalSkillTrustError(ExternalSkillError):
     """Raised when a source needs an elevated-trust decision or the trust policy denies it."""
 
@@ -93,6 +101,12 @@ class InstalledSkill:
             "scope": self.scope,
         }
 
+
+# sumo-qa asks the user itself before an install, restore or removal writes
+# anything: the host passes an approver that shows the request (see
+# describe_approval) and returns True only on the user's own yes. It raises
+# ExternalSkillApprovalUnavailableError when it has no way to ask.
+Approver = Callable[[dict[str, Any]], bool]
 
 # The Skills CLI every subprocess runs. An exact version only: npx would
 # otherwise resolve whatever the registry serves as newest. Moving the pin is
@@ -243,7 +257,8 @@ _TEXT_RULES = tuple(
             + rf"|(?:\bsource|(?<![^\s;&|(])\.|\b{_INTERPRETER})\s+(?:<\s*)?<\(\s*{_DOWNLOADER}\b"
             # command substitution: bash -lc "$(curl ...)", eval `curl ...`
             rf"|\b(?:{_INTERPRETER}\s+-\w*c|eval)\s+[\"']?(?:\$\(|`)\s*{_DOWNLOADER}\b"
-            rf"|\b(?:iex|invoke-expression)\s*[(\s]\s*\(?\s*(?:{_DOWNLOADER}|new-object)\b",
+            # one character class for the gap, so a whitespace run has one reading
+            rf"|\b(?:iex|invoke-expression)[\s(]*(?:{_DOWNLOADER}|new-object)\b",
         ),
         (
             "SQA-EXT-004",
@@ -275,7 +290,8 @@ _TEXT_RULES = tuple(
             # one, then root or home, then the end of the word. The lookahead
             # (atomic) finds the recursive flag and the run is read once after
             # it, so no flag token is tried by two sub-patterns.
-            r"\brm(?=(?:\s+-[\w-]*)*?\s+(?:-(?=[a-z]*r)[a-z]+|--recursive)(?=\s))"
+            # never inside a flag (--rm), so a run of them is not restarted per flag
+            r"(?<![\w-])rm\b(?=(?:\s+-[\w-]*)*?\s+(?:-(?=[a-z]*r)[a-z]+|--recursive)(?=\s))"
             r"(?:\s+-[\w-]*)*\s+"
             rf"[\"']?(?:/|{_HOME})/?\*?[\"']?(?=[\s\"'`;&|)]|$)",
         ),
@@ -443,6 +459,7 @@ def install_external_skill(
     timeout: int = 120,
     cwd: Path | None = None,
     home: Path | None = None,
+    approve: Approver | None = None,
 ) -> dict[str, Any]:
     """Install a previewed skill through the pinned Skills CLI after explicit confirmation.
 
@@ -450,7 +467,9 @@ def install_external_skill(
     hands the CLI only that local checkout, so the installed bytes come from
     exactly the recorded commit. The payload must match ``approved_digest``
     (the ``content_digest`` of the preview the user confirmed) and pass the
-    safety lint before anything is written. Each folder the install wrote is
+    safety lint, and ``approve`` (the user's own answer, asked by sumo-qa
+    with the payload's source, commit, digest, trust and findings) must say
+    yes, before anything is written. Each folder the install wrote is
     digested and recorded in the scope's provenance lock for
     ``execute_external_skill``.
     """
@@ -459,7 +478,7 @@ def install_external_skill(
             "external skill install requires confirmed=True"
         )
     return _install(
-        skill, source, scope, agent, approved_digest, elevated_trust, timeout, cwd, home
+        skill, source, scope, agent, approved_digest, elevated_trust, timeout, cwd, home, approve
     )
 
 
@@ -472,6 +491,7 @@ def rollback_external_skill(
     timeout: int = 120,
     cwd: Path | None = None,
     home: Path | None = None,
+    approve: Approver | None = None,
 ) -> dict[str, Any]:
     """Restore the previously approved version of a skill sumo-qa installed,
     or remove it when there is none (a first install).
@@ -482,7 +502,10 @@ def rollback_external_skill(
     against the trust policy again, so an unlisted one needs ``elevated_trust``.
     Only a single agent's install is rolled back: a skill recorded for more
     than one agent is shared and refused before anything changes, whatever
-    ``agent`` says. The checks run again under the restore's guard.
+    ``agent`` says, and so is a folder any other link under the scope's
+    skill roots reaches. ``approve`` (the user's own answer) must say yes
+    before anything is restored or removed; the checks run again after it,
+    under the guard the change is made under.
     """
     if not confirmed:
         raise ExternalSkillInstallConfirmationRequired(
@@ -499,7 +522,26 @@ def rollback_external_skill(
     with _lock_guard(lock_base):
         lock = _read_lock(lock_base)
         paths, previous = _rollback_plan(skill, scope, agent, lock_base, lock)
-        if previous is None:
+    if previous is None:
+        _ask_user(
+            approve,
+            {
+                "action": "remove",
+                "skill": skill,
+                "scope": scope,
+                "paths": paths,
+                "records": [lock["skills"][path] for path in paths],
+            },
+            f"the user can delete {', '.join(paths)} by hand",
+        )
+        # Not guarded while the user answers: what changed meanwhile is refused.
+        with _lock_guard(lock_base):
+            lock = _read_lock(lock_base)
+            if _rollback_plan(skill, scope, agent, lock_base, lock) != (paths, None):
+                raise ExternalSkillProvenanceError(
+                    f"the {scope} lock's records for {skill!r} changed while the user was "
+                    "asked; nothing was removed, so retry the rollback"
+                )
             for path in paths:
                 folder = lock_base / path
                 _remove_install(folder)
@@ -509,7 +551,7 @@ def rollback_external_skill(
                     )
                 del lock["skills"][path]
             _write_lock(lock_base, lock)
-            return {"skill": skill, "scope": scope, "action": "removed", "removed": paths}
+        return {"skill": skill, "scope": scope, "action": "removed", "removed": paths}
     # The same test _rollback_paths applies: the CLI writes both to one folder.
     if _candidate_skill_names(str(previous["skill"]))[0] != _candidate_skill_names(skill)[0]:
         raise ExternalSkillProvenanceError(
@@ -539,7 +581,9 @@ def rollback_external_skill(
         timeout,
         cwd,
         home,
+        approve,
         restore=recheck,
+        restoring=previous,
     )
     return {
         "skill": skill,
@@ -595,12 +639,12 @@ def _rollback_paths(
         )
 
     owners = {
-        p: {_agent_of(r), *(e["agent"] for e in history.get(p, []))}
+        p: _agents_of(r).union(*(_agents_of(e) for e in history.get(p, [])))
         for p, r in sorted(skills.items())
         if p in allowed and ours(r)
     }
     owners |= {
-        p: {e["agent"] for e in stack if ours(e)}
+        p: set().union(*(_agents_of(e) for e in stack if ours(e)))
         for p, stack in sorted(history.items())
         if p in allowed and p not in skills
     }
@@ -617,19 +661,54 @@ def _rollback_paths(
     shared: list[str] = []
     real = {p: (lock_base / p).resolve() for p in skills}
     for other, record in skills.items():
-        if _agent_of(record) == agent or other in paths:
+        if _agents_of(record) == {agent} or other in paths:
             continue
         linked = [p for p in paths if _linked(real[p], real[other])]
         if linked:
-            others.add(_agent_of(record))
+            others |= _agents_of(record) - {agent}
             shared += [*linked, other]
     if others:
         raise _shared(skill, others, sorted(set(shared)))
+    _check_no_other_links(skill, lock_base, paths)
     return paths
 
 
-def _agent_of(record: Any) -> Any:
-    return record.get("agent") if isinstance(record, dict) else None
+def _agents_of(record: Any) -> set[Any]:
+    """Every agent a record names, ``agent`` and ``agents`` alike (a set that
+    over-counts only refuses more), or {None} for a record that is no object."""
+    if not isinstance(record, dict):
+        return {None}
+    agents = record.get("agents")
+    return {record.get("agent"), *(agents if isinstance(agents, list) else [])}
+
+
+def _check_no_other_links(skill: str, lock_base: Path, paths: list[str]) -> None:
+    """Refuse when a link under the scope's skill roots, other than the folders
+    being changed and the links inside them, reaches one of them (to, into or
+    through it), recorded or not: an install made outside sumo-qa would lose
+    its skill."""
+    ours = [lock_base / p for p in paths]
+    real = [folder.resolve() for folder in ours]
+    found: list[str] = []
+    for first, second, _ in _SKILL_ROOTS:
+        root = lock_base / first / second
+        for dirpath, dirnames, filenames in os.walk(root):
+            current = Path(dirpath)
+            for name in [*dirnames, *filenames]:
+                entry = current / name
+                if not entry.is_symlink() or any(
+                    entry == folder or folder in entry.parents for folder in ours
+                ):
+                    continue
+                target = entry.resolve()
+                if any(_linked(target, folder) for folder in real):
+                    found.append(entry.relative_to(lock_base).as_posix())
+    if found:
+        raise ExternalSkillError(
+            f"{skill!r} is reached by links sumo-qa did not record for this install: "
+            f"{', '.join(sorted(found))}; another agent's install made outside sumo-qa may "
+            f"use it. Remove or reinstall it by hand: {', '.join(paths)}"
+        )
 
 
 def _linked(a: Path, b: Path) -> bool:
@@ -669,7 +748,12 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
             _EXECUTABLE_ASSET if executable or suffix in _BINARY_SUFFIXES else _SCRIPT_ASSET
         )
         findings.append(_finding(rule, severity, message, relpath, None, 1))
-    physical = data.decode("utf-8", errors="replace").splitlines()
+    try:
+        if b"\0" in data:
+            return findings  # a binary asset: no text an agent follows
+        physical = data.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return findings  # not UTF-8, so a binary asset too
     lines = _logical_lines(physical)
     text, starts = _collapsed(physical)
     long = sorted({start for start, _, unit in lines if len(unit) > _LINT_LIMIT})
@@ -797,6 +881,58 @@ def _finding(
     }
 
 
+def describe_approval(request: dict[str, Any]) -> str:
+    """The text a host shows the user for one approval request."""
+    action, skill, scope = request["action"], request["skill"], request["scope"]
+    if action == "remove":
+        lines = [f"Remove external skill {skill!r} ({scope} scope)? This deletes:"]
+        for path, record in zip(request["paths"], request["records"], strict=True):
+            shown = record if isinstance(record, dict) else {}
+            lines.append(
+                f"- {path} (from {shown.get('source')} at commit {shown.get('resolved_ref')}, "
+                f"digest {shown.get('content_digest')})"
+            )
+        return "\n".join(lines)
+    verb = "Install" if action == "install" else "Restore the previous version of"
+    trust = request["trust"]
+    reasons = f" ({', '.join(trust['reasons'])})" if trust["reasons"] else ""
+    lines = [
+        f"{verb} external skill {skill!r} for {request['agent']} ({scope} scope)?",
+        f"Source: {request['source']}",
+        f"Commit: {request['resolved_ref']}",
+        f"Content digest: {request['content_digest']}",
+        f"Trust: {trust['tier']}{reasons}",
+        "Safety findings:" if request["findings"] else "Safety findings: none",
+        *(
+            f"- {f['rule']} {f['severity']} {f['file']}"
+            + (f":{f['line']}" if f["line"] is not None else "")
+            + f" {f['message']}"
+            for f in request["findings"]
+        ),
+        "Approve only if you want exactly this payload written.",
+    ]
+    return "\n".join(lines)
+
+
+def _ask_user(approve: Approver | None, request: dict[str, Any], manual: str) -> None:
+    """Refuse unless the user, asked by sumo-qa through ``approve``, says yes.
+    There is no fallback to the agent's word: with no way to ask, refuse."""
+    what = f"{request['action']} {request['skill']!r}"
+    try:
+        if approve is None:
+            raise ExternalSkillApprovalUnavailableError("no approver")
+        approved = approve(request)
+    except ExternalSkillApprovalUnavailableError as exc:
+        raise ExternalSkillApprovalUnavailableError(
+            f"this host cannot ask the user directly ({exc}), and sumo-qa never acts on "
+            f"the agent's approval alone, so it will not {what}; {manual}"
+        ) from exc
+    if approved is not True:
+        raise ExternalSkillDeclinedError(
+            f"the user did not approve the {what} sumo-qa asked about; nothing was written"
+        )
+
+
 def _check_skill_request(skill: str, source: str, agent: str) -> tuple[str, str, str]:
     skill = skill.strip()
     source = source.strip()
@@ -827,9 +963,12 @@ def _install(
     timeout: int,
     cwd: Path | None,
     home: Path | None,
+    approve: Approver | None,
     restore: Callable[[], None] | None = None,
+    restoring: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """``restore``: a rollback's checks, run under the guard before the CLI."""
+    """``restore``: a rollback's checks, run under the guard before the CLI;
+    ``restoring``: the history record a rollback brings back."""
     skill, source, agent = _check_skill_request(skill, source, agent)
     if scope not in {"project", "global"}:
         raise ValueError("scope must be 'project' or 'global'")
@@ -879,6 +1018,25 @@ def _install(
         args = ["add", str(checkout), "--skill", skill, "-a", agent, "-y"]
         if scope == "global":
             args.append("-g")
+        _ask_user(
+            approve,
+            {
+                "action": "install" if restoring is None else "restore",
+                "skill": skill,
+                "scope": scope,
+                "agent": agent,
+                "source": remote_url,
+                "requested_ref": requested_ref,
+                "resolved_ref": resolved_ref,
+                "content_digest": payload["content_digest"],
+                "trust": trust,
+                "findings": payload["findings"],
+            },
+            "the user can install it themselves with: "
+            f"npx {_cli_spec()} add {remote_url} --skill {skill!r} -a {agent}"
+            + (" -g" if scope == "global" else "")
+            + f" (commit {resolved_ref})",
+        )
         # Every check that can refuse the run happens before the snapshot, so a
         # refusal never rolls back folders the CLI did not write.
         command = build_skills_cli_command(_pinned_npx(timeout), args)
@@ -911,7 +1069,7 @@ def _install(
                         raise ExternalSkillProvenanceError(
                             f"{record['path']} does not hold the approved payload"
                         )
-                _merge_into_lock(lock_base, records, restore is not None)
+                _merge_into_lock(lock_base, records, restoring)
             except BaseException as exc:
                 remaining = _roll_back(written, before_entries)
                 paths = ", ".join(f.as_posix() for f in remaining)
@@ -1058,8 +1216,22 @@ def hint_for_exception(exc: BaseException) -> str:
     """Map an exception to a one-line actionable hint for the host LLM."""
     if isinstance(exc, ExternalSkillInstallConfirmationRequired):
         return (
-            "Confirm the user approved the install in this conversation, then retry "
-            "with confirmed=true."
+            "Preview the skill with sumo_qa_preview_external_skill and show the user that "
+            "payload; once they want it, retry with confirmed=true and the preview's "
+            "content_digest as approved_digest. sumo-qa then asks the user itself to approve "
+            "the exact payload before writing."
+        )
+    if isinstance(exc, ExternalSkillDeclinedError):
+        return (
+            "The user declined sumo-qa's approval prompt, so nothing was written. Do not retry "
+            "unless the user asks for it again; offer the next candidate."
+        )
+    if isinstance(exc, ExternalSkillApprovalUnavailableError):
+        return (
+            "This host cannot show sumo-qa's approval prompt (MCP elicitation), and sumo-qa "
+            "never installs on the agent's approval alone. Do not retry. Give the user the "
+            "manual command from the error (npx skills add ...) to run themselves if they want "
+            "the skill; sumo_qa_execute_external_skill then loads it as unrecorded."
         )
     if isinstance(exc, SkillsCLIVersionError):
         return (
@@ -1093,8 +1265,10 @@ def hint_for_exception(exc: BaseException) -> str:
     if isinstance(exc, ExternalSkillProvenanceError):
         return (
             "Do not execute this skill: its installed content or provenance record "
-            "does not match, or provenance could not be recorded. Reinstall it via "
-            "sumo_qa_install_external_skill once the user confirms. If the error says "
+            "does not match, or provenance could not be recorded. To reinstall it, preview it "
+            "with sumo_qa_preview_external_skill, then call sumo_qa_install_external_skill with "
+            "the preview's content_digest as approved_digest; sumo-qa asks the user to approve "
+            "the payload before writing. If the error says "
             "the provenance lock (.sumo-qa/external-skills.lock.json) is unreadable, "
             "ask the user to repair or remove that file first; removing it drops every "
             "record."
@@ -1128,8 +1302,10 @@ def hint_for_exception(exc: BaseException) -> str:
         return "Check the tool arguments — the error message names the rejected value."
     if isinstance(exc, ExternalSkillError):
         return (
-            "Surface the error above. If the skill is missing, install it first via "
-            "sumo_qa_install_external_skill."
+            "Surface the error above. If the skill is missing, install it first: preview it "
+            "with sumo_qa_preview_external_skill, then call sumo_qa_install_external_skill with "
+            "the preview's content_digest as approved_digest; sumo-qa asks the user to approve "
+            "the payload before writing."
         )
     return "Surface the error above and stop."
 
@@ -1139,8 +1315,16 @@ def rollback_hint_for_exception(exc: BaseException) -> str:
     (approve a preview, next candidate) would send the caller the wrong way."""
     if isinstance(exc, ExternalSkillInstallConfirmationRequired):
         return (
-            "Confirm the user approved the rollback in this conversation, then retry "
-            "with confirmed=true."
+            "Confirm the user wants the rollback in this conversation, then retry "
+            "with confirmed=true; sumo-qa then asks the user itself to approve the change."
+        )
+    if isinstance(exc, ExternalSkillDeclinedError):
+        return "The user declined the rollback in sumo-qa's prompt; nothing changed. Do not retry."
+    if isinstance(exc, ExternalSkillApprovalUnavailableError):
+        return (
+            "This host cannot show sumo-qa's approval prompt (MCP elicitation), and sumo-qa "
+            "never rolls back on the agent's approval alone. Do not retry; tell the user what "
+            "the error says they can change by hand."
         )
     if isinstance(exc, ExternalSkillTrustPolicyError):
         return hint_for_exception(exc)
@@ -1216,8 +1400,11 @@ def skill_content_digest(folder: Path) -> str:
     return _digest_of(_content_entries(Path(folder)))
 
 
-def _content_entries(root: Path) -> dict[tuple[str, str], str]:
-    """Map each ``(kind, relative path)`` under ``root`` to its content.
+def _content_entries(
+    root: Path, contents: dict[str, bytes] | None = None
+) -> dict[tuple[str, str], str]:
+    """Map each ``(kind, relative path)`` under ``root`` to its content, and
+    each file's bytes into ``contents`` when given (so a caller reads them once).
 
     ``kind`` is ``file`` (value: SHA-256 of its bytes) or ``link`` (value: the
     link target). A symlink inside the folder is pinned by its target and not
@@ -1238,7 +1425,10 @@ def _content_entries(root: Path) -> dict[tuple[str, str], str]:
                     _check_link_stays_inside(path, root_real)
                     entries[("link", relpath)] = os.readlink(path)
                 elif name in filenames:
-                    entries[("file", relpath)] = _hash_regular_file(path)
+                    data = _read_regular_file(path)
+                    if contents is not None:
+                        contents[relpath] = data
+                    entries[("file", relpath)] = hashlib.sha256(data).hexdigest()
     except OSError as exc:
         raise ExternalSkillReadError(f"could not read {exc.filename or root}: {exc}") from exc
     return entries
@@ -1258,11 +1448,11 @@ def _check_link_stays_inside(  # pragma: no cover -- POSIX only
         )
 
 
-def _hash_regular_file(path: Path) -> str:
+def _read_regular_file(path: Path) -> bytes:
     try:
         if not path.is_file():  # pragma: no cover -- platform-conditional (POSIX only)
             raise ExternalSkillProvenanceError(f"{path} is not a regular file; refusing to read it")
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return path.read_bytes()
     except OSError as exc:
         raise ExternalSkillReadError(f"could not read {path}: {exc}") from exc
 
@@ -1306,7 +1496,8 @@ def _stage_payload(
 
 
 def _inspect_payload(folder: Path) -> dict[str, Any]:
-    entries = _content_entries(folder)
+    contents: dict[str, bytes] = {}
+    entries = _content_entries(folder, contents)
     files, findings = [], []
     for (kind, relpath), value in sorted(entries.items(), key=lambda item: item[0][1]):
         entry: dict[str, Any] = {"path": relpath, "size": None, "sha256": None}
@@ -1314,9 +1505,8 @@ def _inspect_payload(folder: Path) -> dict[str, Any]:
         if kind == "link":  # pragma: no cover -- platform-conditional (POSIX only)
             files.append({**entry, "link_target": value})
             continue
-        path = folder / relpath
-        data = path.read_bytes()
-        executable = sys.platform != "win32" and bool(path.stat().st_mode & 0o111)
+        data = contents[relpath]
+        executable = sys.platform != "win32" and bool((folder / relpath).stat().st_mode & 0o111)
         files.append({**entry, "size": len(data), "sha256": value, "executable": executable})
         findings += lint_skill_file(relpath, data, executable)
     findings.sort(key=lambda f: (_SEVERITIES.index(f["severity"]), f["rule"], f["file"]))
@@ -1336,18 +1526,22 @@ def _inspect_payload(folder: Path) -> dict[str, Any]:
 
 
 def _source_key(remote_url: str) -> str:
-    """One identity per repository however it is spelled: ``host/path`` with the
-    scheme, user, port, ``www.``, trailing ``/`` and ``.git`` dropped, the host
-    lowercased, and on github.com (case-insensitive) the path lowercased too."""
+    """One identity per repository however it is spelled: ``host[:port]/path``
+    with the scheme, user, trailing ``/`` and ``.git`` dropped and the host
+    lowercased. github.com, ``www.github.com`` and ``ssh.github.com`` (any
+    port) are one host, github.com, whose paths are case-insensitive too.
+    Elsewhere a port or ``www.`` can name another server, so both are kept."""
     _, has_scheme, rest = remote_url.partition("://")
     if has_scheme:  # https:// or ssh://[user@]host[:port]/path
         authority, _, path = rest.partition("/")
-        host = authority.rpartition("@")[2].partition(":")[0]
+        host = authority.rpartition("@")[2].lower()
     else:  # git@host:path
         host, _, path = remote_url.removeprefix("git@").partition(":")
-    host = host.lower().removeprefix("www.")
+        host = host.lower()
     path = path.strip("/").removesuffix(".git").rstrip("/")
-    return f"{host}/{path.lower() if host == 'github.com' else path}"
+    if host.partition(":")[0] in {"github.com", "www.github.com", "ssh.github.com"}:
+        return f"github.com/{path.lower()}"
+    return f"{host}/{path}"
 
 
 def _policy_key(entry: str) -> str:
@@ -1508,6 +1702,7 @@ def _provenance_records(
             "resolved_ref": resolved_ref,
             "content_digest": skill_content_digest(location.path.parent),
             "agent": agent,
+            "agents": [agent],
             "scope": scope,
             "path": location.path.parent.relative_to(lock_base).as_posix(),
             "installed_at": installed_at,
@@ -1757,20 +1952,41 @@ def _read_lock(base: Path) -> dict[str, Any]:
         or not isinstance(lock.get("skills"), dict)
         or not isinstance(history, dict)
         or not all(
-            isinstance(stack, list)
-            and all(
-                isinstance(record, dict)
-                and all(isinstance(record.get(key), str) for key in _HISTORY_KEYS)
-                and record["skill"]
-                for record in stack
-            )
+            isinstance(stack, list) and all(_is_history_record(record) for record in stack)
             for stack in history.values()
+        )
+        or not all(
+            _valid_agents(record) for record in lock["skills"].values() if isinstance(record, dict)
         )
     ):
         raise ExternalSkillProvenanceError(
             f"provenance lock {path} is unreadable: unsupported shape or schema_version"
         )
+    # A record written before ``agents`` existed names its one agent.
+    for record in [*lock["skills"].values(), *(r for stack in history.values() for r in stack)]:
+        if (
+            isinstance(record, dict)
+            and "agents" not in record
+            and isinstance(record.get("agent"), str)
+        ):
+            record["agents"] = [record["agent"]]
     return lock
+
+
+def _is_history_record(record: Any) -> bool:
+    """A record rollback can restore: every key it reads is a string, and the
+    agent set, when present, is a list of strings."""
+    return (
+        isinstance(record, dict)
+        and all(isinstance(record.get(key), str) for key in _HISTORY_KEYS)
+        and bool(record["skill"])
+        and _valid_agents(record)
+    )
+
+
+def _valid_agents(record: dict[str, Any]) -> bool:
+    agents = record.get("agents", [])
+    return isinstance(agents, list) and all(isinstance(a, str) for a in agents)
 
 
 @contextmanager
@@ -1827,41 +2043,61 @@ def _try_lock(fd: int) -> bool:
         return True
 
 
-def _merge_into_lock(base: Path, records: list[dict[str, Any]], restore: bool = False) -> None:
+def _merge_into_lock(
+    base: Path, records: list[dict[str, Any]], restoring: dict[str, Any] | None = None
+) -> None:
     """Merge records into the lock; the caller holds ``_lock_guard``.
 
     A record replacing one with other content pushes it onto that folder's
-    history; a restore pops the history entry it brought back instead (only
-    where that entry holds the restored content), and that original record (its
-    requested ref) is reinstated in ``records`` too, keyed to the folder written
-    and with the restore's trust, time and installer CLI.
+    history, after checking it is a record rollback can read (a malformed one
+    is refused, nothing written: in history it would make the lock unreadable).
+    A restore (``restoring``: the history record it brings back) pops the
+    history entry it brought back instead, where that entry holds the restored
+    content, and that original record is reinstated in ``records``, keyed to
+    the folder written and with the restore's trust, time and installer CLI;
+    a folder it wrote with no such entry keeps the replaced record in history
+    and takes the restored version's requested ref. Every record keeps the
+    agents of the record it replaces, so a folder installed for two agents is
+    seen as shared.
     """
     lock = _read_lock(base)
     history = lock.setdefault("history", {})
     for index, record in enumerate(records):
         stack = history.setdefault(record["path"], [])
         current = lock["skills"].get(record["path"])
-        if restore:
+        found = [
+            i
+            for i, e in enumerate(stack)
+            if restoring is not None
+            and all(e[k] == record[k] for k in ("content_digest", "agent", "resolved_ref"))
+        ]
+        if found:
             # The newest entry this restore brought back, under the folder
             # actually written, with this restore's own trust decision and time.
-            found = [
-                i
-                for i, e in enumerate(stack)
-                if all(e[k] == record[k] for k in ("content_digest", "agent", "resolved_ref"))
-            ]
-            if found:
-                records[index] = record = {
-                    **stack.pop(found[-1]),
-                    "path": record["path"],
-                    "trust": record["trust"],
-                    "installed_at": record["installed_at"],
-                    "installer": record["installer"],
-                }
-        elif (
-            isinstance(current, dict) and current.get("content_digest") != record["content_digest"]
-        ):
-            stack.append(current)
-            del stack[:-_HISTORY_LIMIT]
+            records[index] = record = {
+                **stack.pop(found[-1]),
+                "path": record["path"],
+                "trust": record["trust"],
+                "installed_at": record["installed_at"],
+                "installer": record["installer"],
+            }
+        else:
+            if restoring is not None:
+                record["requested_ref"] = restoring.get("requested_ref")
+            if (
+                isinstance(current, dict)
+                and current.get("content_digest") != record["content_digest"]
+            ):
+                if not _is_history_record(current):
+                    raise ExternalSkillProvenanceError(
+                        f"provenance lock {base / _LOCK_RELPATH} is unreadable: the record for "
+                        f"{record['path']} is malformed; repair or remove that record"
+                    )
+                stack.append(current)
+                del stack[:-_HISTORY_LIMIT]
+        if isinstance(current, dict):
+            agents = _agents_of(current) | _agents_of(record)
+            record["agents"] = sorted(a for a in agents if isinstance(a, str))
         if not stack:
             del history[record["path"]]
         lock["skills"][record["path"]] = record

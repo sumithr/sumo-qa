@@ -3,14 +3,19 @@ import inspect
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from sumo_qa import __version__, paths
 from sumo_qa.capabilities import build_capabilities
 from sumo_qa.debug_capture import maybe_capture
+from sumo_qa.external_skills import (
+    ExternalSkillApprovalUnavailableError,
+    describe_approval,
+)
 from sumo_qa.external_skills import (
     check_external_skill_installed as _check_external_skill_installed,
 )
@@ -228,6 +233,34 @@ def _resolve_artifact_target(root_path: Path, write_to: str) -> Path:
                 "pass a path under the repo or an explicit absolute path"
             )
     return target
+
+
+class _UserApproval(BaseModel):
+    approve: bool = Field(description="Approve exactly what is shown above.")
+
+
+def _user_approver(ctx: Any) -> Callable[[dict[str, Any]], bool]:
+    """The approver the install and rollback tools hand the library: it asks
+    the user through MCP elicitation, from the tool's worker thread, and says
+    yes only on the user's own accepted approval. A client that did not
+    declare elicitation, or an elicitation that fails, cannot ask: refused."""
+
+    def approve(request: dict[str, Any]) -> bool:
+        try:
+            capabilities = ctx.client_capabilities if ctx is not None else None
+        except ValueError:  # a context outside any request
+            capabilities = None
+        if capabilities is None or capabilities.elicitation is None:
+            raise ExternalSkillApprovalUnavailableError("the client did not declare elicitation")
+        import anyio.from_thread
+
+        try:
+            result = anyio.from_thread.run(ctx.elicit, describe_approval(request), _UserApproval)
+        except Exception as exc:  # noqa: BLE001 -- any failure to ask is a refusal
+            raise ExternalSkillApprovalUnavailableError(f"the elicitation failed: {exc}") from exc
+        return result.action == "accept" and result.data.approve is True
+
+    return approve
 
 
 def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
@@ -638,7 +671,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
     profile-dependent tool, resource and gate uses this one value for the
     process's life, so a mid-session edit of the saved file changes nothing."""
     try:
-        from mcp.server.mcpserver import MCPServer
+        from mcp.server.mcpserver import Context, MCPServer
         from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError("The MCP SDK is not installed. Run `pip install -e .`.") from exc
@@ -2004,13 +2037,15 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         confirmed: bool = False,
         approved_digest: str = "",
         elevated_trust: bool = False,
+        ctx: Context | None = None,
     ) -> InstallExternalSkillOutput | ErrorEnvelope:
         """Install a previewed external skill through the pinned Skills CLI.
 
-        `confirmed`: the user approved the previewed payload; `approved_digest`:
+        `confirmed`: the user wants the previewed payload; `approved_digest`:
         that preview's content_digest, which the payload must still match.
         `elevated_trust`: only when the user grants it for a mutable ref or an
-        untrusted source. Records commit, digest, and trust in the .sumo-qa lock.
+        untrusted source. sumo-qa then asks the user itself (MCP elicitation)
+        before writing; a host that cannot ask is refused.
         """
         try:
             output = _install_external_skill(
@@ -2021,6 +2056,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
                 confirmed=confirmed,
                 approved_digest=approved_digest,
                 elevated_trust=elevated_trust,
+                approve=_user_approver(ctx),
             )
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
@@ -2045,13 +2081,15 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         confirmed: bool = False,
         agent: str = "",
         elevated_trust: bool = False,
+        ctx: Context | None = None,
     ) -> RollbackExternalSkillOutput | ErrorEnvelope:
         """After user confirmation, restore the previous approved version of an
         external skill sumo-qa installed, or remove a first install.
 
-        `agent`: optional, the one agent recorded; a skill recorded for several
-        agents is shared and refused. `elevated_trust`:
-        only when the user grants it for the restored version's unlisted source.
+        `agent`: optional, the one agent recorded; a shared skill is refused.
+        `elevated_trust`: only when the user grants it for the restored
+        version's unlisted source. sumo-qa asks the user itself (MCP
+        elicitation) first; a host that cannot ask is refused.
         """
         try:
             output = _rollback_external_skill(
@@ -2060,6 +2098,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
                 confirmed=confirmed,
                 agent=agent,
                 elevated_trust=elevated_trust,
+                approve=_user_approver(ctx),
             )
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _rollback_hint_for_exception(exc))

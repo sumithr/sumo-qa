@@ -302,7 +302,11 @@ def test_external_skill_server_tools_success(monkeypatch) -> None:
         lambda **kwargs: {"skill": kwargs["skill"], "intent": kwargs["intent"]},
     )
     monkeypatch.setattr(sumo_server, "_preview_external_skill", lambda **kwargs: kwargs)
-    monkeypatch.setattr(sumo_server, "_rollback_external_skill", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        sumo_server,
+        "_rollback_external_skill",
+        lambda **kwargs: {k: v for k, v in kwargs.items() if k != "approve"},
+    )
     mcp = sumo_server.build_mcp_server()
 
     assert _invoke_tool(mcp, "sumo_qa_search_external_skills", query="mypy")["query"] == "mypy"
@@ -414,6 +418,8 @@ def test_external_skill_server_tools_route_hint_by_exception_type(monkeypatch) -
         (ext.ExternalSkillRolledBackError("x"), "may now be missing", "nothing was removed"),
         (ext.ExternalSkillTrustPolicyError("x"), "trust policy file", "elevated_trust"),
         (ext.ExternalSkillInstallConfirmationRequired("x"), "the rollback", "the install"),
+        (ext.ExternalSkillDeclinedError("x"), "declined the rollback", "candidate"),
+        (ext.ExternalSkillApprovalUnavailableError("x"), "by hand", "candidate"),
         (ValueError("bad scope"), "tool arguments", "candidate"),
     ],
 )
@@ -536,3 +542,179 @@ def test_install_external_skill_real_cli_smoke(monkeypatch, tmp_path: Path) -> N
     )
     assert executed["provenance"]["status"] == "verified"
     assert executed["skill_body"] == body
+
+
+# ---------------------------------------------------------------------------
+# The server asks the user itself, through MCP elicitation (#520)
+# ---------------------------------------------------------------------------
+
+_REQUEST = {
+    "action": "install",
+    "skill": "mypy",
+    "scope": "project",
+    "agent": "codex",
+    "source": "https://github.com/acme/skills.git",
+    "requested_ref": None,
+    "resolved_ref": "0123456789abcdef0123456789abcdef01234567",
+    "content_digest": "sha256:" + "a" * 64,
+    "trust": {"tier": "elevated", "reasons": ["unlisted_source", "mutable_ref"]},
+    "findings": [
+        {
+            "rule": "SQA-EXT-007",
+            "severity": "high",
+            "file": "SKILL.md",
+            "line": 3,
+            "count": 1,
+            "message": "runs commands with elevated privileges",
+        }
+    ],
+}
+
+
+def _asks_then_installs(monkeypatch) -> list[bool]:
+    """The library stand-in: asks the injected approver, writes only on yes."""
+    answers: list[bool] = []
+
+    def install(**kwargs):
+        def recorded(request: dict) -> bool:
+            answers.append(kwargs["approve"](request))
+            return answers[-1]
+
+        ext._ask_user(recorded, dict(_REQUEST), "npx skills add ...")
+        return {"installed": True}
+
+    monkeypatch.setattr(sumo_server, "_install_external_skill", install)
+    return answers
+
+
+def _call(tool: str, elicit=None, **arguments) -> dict:
+    from mcp.client import Client
+
+    async def run():
+        async with Client(
+            sumo_server.build_mcp_server(profile="full"),
+            mode="legacy",
+            elicitation_callback=elicit,
+        ) as client:
+            result = await client.call_tool(tool, {"skill": "mypy", **arguments})
+            return json.loads(result.content[0].text)
+
+    return asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("action", "content", "approved"),
+    [
+        ("accept", {"approve": True}, True),
+        ("accept", {"approve": False}, False),
+        ("decline", None, False),
+        ("cancel", None, False),
+    ],
+)
+def test_install_elicits_the_users_own_answer(monkeypatch, action, content, approved) -> None:
+    from mcp.types import ElicitResult
+
+    answers = _asks_then_installs(monkeypatch)
+    shown: list[str] = []
+
+    async def user(context, params):
+        shown.append(params.message)
+        return ElicitResult(action=action, content=content)
+
+    output = _call(
+        "sumo_qa_install_external_skill", user, confirmed=True, approved_digest="sha256:x"
+    )
+
+    assert answers == [approved]
+    [message] = shown
+    for expected in (
+        "https://github.com/acme/skills.git",
+        _REQUEST["resolved_ref"],
+        _REQUEST["content_digest"],
+        "elevated",
+        "unlisted_source",
+        "SQA-EXT-007",
+        "high",
+        "SKILL.md:3",
+    ):
+        assert expected in message
+    if approved:
+        assert output == {"installed": True}
+    else:
+        assert "declined" in output["error"]["actionable_hint"]
+
+
+def test_a_host_without_elicitation_is_refused_with_the_manual_path(monkeypatch) -> None:
+    answers = _asks_then_installs(monkeypatch)
+
+    output = _call("sumo_qa_install_external_skill", confirmed=True, approved_digest="sha256:x")
+
+    assert answers == []
+    assert "cannot ask the user" in output["error"]["message"]
+    assert "npx skills add" in output["error"]["actionable_hint"]
+
+
+def test_an_elicitation_that_fails_is_refused_never_approved(monkeypatch) -> None:
+    from mcp.types import ErrorData
+
+    answers = _asks_then_installs(monkeypatch)
+
+    async def broken(context, params):
+        return ErrorData(code=-32603, message="UI unavailable")
+
+    output = _call(
+        "sumo_qa_install_external_skill", broken, confirmed=True, approved_digest="sha256:x"
+    )
+
+    assert answers == []
+    assert "cannot ask the user" in output["error"]["message"]
+
+
+def test_rollback_elicits_through_the_same_approver(monkeypatch) -> None:
+    from mcp.types import ElicitResult
+
+    seen: list[str] = []
+
+    def rollback(**kwargs):
+        approved = kwargs["approve"](
+            {
+                "action": "remove",
+                "skill": "mypy",
+                "scope": "project",
+                "paths": ["p"],
+                "records": [None],
+            }
+        )
+        return {"approved": approved}
+
+    monkeypatch.setattr(sumo_server, "_rollback_external_skill", rollback)
+
+    async def user(context, params):
+        seen.append(params.message)
+        return ElicitResult(action="accept", content={"approve": True})
+
+    assert _call("sumo_qa_rollback_external_skill", user, confirmed=True) == {"approved": True}
+    assert seen[0].startswith("Remove external skill 'mypy'")
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        ext.ExternalSkillInstallConfirmationRequired("x"),
+        ext.ExternalSkillProvenanceError("x"),
+        ext.ExternalSkillError("not installed"),
+    ],
+)
+def test_install_hints_name_the_preview_and_the_approved_digest(exception) -> None:
+    hint = ext.hint_for_exception(exception)
+
+    assert "sumo_qa_preview_external_skill" in hint
+    assert "approved_digest" in hint
+    assert "asks the user" in hint
+
+
+def test_a_context_outside_any_request_cannot_ask() -> None:
+    from mcp.server.mcpserver import Context
+
+    with pytest.raises(ext.ExternalSkillApprovalUnavailableError, match="did not declare"):
+        sumo_server._user_approver(Context())(dict(_REQUEST))

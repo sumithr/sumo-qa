@@ -267,10 +267,14 @@ The default source, `vercel-labs/skills`, is trusted; add or deny others in
 ```
 
 Entries use the install-source forms (`owner/repo` or a git URL) without a
-`#ref` or `@skill` (an entry with one fails closed). Every spelling of a
-repository matches its entry: the scheme, user, port, `www.`, trailing `/` and
-`.git` are ignored, the host is case-insensitive, and on github.com so are the
-owner and repository. A denied source is rejected by preview, install, and a
+`#ref` or `@skill` (an entry with one fails closed). An entry matches a source
+when both name the same host and path once the scheme, user, trailing `/` and
+`.git` are dropped and the host is lowercased. On GitHub, `github.com`,
+`www.github.com` and `ssh.github.com` on any port are one host and the owner
+and repository are case-insensitive. On any other host the port and a `www.`
+prefix are kept, since either can name another server: trusting
+`git.example.com` does not cover `git.example.com:8443` or
+`www.git.example.com`, and the path keeps its case. A denied source is rejected by preview, install, and a
 rollback that would restore it. The file is read only from your home
 directory: a project cannot ship one that raises trust in its own sources. An
 unreadable or invalid file fails closed. See
