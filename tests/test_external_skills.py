@@ -523,6 +523,7 @@ def test_install_external_skill_real_cli_smoke(monkeypatch, tmp_path: Path) -> N
             confirmed=True,
             approved_digest=preview["content_digest"],
             elevated_trust=True,  # an unlisted source on a mutable ref
+            approve=lambda request: True,  # the user's yes in sumo-qa's own prompt
             cwd=project,
             home=tmp_path / "home",
             timeout=180,
@@ -567,6 +568,10 @@ _REQUEST = {
             "count": 1,
             "message": "runs commands with elevated privileges",
         }
+    ],
+    "targets": [
+        {"path": ".agents/skills/mypy", "state": "absent", "agents": []}
+        | {"source": None, "resolved_ref": None}
     ],
 }
 
@@ -636,6 +641,7 @@ def test_install_elicits_the_users_own_answer(monkeypatch, action, content, appr
         "SQA-EXT-007",
         "high",
         "SKILL.md:3",
+        ".agents/skills/mypy: new",
     ):
         assert expected in message
     if approved:
@@ -718,3 +724,182 @@ def test_a_context_outside_any_request_cannot_ask() -> None:
 
     with pytest.raises(ext.ExternalSkillApprovalUnavailableError, match="did not declare"):
         sumo_server._user_approver(Context())(dict(_REQUEST))
+
+
+# ---------------------------------------------------------------------------
+# The approver asks only through form elicitation, and a prompt left
+# unanswered or cancelled is a decline (#520)
+# ---------------------------------------------------------------------------
+
+
+class _Ctx:
+    """A request context: the client's elicitation capability, whether the
+    request can carry a request back, and the user's (async) answer."""
+
+    def __init__(self, elicitation, answer=None, can_send: bool = True):
+        from types import SimpleNamespace
+
+        from mcp.types import ClientCapabilities
+
+        self.client_capabilities = ClientCapabilities(elicitation=elicitation)
+        self.session = SimpleNamespace(can_send_request=can_send)
+        self.answer = answer
+        self.asked: list[str] = []
+
+    async def elicit(self, message, schema):
+        import anyio
+
+        self.asked.append(message)
+        if self.answer is None:
+            await anyio.sleep_forever()
+        return self.answer
+
+
+def _approve_in_worker(ctx, cancel_after: float | None = None):
+    """Run the approver as the SDK runs a sync tool, in a worker thread, and
+    end as the install tool does: a decline caused by the call's own
+    cancellation resumes it."""
+    import anyio
+
+    outcome: dict = {}
+
+    def worker():
+        try:
+            outcome["result"] = sumo_server._user_approver(ctx)(dict(_REQUEST))
+        except Exception as exc:  # noqa: BLE001 -- recorded for the assertion
+            outcome["error"] = exc
+            sumo_server._resume_cancellation(exc)
+
+    async def main():
+        with anyio.move_on_after(cancel_after if cancel_after is not None else 30) as scope:
+            await anyio.to_thread.run_sync(worker)
+        outcome["cancelled"] = scope.cancelled_caught
+
+    anyio.run(main)
+    return outcome
+
+
+def _accepted():
+    from mcp.server.elicitation import AcceptedElicitation
+
+    return AcceptedElicitation(data=sumo_server._UserApproval(approve=True))
+
+
+def test_a_url_only_elicitation_client_is_refused() -> None:
+    from mcp.types import ElicitationCapability, UrlElicitationCapability
+
+    ctx = _Ctx(ElicitationCapability(url=UrlElicitationCapability()), _accepted())
+
+    outcome = _approve_in_worker(ctx)
+
+    assert isinstance(outcome["error"], ext.ExternalSkillApprovalUnavailableError)
+    assert "form" in str(outcome["error"])
+    assert ctx.asked == []
+
+
+@pytest.mark.parametrize("declared", ["form", "empty"])
+def test_a_form_elicitation_client_is_asked(declared) -> None:
+    """An empty elicitation capability is the pre-2025-11-25 form-only one."""
+    from mcp.types import ElicitationCapability, FormElicitationCapability
+
+    capability = (
+        ElicitationCapability(form=FormElicitationCapability())
+        if declared == "form"
+        else ElicitationCapability()
+    )
+    ctx = _Ctx(capability, _accepted())
+
+    assert _approve_in_worker(ctx) == {"result": True, "cancelled": False}
+    assert len(ctx.asked) == 1
+
+
+def test_a_request_that_cannot_reach_the_client_is_refused() -> None:
+    from mcp.types import ElicitationCapability, FormElicitationCapability
+
+    ctx = _Ctx(ElicitationCapability(form=FormElicitationCapability()), _accepted(), False)
+
+    outcome = _approve_in_worker(ctx)
+
+    assert isinstance(outcome["error"], ext.ExternalSkillApprovalUnavailableError)
+    assert ctx.asked == []
+
+
+def test_a_prompt_left_unanswered_past_the_timeout_is_a_decline(monkeypatch) -> None:
+    from mcp.types import ElicitationCapability, FormElicitationCapability
+
+    monkeypatch.setattr(sumo_server, "_APPROVAL_TIMEOUT_SECONDS", 0.2)
+    ctx = _Ctx(ElicitationCapability(form=FormElicitationCapability()))
+
+    outcome = _approve_in_worker(ctx)
+
+    assert type(outcome["error"]) is ext.ExternalSkillDeclinedError
+    assert "0.2" in str(outcome["error"])
+
+
+def test_a_cancelled_tool_call_is_a_decline_and_stays_cancelled() -> None:
+    from mcp.types import ElicitationCapability, FormElicitationCapability
+
+    ctx = _Ctx(ElicitationCapability(form=FormElicitationCapability()))
+
+    outcome = _approve_in_worker(ctx, cancel_after=0.2)
+
+    assert type(outcome["error"]) is ext.ExternalSkillDeclinedError
+    assert outcome["cancelled"] is True
+
+
+def test_a_tool_call_the_client_cancels_is_declined_before_any_write(monkeypatch) -> None:
+    """The real SDK path: the client gives up on the call, the server cancels
+    it, and the open prompt ends as a decline, so nothing is installed."""
+    import anyio
+    from mcp.client import Client
+
+    seen: list[BaseException | str] = []
+
+    def install(**kwargs):
+        try:
+            ext._ask_user(kwargs["approve"], dict(_REQUEST), "npx skills add ...")
+        except BaseException as exc:
+            seen.append(exc)
+            raise
+        seen.append("installed")
+
+    monkeypatch.setattr(sumo_server, "_install_external_skill", install)
+
+    async def never(context, params):
+        await anyio.sleep_forever()
+
+    async def run():
+        async with Client(
+            sumo_server.build_mcp_server(profile="full"), mode="legacy", elicitation_callback=never
+        ) as client:
+            with anyio.move_on_after(0.5):
+                await client.call_tool(
+                    "sumo_qa_install_external_skill",
+                    {"skill": "mypy", "confirmed": True, "approved_digest": "sha256:x"},
+                )
+            with anyio.fail_after(10):
+                while not seen:
+                    await anyio.sleep(0.05)
+
+    asyncio.run(run())
+
+    [outcome] = seen
+    assert type(outcome) is ext.ExternalSkillDeclinedError
+    assert "cancelled" in str(outcome)
+
+
+def test_an_unanswered_prompt_through_the_real_server_writes_nothing(monkeypatch) -> None:
+    import anyio
+
+    monkeypatch.setattr(sumo_server, "_APPROVAL_TIMEOUT_SECONDS", 0.2)
+    answers = _asks_then_installs(monkeypatch)
+
+    async def never(context, params):
+        await anyio.sleep_forever()
+
+    output = _call(
+        "sumo_qa_install_external_skill", never, confirmed=True, approved_digest="sha256:x"
+    )
+
+    assert answers == []
+    assert "declined" in output["error"]["actionable_hint"]

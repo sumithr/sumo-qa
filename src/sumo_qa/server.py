@@ -1,4 +1,6 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import asyncio
+import concurrent.futures
 import inspect
 import json
 import os
@@ -14,6 +16,7 @@ from sumo_qa.capabilities import build_capabilities
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.external_skills import (
     ExternalSkillApprovalUnavailableError,
+    ExternalSkillDeclinedError,
     describe_approval,
 )
 from sumo_qa.external_skills import (
@@ -239,28 +242,71 @@ class _UserApproval(BaseModel):
     approve: bool = Field(description="Approve exactly what is shown above.")
 
 
+# How long the approval prompt waits for the user; no answer is a decline.
+_APPROVAL_TIMEOUT_SECONDS = 300.0
+
+
 def _user_approver(ctx: Any) -> Callable[[dict[str, Any]], bool]:
     """The approver the install and rollback tools hand the library: it asks
-    the user through MCP elicitation, from the tool's worker thread, and says
-    yes only on the user's own accepted approval. A client that did not
-    declare elicitation, or an elicitation that fails, cannot ask: refused."""
+    the user through MCP form elicitation, from the tool's worker thread, and
+    says yes only on the user's own accepted approval. A client that did not
+    declare form elicitation (an empty elicitation capability is the older
+    form-only one; a url-only client is refused), a request that cannot carry
+    a request back to the client, or an elicitation that fails cannot ask:
+    refused. A prompt left unanswered for _APPROVAL_TIMEOUT_SECONDS, or a
+    cancelled tool call, is a decline; the SDK still sees its cancellation
+    where it awaits this worker. The 2026 InputRequiredResult flow is not
+    supported."""
 
     def approve(request: dict[str, Any]) -> bool:
         try:
             capabilities = ctx.client_capabilities if ctx is not None else None
+            can_send = ctx.session.can_send_request if ctx is not None else False
         except ValueError:  # a context outside any request
-            capabilities = None
-        if capabilities is None or capabilities.elicitation is None:
-            raise ExternalSkillApprovalUnavailableError("the client did not declare elicitation")
+            capabilities, can_send = None, False
+        elicitation = capabilities.elicitation if capabilities is not None else None
+        if elicitation is None or (elicitation.form is None and elicitation.url is not None):
+            raise ExternalSkillApprovalUnavailableError(
+                "the client did not declare form elicitation"
+            )
+        if not can_send:
+            raise ExternalSkillApprovalUnavailableError(
+                "this request cannot carry a prompt to the client"
+            )
+        import anyio
         import anyio.from_thread
 
+        async def ask() -> Any:
+            with anyio.fail_after(_APPROVAL_TIMEOUT_SECONDS):
+                return await ctx.elicit(describe_approval(request), _UserApproval)
+
         try:
-            result = anyio.from_thread.run(ctx.elicit, describe_approval(request), _UserApproval)
+            result = anyio.from_thread.run(ask)
+        except TimeoutError as exc:
+            raise ExternalSkillDeclinedError(
+                f"the user did not answer sumo-qa's approval prompt within "
+                f"{_APPROVAL_TIMEOUT_SECONDS:g} s; nothing was written"
+            ) from exc
+        except (concurrent.futures.CancelledError, asyncio.CancelledError) as exc:
+            raise ExternalSkillDeclinedError(
+                "the tool call was cancelled while sumo-qa's approval prompt was open; "
+                "nothing was written"
+            ) from exc
         except Exception as exc:  # noqa: BLE001 -- any failure to ask is a refusal
             raise ExternalSkillApprovalUnavailableError(f"the elicitation failed: {exc}") from exc
         return result.action == "accept" and result.data.approve is True
 
     return approve
+
+
+def _resume_cancellation(exc: BaseException) -> None:
+    """A decline caused by the tool call's own cancellation: once the library
+    has cleaned up (nothing was written), hand the SDK its cancellation back
+    rather than a result for a cancelled request."""
+    if isinstance(exc, ExternalSkillDeclinedError) and isinstance(
+        exc.__cause__, asyncio.CancelledError
+    ):
+        raise exc.__cause__
 
 
 def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
@@ -2059,6 +2105,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
                 approve=_user_approver(ctx),
             )
         except Exception as exc:  # noqa: BLE001
+            _resume_cancellation(exc)
             output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_install_external_skill",
@@ -2101,6 +2148,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
                 approve=_user_approver(ctx),
             )
         except Exception as exc:  # noqa: BLE001
+            _resume_cancellation(exc)
             output = _error_envelope(exc, _rollback_hint_for_exception(exc))
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_rollback_external_skill",

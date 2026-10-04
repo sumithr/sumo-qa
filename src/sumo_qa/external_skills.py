@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -185,6 +186,7 @@ _HISTORY_KEYS = ("skill", "source", "resolved_ref", "content_digest", "agent", "
 # a policy that raises trust in its own sources. Keys: trusted_sources and
 # denied_sources, each a list of install sources (owner/repo or git URLs).
 _POLICY_RELPATH = Path(".sumo-qa") / "external-skills.policy.json"
+_DEFAULT_PORTS = {"https": 443, "http": 80, "ssh": 22, "git": 9418}
 _SEVERITIES = ("critical", "high", "medium", "low")
 # (rule id, severity, capability it reveals, message, per-line pattern). The ids
 # are stable: never renumber or reuse one. The lint flags known-dangerous
@@ -372,6 +374,9 @@ _NEGATED = re.compile(r"\b(?:do\s+not|don't|don’t|never)\s+$", re.IGNORECASE)
 _INSTRUCTION_RULES = {"SQA-EXT-001", "SQA-EXT-002"}
 _LINT_LIMIT = 4000
 _LONG_LINE = ("SQA-EXT-017", "high", "long_lines", "line too long to lint fully")
+# Every payload file is linted, binary or not, decoded with replacement and a
+# NUL read as whitespace; bytes past this many are disclosed as SQA-EXT-017.
+_LINT_BYTES = 1024 * 1024
 _CONTINUED = re.compile(r"(\\|\||&&)\s*$")
 _BACKSLASH_END = re.compile(r"\\\s*$")
 _FENCE = re.compile(r"^\s*(?:```|~~~)")
@@ -659,7 +664,7 @@ def _rollback_paths(
         )
     others: set[Any] = set()
     shared: list[str] = []
-    real = {p: (lock_base / p).resolve() for p in skills}
+    real = {p: _real(lock_base / p) for p in skills}
     for other, record in skills.items():
         if _agents_of(record) == {agent} or other in paths:
             continue
@@ -683,32 +688,64 @@ def _agents_of(record: Any) -> set[Any]:
 
 
 def _check_no_other_links(skill: str, lock_base: Path, paths: list[str]) -> None:
-    """Refuse when a link under the scope's skill roots, other than the folders
-    being changed and the links inside them, reaches one of them (to, into or
-    through it), recorded or not: an install made outside sumo-qa would lose
-    its skill."""
+    """Refuse when anything under the scope's skill roots, other than the
+    folders being changed and what is inside them, reaches one of them (to,
+    into or through it) through a link, recorded or not: an install made
+    outside sumo-qa would lose its skill. The link may be the entry itself, a
+    skill root or a parent of one (``.claude/skills -> ../.agents/skills``
+    lists the folder as a plain entry), so each root and each entry is
+    compared by where it really is against where its spelling puts it. A
+    folder that cannot be listed or a link loop is refused, never skipped."""
     ours = [lock_base / p for p in paths]
-    real = [folder.resolve() for folder in ours]
+    real = [_real(folder) for folder in ours]
+    base = _real(lock_base)
     found: list[str] = []
+
+    def check(entry: Path) -> None:
+        if any(entry == folder or folder in entry.parents for folder in ours):
+            return
+        target = _real(entry)
+        if target != base / entry.relative_to(lock_base) and any(
+            _linked(target, folder) for folder in real
+        ):
+            found.append(entry.relative_to(lock_base).as_posix())
+
+    def unreadable(error: OSError) -> None:
+        raise ExternalSkillReadError(
+            f"could not list {error.filename} to check what links to {skill!r}: {error}; "
+            "nothing was changed"
+        )
+
     for first, second, _ in _SKILL_ROOTS:
         root = lock_base / first / second
-        for dirpath, dirnames, filenames in os.walk(root):
+        if not os.path.lexists(root):
+            continue
+        check(root)
+        for dirpath, dirnames, filenames in os.walk(root, onerror=unreadable):
             current = Path(dirpath)
             for name in [*dirnames, *filenames]:
-                entry = current / name
-                if not entry.is_symlink() or any(
-                    entry == folder or folder in entry.parents for folder in ours
-                ):
-                    continue
-                target = entry.resolve()
-                if any(_linked(target, folder) for folder in real):
-                    found.append(entry.relative_to(lock_base).as_posix())
+                check(current / name)
     if found:
         raise ExternalSkillError(
             f"{skill!r} is reached by links sumo-qa did not record for this install: "
             f"{', '.join(sorted(found))}; another agent's install made outside sumo-qa may "
             f"use it. Remove or reinstall it by hand: {', '.join(paths)}"
         )
+
+
+def _real(path: Path) -> Path:
+    """Where ``path`` really is: every link followed, a dangling one to where
+    it points. A link loop or an unreadable link is a typed refusal (Python
+    3.10 to 3.12 raise RuntimeError for a loop, later ones ignore it)."""
+    try:
+        return Path(os.path.realpath(path, strict=True))
+    except FileNotFoundError:
+        return Path(os.path.realpath(path))
+    except OSError as exc:
+        raise ExternalSkillReadError(
+            f"could not resolve {path} ({exc}); a link loop or an unreadable link, "
+            "so nothing was changed"
+        ) from exc
 
 
 def _linked(a: Path, b: Path) -> bool:
@@ -748,12 +785,8 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
             _EXECUTABLE_ASSET if executable or suffix in _BINARY_SUFFIXES else _SCRIPT_ASSET
         )
         findings.append(_finding(rule, severity, message, relpath, None, 1))
-    try:
-        if b"\0" in data:
-            return findings  # a binary asset: no text an agent follows
-        physical = data.decode("utf-8").splitlines()
-    except UnicodeDecodeError:
-        return findings  # not UTF-8, so a binary asset too
+    text = data[:_LINT_BYTES].decode("utf-8", errors="replace").replace("\0", " ")
+    physical = text.splitlines()
     lines = _logical_lines(physical)
     text, starts = _collapsed(physical)
     long = sorted({start for start, _, unit in lines if len(unit) > _LINT_LIMIT})
@@ -771,8 +804,12 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
             ]
         if hits:
             findings.append(_finding(rule, severity, message, relpath, hits[0], len(hits)))
+    rule, severity, _, message = _LONG_LINE
+    if len(data) > _LINT_BYTES:
+        # One finding per rule: the cut, after any long line, is disclosed too.
+        message = f"file too large to lint fully: only its first {_LINT_BYTES} bytes were linted"
+        long.append(len(physical) or 1)
     if long:
-        rule, severity, _, message = _LONG_LINE
         findings.append(_finding(rule, severity, message, relpath, long[0], len(long)))
     return findings
 
@@ -881,37 +918,103 @@ def _finding(
     }
 
 
+# Findings listed in the approval prompt; the rest are counted.
+_PROMPT_FINDINGS = 20
+
+
+def _shown(value: Any) -> str:
+    """``value`` as one line of prompt text: newlines, control and other
+    unprintable characters (bidi overrides included) escaped, so a payload
+    file name or a lock entry cannot forge prompt lines."""
+    return repr(str(value))[1:-1]
+
+
+def _owners(record: dict[str, Any]) -> str:
+    return ", ".join(sorted(_shown(a) for a in _agents_of(record) if isinstance(a, str)))
+
+
 def describe_approval(request: dict[str, Any]) -> str:
-    """The text a host shows the user for one approval request."""
-    action, skill, scope = request["action"], request["skill"], request["scope"]
+    """The text a host shows the user for one approval request. Every value
+    that comes from the payload or a lock file is escaped (``_shown``)."""
+    action, skill, scope = request["action"], _shown(request["skill"]), request["scope"]
     if action == "remove":
-        lines = [f"Remove external skill {skill!r} ({scope} scope)? This deletes:"]
+        lines = [f"Remove external skill '{skill}' ({scope} scope)? This deletes:"]
         for path, record in zip(request["paths"], request["records"], strict=True):
             shown = record if isinstance(record, dict) else {}
             lines.append(
-                f"- {path} (from {shown.get('source')} at commit {shown.get('resolved_ref')}, "
-                f"digest {shown.get('content_digest')})"
+                f"- {_shown(path)} (recorded for {_owners(shown) or 'no agent'} from "
+                f"{_shown(shown.get('source'))} at commit {_shown(shown.get('resolved_ref'))}, "
+                f"digest {_shown(shown.get('content_digest'))})"
             )
         return "\n".join(lines)
     verb = "Install" if action == "install" else "Restore the previous version of"
     trust = request["trust"]
-    reasons = f" ({', '.join(trust['reasons'])})" if trust["reasons"] else ""
+    reasons = f" ({', '.join(map(_shown, trust['reasons']))})" if trust["reasons"] else ""
+    findings = request["findings"]
+    under = "the project" if scope == "project" else "your home folder"
     lines = [
-        f"{verb} external skill {skill!r} for {request['agent']} ({scope} scope)?",
-        f"Source: {request['source']}",
-        f"Commit: {request['resolved_ref']}",
-        f"Content digest: {request['content_digest']}",
-        f"Trust: {trust['tier']}{reasons}",
-        "Safety findings:" if request["findings"] else "Safety findings: none",
+        f"{verb} external skill '{skill}' for {_shown(request['agent'])} ({scope} scope)?",
+        f"Source: {_shown(request['source'])}",
+        f"Commit: {_shown(request['resolved_ref'])}",
+        f"Content digest: {_shown(request['content_digest'])}",
+        f"Trust: {_shown(trust['tier'])}{reasons}",
+        f"Folders under {under} the Skills CLI may write for this agent:",
+        *(f"- {_shown(t['path'])}: {_target_state(t)}" for t in request["targets"]),
+        "Safety findings:" if findings else "Safety findings: none",
         *(
-            f"- {f['rule']} {f['severity']} {f['file']}"
-            + (f":{f['line']}" if f["line"] is not None else "")
-            + f" {f['message']}"
-            for f in request["findings"]
+            f"- {_shown(f['rule'])} {_shown(f['severity'])} {_shown(f['file'])}"
+            + (f":{_shown(f['line'])}" if f["line"] is not None else "")
+            + f" {_shown(f['message'])}"
+            for f in findings[:_PROMPT_FINDINGS]
+        ),
+        *(
+            [f"- and {len(findings) - _PROMPT_FINDINGS} more"]
+            if len(findings) > _PROMPT_FINDINGS
+            else []
         ),
         "Approve only if you want exactly this payload written.",
     ]
     return "\n".join(lines)
+
+
+def _target_state(target: dict[str, Any]) -> str:
+    if target["state"] == "recorded":
+        return (
+            f"replaces the install recorded for {_owners(target)} (from "
+            f"{_shown(target['source'])} at commit {_shown(target['resolved_ref'])})"
+        )
+    if target["state"] == "unrecorded":
+        return "replaces a folder sumo-qa has no record of"
+    return "new"
+
+
+def _targets(skill: str, lock_base: Path) -> list[dict[str, Any]]:
+    """The scope's folders an install of ``skill`` may write (the CLI picks
+    among them by agent), each with what it would replace: an install the
+    lock records (its agents, source and commit), a folder sumo-qa has no
+    record of, or nothing."""
+    skills: dict[str, Any] = {}
+    if os.path.lexists(lock_base / _LOCK_RELPATH):
+        with _lock_guard(lock_base):
+            skills = _read_lock(lock_base)["skills"]
+    name = _candidate_skill_names(skill)[0]
+    targets = []
+    for first, second, _ in _SKILL_ROOTS:
+        path = f"{first}/{second}/{name}"
+        record = skills.get(path)
+        target: dict[str, Any] = {"path": path, "state": "absent", "agents": []}
+        target |= {"source": None, "resolved_ref": None}
+        if isinstance(record, dict):
+            target |= {
+                "state": "recorded",
+                "agents": sorted(a for a in _agents_of(record) if isinstance(a, str)),
+                "source": record.get("source"),
+                "resolved_ref": record.get("resolved_ref"),
+            }
+        elif os.path.lexists(lock_base / path):
+            target["state"] = "unrecorded"
+        targets.append(target)
+    return targets
 
 
 def _ask_user(approve: Approver | None, request: dict[str, Any], manual: str) -> None:
@@ -931,6 +1034,23 @@ def _ask_user(approve: Approver | None, request: dict[str, Any], manual: str) ->
         raise ExternalSkillDeclinedError(
             f"the user did not approve the {what} sumo-qa asked about; nothing was written"
         )
+
+
+def _manual_install_command(
+    remote_url: str, commit: str, skill: str, agent: str, scope: str
+) -> str:
+    """A POSIX shell command that installs exactly ``commit`` through the
+    pinned CLI. Not ``add <url>#<commit>``: skills@1.7.0 keeps a fragment
+    only for sources it recognises as git, and fetches some GitHub owners
+    through an API, so it can install something else. Like sumo-qa itself,
+    the command checks the commit out and hands the CLI that checkout."""
+    quote = shlex.quote
+    return (
+        f'd="$(mktemp -d)" && git clone --quiet -- {quote(remote_url)} "$d"'
+        f' && git -C "$d" checkout --quiet --detach {quote(commit)}'
+        f' && npx --yes {_cli_spec()} add "$d" --skill {quote(skill)} -a {quote(agent)}'
+        + (" -g" if scope == "global" else "")
+    )
 
 
 def _check_skill_request(skill: str, source: str, agent: str) -> tuple[str, str, str]:
@@ -1031,11 +1151,10 @@ def _install(
                 "content_digest": payload["content_digest"],
                 "trust": trust,
                 "findings": payload["findings"],
+                "targets": _targets(skill, lock_base),
             },
-            "the user can install it themselves with: "
-            f"npx {_cli_spec()} add {remote_url} --skill {skill!r} -a {agent}"
-            + (" -g" if scope == "global" else "")
-            + f" (commit {resolved_ref})",
+            f"the user can install this commit themselves with: "
+            f"{_manual_install_command(remote_url, resolved_ref, skill, agent, scope)}",
         )
         # Every check that can refuse the run happens before the snapshot, so a
         # refusal never rolls back folders the CLI did not write.
@@ -1527,14 +1646,18 @@ def _inspect_payload(folder: Path) -> dict[str, Any]:
 
 def _source_key(remote_url: str) -> str:
     """One identity per repository however it is spelled: ``host[:port]/path``
-    with the scheme, user, trailing ``/`` and ``.git`` dropped and the host
-    lowercased. github.com, ``www.github.com`` and ``ssh.github.com`` (any
-    port) are one host, github.com, whose paths are case-insensitive too.
-    Elsewhere a port or ``www.`` can name another server, so both are kept."""
-    _, has_scheme, rest = remote_url.partition("://")
+    with the scheme, user, the scheme's default port, trailing ``/`` and
+    ``.git`` dropped and the host lowercased. github.com, ``www.github.com``
+    and ``ssh.github.com`` (any port) are one host, github.com, whose paths
+    are case-insensitive too. Elsewhere another port or ``www.`` can name
+    another server, so both are kept."""
+    scheme, has_scheme, rest = remote_url.partition("://")
     if has_scheme:  # https:// or ssh://[user@]host[:port]/path
         authority, _, path = rest.partition("/")
         host = authority.rpartition("@")[2].lower()
+        name, _, port = host.partition(":")
+        if port.isdigit() and int(port) == _DEFAULT_PORTS.get(scheme.lower()):
+            host = name
     else:  # git@host:path
         host, _, path = remote_url.removeprefix("git@").partition(":")
         host = host.lower()
@@ -1985,8 +2108,16 @@ def _is_history_record(record: Any) -> bool:
 
 
 def _valid_agents(record: dict[str, Any]) -> bool:
-    agents = record.get("agents", [])
-    return isinstance(agents, list) and all(isinstance(a, str) for a in agents)
+    """``agents``, when present, is a list of strings holding ``agent``: a
+    record naming an agent outside its set is not read as shared."""
+    if "agents" not in record:
+        return True
+    agents = record["agents"]
+    return (
+        isinstance(agents, list)
+        and all(isinstance(a, str) for a in agents)
+        and record.get("agent") in agents
+    )
 
 
 @contextmanager
