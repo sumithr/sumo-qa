@@ -4,9 +4,11 @@
 ``release.yml`` installs ``.github/release/runtime-requirements.txt`` with
 ``--no-deps``, so a ``pyproject.toml`` dependency floor raised without
 regenerating the lock would only fail on the release runner's ``pip check``.
-This fails it in CI instead: every runtime dependency that applies on the
-release runner (Linux, CPython 3.13) must be pinned in the lock to a version
-its specifier allows.
+This guards the direct ``pyproject.toml`` requirements offline: every runtime
+dependency that applies on the release runner (Linux, CPython 3.13) must be
+pinned in the lock to a version its specifier allows. Transitive consistency
+is covered by the ``runtime-lock`` job in ``lint.yml``, which installs the lock
+and the built wheel and runs ``pip check``.
 """
 
 from __future__ import annotations

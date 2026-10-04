@@ -112,7 +112,7 @@ jobs:
             > "$RUNNER_TEMP/wheel-requirements.txt"
           env_python="$RUNNER_TEMP/sbom-env/bin/python"
           python -m venv --without-pip "$RUNNER_TEMP/sbom-env"
-          python -m pip --python "$env_python" install --require-hashes --no-deps --only-binary :all: \
+          python -m pip --python "$env_python" install --require-hashes --no-deps --only-binary ':all:' \
             -r .github/release/runtime-requirements.txt \
             -r "$RUNNER_TEMP/wheel-requirements.txt"
           python -m pip --python "$env_python" check

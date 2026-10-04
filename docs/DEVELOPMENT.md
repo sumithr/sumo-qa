@@ -442,11 +442,16 @@ naming both files, the hook id, the hook value and every candidate
   the hashed lock of the `pyproject.toml` runtime dependencies (no extras),
   resolved for the release runner (Linux, CPython 3.13); the SBOM job installs
   it and the wheel with `--require-hashes --no-deps`, runs `pip check`, and
-  generates the SBOM from that environment. Regenerate it with the command in
-  its header after changing `[project] dependencies`;
-  `tests/test_release_runtime_lock.py` fails while a dependency's pin no longer
-  satisfies its specifier. Dependabot's `/.github/release` pip entry keeps both
-  locks current.
+  generates the SBOM from that environment. All three hashed release installs
+  use `--only-binary ':all:'`, so both locks must stay all-wheel for Linux
+  CPython 3.13: a dependency that ships only an sdist fails the build.
+  Regenerate the runtime lock with the command in its header after changing
+  `[project] dependencies`. `tests/test_release_runtime_lock.py` fails while a
+  direct dependency's pin no longer satisfies its specifier, and the
+  `runtime-lock` job in `lint.yml` installs the runtime lock plus the built
+  wheel and runs `pip check` on every PR, which catches the transitive breaks
+  the direct-pin test cannot see. Dependabot's `/.github/release` pip entry
+  keeps both locks current.
 - **Release evidence.** `release.yml` adds `sbom.cdx.json`, `build-info.json`
   and `SHA256SUMS` next to the wheel and sdist. The build job records the
   package digests; a separate job with no signing permissions builds the SBOM
