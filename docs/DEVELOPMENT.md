@@ -445,7 +445,9 @@ naming both files, the hook id, the hook value and every candidate
   no signing permissions builds the SBOM and uploads only that. Signing waits
   for `scripts/release_evidence.py verify`, and publishing waits for
   `gh attestation verify` (`tests/test_release_evidence.py` covers the
-  negative cases). Run the workflow from the Actions tab
+  negative cases). The publish and release-assets jobs ship only files that
+  match the `SHA256SUMS` whose digest the attest job published as a job
+  output. Run the workflow from the Actions tab
   (`workflow_dispatch`) for a dry run that builds, attests and verifies
   without publishing. [`SECURITY.md`](../.github/SECURITY.md) has the consumer
   verification commands.

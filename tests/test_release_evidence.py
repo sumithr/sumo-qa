@@ -112,6 +112,13 @@ def test_extra_file_fails_even_when_listed(dist: Path) -> None:
     assert evidence.verify(dist) == ["extra.txt is not a release file"]
 
 
+def test_subdirectory_fails(dist: Path) -> None:
+    """A directory in DIST is outside the release set too, though ``sums``
+    skips it and so it can never be listed."""
+    (dist / "nested").mkdir()
+    assert evidence.verify(dist) == ["nested is not a release file"]
+
+
 def test_listed_but_missing_file_fails(dist: Path) -> None:
     (dist / evidence.SBOM).unlink()
     assert evidence.verify(dist) == [

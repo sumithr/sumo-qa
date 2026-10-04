@@ -48,8 +48,11 @@ jobs:
       - name: Record build info and package digests
         id: record
         run: |
+          set -o pipefail
           python scripts/release_evidence.py record dist
-          echo "build_info_sha256=$(sha256sum dist/build-info.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          digest=$(sha256sum dist/build-info.json | cut -d' ' -f1)
+          [ -n "$digest" ]
+          echo "build_info_sha256=$digest" >> "$GITHUB_OUTPUT"
 
       # Every later job takes the package bytes from this artifact.
       - name: Upload packages
@@ -118,6 +121,8 @@ jobs:
       contents: read
       id-token: write  # Sigstore signing certificate for the attestations
       attestations: write
+    outputs:
+      sums_sha256: ${{ steps.sums.outputs.sums_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -151,8 +156,16 @@ jobs:
       - name: Take only the SBOM
         run: cp sbom/sbom.cdx.json dist/
 
+      # Kept outside the artifact store like build_info_sha256: publish and
+      # release-assets check the files they ship against it.
       - name: Write SHA256SUMS
-        run: python scripts/release_evidence.py sums dist
+        id: sums
+        run: |
+          set -o pipefail
+          python scripts/release_evidence.py sums dist
+          digest=$(sha256sum dist/SHA256SUMS | cut -d' ' -f1)
+          [ -n "$digest" ]
+          echo "sums_sha256=$digest" >> "$GITHUB_OUTPUT"
 
       # Fails unless every package matches the digest the build job recorded.
       - name: Verify digests, SBOM and build info
@@ -217,7 +230,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: verify
+    needs: [attest, verify]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: pypi
@@ -231,6 +244,26 @@ jobs:
           name: release-files
           path: release-files/
 
+      # The release-files artifact can be replaced after the attest job, so
+      # the files must be exactly the ones SHA256SUMS lists, and SHA256SUMS
+      # the one the attest job wrote.
+      - name: Check release files against the attest job's digest
+        env:
+          SUMS_SHA256: ${{ needs.attest.outputs.sums_sha256 }}
+        working-directory: release-files
+        run: |
+          set -euo pipefail
+          printf '%s  SHA256SUMS\n' "$SUMS_SHA256" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          shopt -s dotglob
+          for f in *; do
+            [ "$f" = SHA256SUMS ] && continue
+            if [ ! -f "$f" ] || ! grep -qxF -- "$f" <(cut -c67- SHA256SUMS); then
+              echo "::error::$f is not a file SHA256SUMS lists"
+              exit 1
+            fi
+          done
+
       # The verified bytes; PyPI takes only the packages, from dist/.
       - name: Select the packages
         run: mkdir dist && mv release-files/*.whl release-files/*.tar.gz dist/
@@ -240,7 +273,7 @@ jobs:
 
   release-assets:
     name: Attach release files to the GitHub release
-    needs: publish
+    needs: [attest, publish]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -251,6 +284,26 @@ jobs:
         with:
           name: release-files
           path: dist/
+
+      # The release-files artifact can be replaced after the attest job, so
+      # the files must be exactly the ones SHA256SUMS lists, and SHA256SUMS
+      # the one the attest job wrote.
+      - name: Check release files against the attest job's digest
+        env:
+          SUMS_SHA256: ${{ needs.attest.outputs.sums_sha256 }}
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          printf '%s  SHA256SUMS\n' "$SUMS_SHA256" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          shopt -s dotglob
+          for f in *; do
+            [ "$f" = SHA256SUMS ] && continue
+            if [ ! -f "$f" ] || ! grep -qxF -- "$f" <(cut -c67- SHA256SUMS); then
+              echo "::error::$f is not a file SHA256SUMS lists"
+              exit 1
+            fi
+          done
 
       - name: Upload to the release
         env:

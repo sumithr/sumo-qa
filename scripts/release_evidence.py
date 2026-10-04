@@ -22,9 +22,8 @@ subjects from this file.
 ``verify DIST [--commit SHA]`` is the gate before signing. It fails when DIST
 holds anything but one wheel, one sdist, ``sbom.cdx.json``, ``build-info.json``
 and ``SHA256SUMS``, a required file is missing, a file is unlisted in or absent
-from ``SHA256SUMS``,
-a digest does not match, a package does not match the digest
-``build-info.json`` recorded in the build job, the SBOM has no non-empty
+from ``SHA256SUMS``, a digest does not match, a package does not match the
+digest ``build-info.json`` recorded in the build job, the SBOM has no non-empty
 ``serialNumber`` (``actions/attest`` requires one, of any form) or does not
 describe the built version, or ``build-info.json`` names a different commit.
 The signed attestations are checked separately with ``gh attestation verify``.
