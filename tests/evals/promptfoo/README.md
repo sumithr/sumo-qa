@@ -628,14 +628,20 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   unparseable, and a `{` there could turn a failing verdict into a silent pass.
   The reply is graded only when its verdict is unambiguous: at least one top-level
   object with a `"pass"` key decodes, every such object is the same verdict, and none is
-  the value of a quoted key (`"inner": {...}`). Every `"pass"` key in the reply must sit
-  inside that verdict, except in the rubric's exact format template (`{"pass":
-  <true|false>`), and no `{` that opens a quoted key may fail to decode (truncated, a
-  trailing comma, unescaped quotes). Any decoded object followed by `,`, `"`, `'`, `:`,
-  `}` or `]` was cut out of a larger structure, so the reply is refused. Prose braces
-  (`{x}`, `{0: 1`) and objects without `"pass"` are ignored. A reply that mentions a
-  pass key outside its verdict, or quotes an unclosed JSON fragment, is retried and may
-  error; it is never graded from a guess.
+  the value of a quoted key (`"inner": {...}`). A key spelled `pass` in any way (any
+  case; bare, `**` bold, or in escaped, straight, curly or backtick quotes; followed by
+  `:`, `=`, `<` or a bare `true`, `false` or `null`) must sit inside that verdict. The
+  only exception is the leading key of the rubric's exact format template:
+  `{"pass": <true|false>` followed only by `<placeholder>` or quoted-string values (or
+  `...`) up to its `}`. No `{` that opens a quoted key may fail to decode (truncated, a
+  trailing comma, unescaped quotes, a key repeated at any depth). No decoded object may
+  hold a key that reads `pass` but is not exactly `"pass"` (`"Pass"`, `" pass"`), or a
+  `"passed"` or `"verdict"` key with a boolean value. A `"pass"` nested at any depth in
+  the verdict must equal the verdict's own. Any decoded object followed by `,`, `"`,
+  `'`, `:`, `}` or `]` was cut out of a larger structure, so the reply is refused. Prose
+  braces (`{x}`, `{0: 1`) and objects without `"pass"` are ignored, as are words such as
+  "passes" or "bypass" with no key separator after them. A reply that breaks any of
+  these is retried and may error; it is never graded from a guess.
   A reply with no valid verdict is asked once more; when the second fails too, both
   replies are written in full, redacted, to `tests/evals/results/judge-replies/`
   (gitignored), and the error names that file.

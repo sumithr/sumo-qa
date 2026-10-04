@@ -231,11 +231,18 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
 @pytest.mark.parametrize(
     ("reply", "verdict"),
     [
-        # A "pass" key nested inside a verdict's field is not a second verdict.
+        # A "pass" key nested inside a verdict that agrees with it is not a second verdict.
         pytest.param(
-            '{"pass": false, "score": 0.2, "reason": "r", "detail": {"pass": true}}',
-            {"pass": False, "score": 0.2, "reason": "r", "detail": {"pass": True}},
-            id="a-nested-pass-inside-the-verdict-is-ignored",
+            '{"pass": false, "score": 0.2, "reason": "r", "detail": {"pass": false}}',
+            {"pass": False, "score": 0.2, "reason": "r", "detail": {"pass": False}},
+            id="a-nested-pass-that-agrees-with-the-verdict",
+        ),
+        # The word "pass" without a key separator after it is prose, not a pass key.
+        pytest.param(
+            "It passes, no bypass needed, and the candidate passed the test. "
+            + json.dumps(_VERDICT),
+            _VERDICT,
+            id="pass-words-in-prose-before-the-verdict",
         ),
         pytest.param('{"pass": true}', {"pass": True}, id="pass-alone"),
         pytest.param(
@@ -505,6 +512,97 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             'Example: {"pass": true, "score": 1, "reason": "ok"}. Mine: {score: 0.1, "pass": false}',
             "malformed verdict",
             id="an-example-verdict-then-an-unquoted-key-verdict",
+        ),
+        # A repeated key never collapses to its last value.
+        pytest.param(
+            '{"pass": false, "score": 0.1, "reason": "x", "pass": true}',
+            "malformed verdict",
+            id="a-duplicate-pass-key-false-then-true",
+        ),
+        pytest.param(
+            '{"pass": false, "pass": true, "score": 1}',
+            "malformed verdict",
+            id="a-duplicate-pass-key-before-the-score",
+        ),
+        # A pass key in any spelling outside the verdict may be the grade.
+        pytest.param(
+            'Mine: {pass: false, score: 0.1}. Example {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="an-unquoted-pass-key-then-an-example-verdict",
+        ),
+        pytest.param(
+            'PASS: false. Example: {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="an-upper-case-prose-pass-key-then-an-example-verdict",
+        ),
+        pytest.param(
+            'pass: false\nscore: 0.1\n\nExample: {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-yaml-verdict-then-an-example-verdict",
+        ),
+        pytest.param(
+            '**"pass"**: false\n{"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-bold-pass-key-then-a-verdict",
+        ),
+        pytest.param(
+            '"pass" = false. Example: {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-pass-key-with-an-equals-sign-then-a-verdict",
+        ),
+        pytest.param(
+            '{\u201cpass\u201d: false} {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-curly-quoted-pass-key-then-a-verdict",
+        ),
+        pytest.param(
+            'Verdict string: "{\\"pass\\": false}". {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="an-escaped-pass-key-then-a-verdict",
+        ),
+        pytest.param(
+            '{"Pass": false, "reason": "fails"}\n{"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-capitalised-pass-key-object-then-a-verdict",
+        ),
+        pytest.param(
+            '`pass`: false\n{"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-backticked-pass-key-then-a-verdict",
+        ),
+        # Inside a decoded object, a key spelled like "pass" or a boolean "passed" or
+        # "verdict" may be the grade.
+        pytest.param(
+            '{"pass": true, "score": 1, "reason": "ok", " PASS": false}',
+            "malformed verdict",
+            id="a-variant-pass-key-inside-the-verdict",
+        ),
+        pytest.param(
+            '{"passed": false} {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-boolean-passed-key-then-a-verdict",
+        ),
+        pytest.param(
+            '{"pass": true, "score": 1, "reason": "ok", "verdict": false}',
+            "malformed verdict",
+            id="a-boolean-verdict-key-inside-the-verdict",
+        ),
+        # A nested "pass" that differs from the verdict's leaves the grade ambiguous.
+        pytest.param(
+            '{"pass": true, "score": 1, "reason": "x", "final": {"pass": false, "score": 0.1}}',
+            'nested "pass"',
+            id="a-nested-pass-that-contradicts-the-verdict",
+        ),
+        pytest.param(
+            '{"pass": true, "score": 1, "reason": "x", "axes": [{"pass": false}]}',
+            'nested "pass"',
+            id="a-nested-pass-in-a-list-that-contradicts-the-verdict",
+        ),
+        # Only an exact format template is exempt: a filled-in placeholder is not one.
+        pytest.param(
+            '{"pass": <true|false> false, "score": 0.1}\n{"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-filled-in-format-template-then-a-verdict",
         ),
         pytest.param('{"pass": null, "score": 1}', '"pass"', id="pass-null"),
         pytest.param('{"pass": "yes", "score": 1}', '"pass"', id="pass-string"),

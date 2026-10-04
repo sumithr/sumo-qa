@@ -56,8 +56,18 @@ _EXCERPT = 400
 # graded as the candidate's answer. The "|<digits>" suffix keeps an answer that merely
 # quotes the phrase from matching.
 _USAGE_LIMIT = re.compile(r"usage limit reached\|\d+", re.IGNORECASE)
+
+
+def _unique_keys(pairs):
+    """An object's pairs as a dict; a repeated key, at any depth, does not decode."""
+    keys = [key for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("repeated key")
+    return dict(pairs)
+
+
 # strict=False: a raw newline or tab inside the judge's "reason" string still decodes.
-_DECODER = json.JSONDecoder(strict=False)
+_DECODER = json.JSONDecoder(strict=False, object_pairs_hook=_unique_keys)
 # Judge replies that never gave a verdict are kept here in full (gitignored).
 REPLY_DIR = Path(__file__).resolve().parents[2] / "results" / "judge-replies"
 # Bare secret values and PEM private-key blocks, drawn from the shapes
@@ -74,11 +84,21 @@ _SECRET = re.compile(
     r"|eyJ[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,})",
     re.DOTALL,
 )
-# A "pass" key in either quote style, also one whose colon is missing (`"pass" false`).
-_PASS_KEY = re.compile(r"""(["'])pass\1\s*(?::|<|(?:true|false|True|False|null)\b)""")
-# The rubrics' own output-format template, `{"pass": <true|false>`, exactly: its "pass" key
-# is not a verdict. `<false>` or `<b>` is not the template.
-_FORMAT_TEMPLATE = re.compile(r"""\{\s*"pass"\s*:\s*<true\|false>""")
+# The word "pass" as a key in any spelling: any case, bare or in (escaped) straight, curly
+# or backtick quotes or `**` bold, then `:`, `=`, `<` or a bare literal (`"pass" false`).
+# "passes", "bypass" or "passed the test" have no key separator and do not match.
+_PASS_KEY = re.compile(
+    r"""(?<!\w)pass(?:\\?["'`\u2018\u2019\u201c\u201d])?(?:\*\*)?\s*(?:[:=<]|(?:true|false|null)\b)""",
+    re.IGNORECASE,
+)
+# The rubrics' own output-format template, exactly: `{"pass": <true|false>` then only
+# `"key": <placeholder>` or `"key": "string"` members (or `...`) up to its `}`. Its own
+# "pass" key is not a verdict. `<false>`, `<b>` or a filled-in value is not the template.
+_FORMAT_TEMPLATE = re.compile(
+    r"""\{\s*"pass"\s*:\s*<true\|false>"""
+    r"""(?:\s*,\s*(?:"[^"\\]*"\s*:\s*(?:<[^<>]*>|"[^"\\]*")|\.\.\.|\u2026))*\s*\}"""
+)
+_TEMPLATE_KEY = re.compile(r"""\{\s*"pass"\s*:""")
 # A `{` opening a quoted key starts an object; `{x}` or `{0: 1` is prose.
 _OBJECT_START = re.compile(r"""\{\s*["']""")
 # Text ending in a quoted key and its colon (`"inner": ` or `"axes": [`): an object after it
@@ -226,26 +246,31 @@ def _verdict(text):
             value, end = _DECODER.raw_decode(text, start)
         except ValueError:
             # A quoted-key object that does not decode (truncated, a trailing comma,
-            # unescaped quotes) may be or hold the verdict: the reply is refused whole.
+            # unescaped quotes, a repeated key) may be or hold the verdict: the reply is
+            # refused whole.
             # Prose braces (`{x}`, `{0: 1`) and the rubric's format template are skipped.
             if _OBJECT_START.match(text, start) and not _FORMAT_TEMPLATE.match(text, start):
                 return None, "has a malformed verdict object"
             start = text.find("{", start + 1)
             continue
-        if _CUT_AFTER.match(text, end):
+        if _CUT_AFTER.match(text, end) or _variant_key(value):
             return None, "has a malformed verdict object"
         # Top level only: an object nested inside a decoded one is never scanned on its own.
         # Objects without "pass" (a quoted snippet, trailing notes) are not verdicts.
         if isinstance(value, dict) and "pass" in value:
             if _KEY_BEFORE.search(text, 0, start):
                 return None, "has a malformed verdict object"
+            if _disagrees(value, value["pass"]):
+                return None, 'has a nested "pass" that differs from the verdict'
             spans.append((start, end))
             verdicts.setdefault(json.dumps(_canonical(value), sort_keys=True), value)
         start = text.find("{", end)
-    # Every "pass" key must belong to a decoded verdict: one in prose, in a non-verdict
-    # object or in an object that did not decode may be the grade. Only the format
-    # template's own key is exempt.
-    templates = [m.span() for m in _FORMAT_TEMPLATE.finditer(text)]
+    # Every "pass" key, in any spelling, must belong to a decoded verdict: one in prose, in
+    # a non-verdict object or in an object that did not decode may be the grade. Only the
+    # format template's own leading key is exempt.
+    templates = [
+        _TEMPLATE_KEY.match(text, m.start()).span() for m in _FORMAT_TEMPLATE.finditer(text)
+    ]
     if any(not _within(m.start(), spans + templates) for m in _PASS_KEY.finditer(text)):
         return None, "has a malformed verdict object"
     if not verdicts:
@@ -262,6 +287,38 @@ def _verdict(text):
     if not isinstance(verdict.get("reason", ""), str):
         return None, '"reason" is not a string'
     return verdict, None
+
+
+def _children(value):
+    if isinstance(value, dict):
+        return list(value.values())
+    return value if isinstance(value, list) else []
+
+
+def _variant_key(value):
+    """True when a dict at any depth has a key spelled like "pass" that is not exactly
+    "pass" (`"Pass"`, `" pass"`), or a "passed" or "verdict" key holding a boolean."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            word = re.sub(r"[\W_]", "", key).casefold()
+            if (word == "pass" and key != "pass") or (
+                word in ("passed", "verdict") and isinstance(item, bool)
+            ):
+                return True
+    return any(_variant_key(child) for child in _children(value))
+
+
+def _disagrees(value, top):
+    """True when a dict nested at any depth in the verdict has a "pass" unlike `top`."""
+    return any(
+        (
+            isinstance(child, dict)
+            and "pass" in child
+            and (type(child["pass"]), child["pass"]) != (type(top), top)
+        )
+        or _disagrees(child, top)
+        for child in _children(value)
+    )
 
 
 def _within(at, spans):
