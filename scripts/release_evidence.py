@@ -1,25 +1,28 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Record and verify the evidence files that ship with a sumo-qa release.
 
-``.github/workflows/release.yml`` runs both subcommands; .github/SECURITY.md
+``.github/workflows/release.yml`` runs all three subcommands; .github/SECURITY.md
 describes the files and how a consumer checks them.
 
-``record DIST`` runs in the build job once DIST holds the wheel, the sdist and
-the CycloneDX SBOM (``sbom.cdx.json``). It writes:
+``record DIST`` runs in the build job once DIST holds the wheel and the sdist,
+before anything else is installed. It writes ``build-info.json``: source commit
+and ref, workflow run, runner, Python, the exact version of every package in
+the build environment (the build runs with ``--no-isolation``, so that
+environment is the whole set of build inputs) and the SHA-256 of the wheel and
+sdist. Those digests are fixed here; nothing later can change them unnoticed.
 
-- ``build-info.json``: source commit and ref, workflow run, runner, Python, the
-  exact version of every package in the build environment (the build runs with
-  ``--no-isolation``, so that environment is the whole set of build inputs) and
-  the SHA-256 of the wheel and sdist;
-- ``SHA256SUMS``: the digest of every other file in DIST, in ``sha256sum``
-  format. The build-provenance attestation takes its subjects from this file.
+``sums DIST`` runs once the CycloneDX SBOM (``sbom.cdx.json``, generated in a
+separate job) has joined the build job's files. It writes ``SHA256SUMS``: the
+digest of every other file in DIST, in ``sha256sum`` format. The
+build-provenance attestation takes its subjects from this file.
 
-``verify DIST [--commit SHA]`` is the gate before publishing. It fails when a
+``verify DIST [--commit SHA]`` is the gate before signing. It fails when a
 required file is missing, a file is unlisted in or absent from ``SHA256SUMS``,
-a digest does not match, the SBOM lacks the ``urn:uuid`` serialNumber
-``actions/attest`` requires or does not describe the built version, or
-``build-info.json`` names different artifacts or a different commit. The
-signed attestations are checked separately with ``gh attestation verify``.
+a digest does not match, a package does not match the digest
+``build-info.json`` recorded in the build job, the SBOM has no non-empty
+``serialNumber`` (``actions/attest`` requires one, of any form) or does not
+describe the built version, or ``build-info.json`` names a different commit.
+The signed attestations are checked separately with ``gh attestation verify``.
 """
 
 from __future__ import annotations
@@ -40,8 +43,6 @@ SBOM = "sbom.cdx.json"
 BUILD_INFO = "build-info.json"
 BUILD_TOOLS = ("build", "hatchling")
 _SUM_LINE = re.compile(r"^([0-9a-f]{64}) [ *](.+)$")
-# actions/attest only accepts a CycloneDX SBOM that has a serialNumber.
-_SERIAL = re.compile(r"^urn:uuid:")
 
 
 def _sha256(path: Path) -> str:
@@ -95,6 +96,9 @@ def record(dist: Path) -> None:
         "artifacts": {p.name: _sha256(p) for p in wheels + sdists},
     }
     (dist / BUILD_INFO).write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+
+
+def sums(dist: Path) -> None:
     files = sorted(p for p in dist.iterdir() if p.is_file() and p.name != SUMS)
     (dist / SUMS).write_text("".join(f"{_sha256(p)}  {p.name}\n" for p in files), encoding="utf-8")
 
@@ -139,8 +143,10 @@ def _check_sbom(dist: Path, version: str) -> list[str]:
         return [f"{SBOM} is missing or not a JSON object"]
     if bom.get("bomFormat") != "CycloneDX" or not bom.get("specVersion"):
         return [f"{SBOM} is not a CycloneDX document"]
-    if not _SERIAL.match(str(bom.get("serialNumber", ""))):
-        return [f"{SBOM} has no urn:uuid serialNumber, which actions/attest requires"]
+    # actions/attest only checks that serialNumber is present, not its form.
+    serial = bom.get("serialNumber")
+    if not isinstance(serial, str) or not serial:
+        return [f"{SBOM} has no serialNumber (a non-empty string), which actions/attest requires"]
     components = bom.get("components", [])
     if not isinstance(components, list):
         return [f"{SBOM} components is not a list"]
@@ -185,12 +191,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("record").add_argument("dist", type=Path)
+    sub.add_parser("sums").add_argument("dist", type=Path)
     check = sub.add_parser("verify")
     check.add_argument("dist", type=Path)
     check.add_argument("--commit", help="source commit build-info.json must name")
     args = parser.parse_args(argv)
     if args.command == "record":
         record(args.dist)
+        return 0
+    if args.command == "sums":
+        sums(args.dist)
         return 0
     errors = verify(args.dist, args.commit)
     for error in errors:

@@ -440,8 +440,10 @@ naming both files, the hook id, the hook value and every candidate
   it with `--require-hashes` and builds with `--no-isolation`, so the lock is
   the whole set of build inputs. Dependabot watches `/.github/release`.
 - **Release evidence.** `release.yml` adds `sbom.cdx.json`, `build-info.json`
-  and `SHA256SUMS` next to the wheel and sdist, attests build provenance and
-  the SBOM, and gates publishing on `scripts/release_evidence.py verify` plus
+  and `SHA256SUMS` next to the wheel and sdist. The build job records the
+  package digests before anything unhashed is installed; a separate job with
+  no signing permissions builds the SBOM and uploads only that. Signing waits
+  for `scripts/release_evidence.py verify`, and publishing waits for
   `gh attestation verify` (`tests/test_release_evidence.py` covers the
   negative cases). Run the workflow from the Actions tab
   (`workflow_dispatch`) for a dry run that builds, attests and verifies

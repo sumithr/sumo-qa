@@ -56,7 +56,9 @@ gh attestation verify "sumo_qa-$VERSION-py3-none-any.whl" --repo sumithr/sumo-qa
 
 # SBOM: sbom.cdx.json is attested for this exact package digest.
 gh attestation verify "sumo_qa-$VERSION-py3-none-any.whl" --repo sumithr/sumo-qa \
-  --source-ref "refs/tags/v$VERSION" --predicate-type https://cyclonedx.org/bom
+  --signer-workflow sumithr/sumo-qa/.github/workflows/release.yml \
+  --source-ref "refs/tags/v$VERSION" --deny-self-hosted-runners \
+  --predicate-type https://cyclonedx.org/bom
 ```
 
 The same `gh attestation verify` commands work on a wheel fetched with `pip download sumo-qa==$VERSION --no-deps`. From a checkout, `python scripts/release_evidence.py verify "sumo-qa-$VERSION"` repeats the release gate's digest, SBOM and build-info checks.

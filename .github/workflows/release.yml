@@ -14,10 +14,10 @@ permissions:
   contents: read
 
 jobs:
-  # No signing permissions here: the SBOM step installs the wheel's
-  # dependencies from PyPI without hashes. The attest job signs the result.
+  # Builds from the hashed lock alone and fixes the package digests in
+  # build-info.json before anything unhashed is installed anywhere.
   build:
-    name: Build and SBOM
+    name: Build and record
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,7 +26,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # No pip cache: a release build installs only the hashed lock below.
+      # No pip cache: this job installs only the hashed lock below.
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -41,44 +41,106 @@ jobs:
       - name: Build wheel + sdist
         run: python -m build --no-isolation
 
-      # CycloneDX SBOM of the dependency set installing the wheel resolves on
-      # this runner (Linux, CPython 3.13). cyclonedx-py validates the document
-      # against the schema before writing. No --output-reproducible: it drops
-      # the serialNumber, and actions/attest rejects a CycloneDX SBOM without one.
-      - name: Generate SBOM
-        run: |
-          python -m venv --without-pip "$RUNNER_TEMP/sbom-env"
-          python -m pip --python "$RUNNER_TEMP/sbom-env/bin/python" install dist/*.whl
-          cyclonedx-py environment --pyproject pyproject.toml --mc-type library \
-            --of JSON -o dist/sbom.cdx.json \
-            "$RUNNER_TEMP/sbom-env/bin/python"
-
-      - name: Record build info and digests
+      - name: Record build info and package digests
         run: python scripts/release_evidence.py record dist
 
-      # The one artifact: attest, verify, PyPI and the GitHub release all
-      # take their bytes from it.
-      - name: Upload release files
+      # Every later job takes the package bytes from this artifact.
+      - name: Upload packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: release-files
+          name: packages
           path: dist/
           if-no-files-found: error
 
-  attest:
-    name: Attest provenance and SBOM
+  # Installs the wheel's dependencies from PyPI without hashes, so this job
+  # gets no signing permissions and uploads only the SBOM: the package bytes
+  # on this runner never leave it.
+  sbom:
+    name: SBOM
     needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # cyclonedx-py comes from the hashed lock.
+      - name: Install pinned build tools
+        run: python -m pip install --require-hashes -r .github/release/requirements.txt
+
+      - name: Download packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: packages
+          path: packages/
+
+      # CycloneDX SBOM of the dependency set installing the wheel resolves on
+      # this runner (Linux, CPython 3.13), in a throwaway venv. cyclonedx-py
+      # validates the document against the schema before writing. No
+      # --output-reproducible: it drops the serialNumber, and actions/attest
+      # rejects a CycloneDX SBOM without one.
+      - name: Generate SBOM
+        run: |
+          python -m venv --without-pip "$RUNNER_TEMP/sbom-env"
+          python -m pip --python "$RUNNER_TEMP/sbom-env/bin/python" install packages/*.whl
+          mkdir sbom
+          cyclonedx-py environment --pyproject pyproject.toml --mc-type library \
+            --of JSON -o sbom/sbom.cdx.json \
+            "$RUNNER_TEMP/sbom-env/bin/python"
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: sbom/sbom.cdx.json
+          if-no-files-found: error
+
+  # Gates first, then signs: bad bytes never get a permanent attestation.
+  attest:
+    name: Verify, then attest provenance and SBOM
+    needs: [build, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write  # Sigstore signing certificate for the attestations
       attestations: write
     steps:
-      - name: Download release files
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # The packages and build-info.json from the build job; the SBOM job
+      # contributes only sbom.cdx.json.
+      - name: Download packages
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-files
+          name: packages
           path: dist/
+
+      - name: Download SBOM
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sbom
+          path: dist/
+
+      - name: Write SHA256SUMS
+        run: python scripts/release_evidence.py sums dist
+
+      # Fails unless every package matches the digest the build job recorded.
+      - name: Verify digests, SBOM and build info
+        run: python scripts/release_evidence.py verify dist --commit "$GITHUB_SHA"
 
       # SLSA build provenance for every file SHA256SUMS lists.
       - name: Attest build provenance
@@ -94,31 +156,28 @@ jobs:
             dist/*.tar.gz
           sbom-path: dist/sbom.cdx.json
 
+      # The one release artifact: verify, PyPI and the GitHub release all
+      # take their bytes from it.
+      - name: Upload release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-files
+          path: dist/
+          if-no-files-found: error
+
   verify:
-    name: Verify digests, SBOM and attestations
+    name: Verify attestations
     needs: attest
     runs-on: ubuntu-latest
     permissions:
       contents: read
       attestations: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.13"
-
       - name: Download release files
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-files
           path: dist/
-
-      - name: Verify digests, SBOM and build info
-        run: python scripts/release_evidence.py verify dist --commit "$GITHUB_SHA"
 
       # Fails on any file without a provenance attestation from this
       # workflow, commit and ref, and on a package without an SBOM attestation.

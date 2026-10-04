@@ -37,15 +37,18 @@ evidence = _load()
 
 @pytest.fixture
 def dist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A recorded release: wheel, sdist, real SBOM, build-info and sums."""
+    """A release assembled as release.yml does: the build job records the
+    packages, the SBOM job's SBOM joins them, then the sums are written."""
     version = json.loads(SBOM_FIXTURE.read_text())["metadata"]["component"]["version"]
     (tmp_path / f"sumo_qa-{version}-py3-none-any.whl").write_bytes(b"wheel bytes")
     (tmp_path / f"sumo_qa-{version}.tar.gz").write_bytes(b"sdist bytes")
-    shutil.copy(SBOM_FIXTURE, tmp_path / evidence.SBOM)
     monkeypatch.setenv("GITHUB_SHA", COMMIT)
     tools = [SimpleNamespace(metadata={"Name": n}, version="1.0") for n in ("build", "Hatchling")]
     monkeypatch.setattr(evidence.importlib.metadata, "distributions", lambda: tools)
     evidence.record(tmp_path)
+    assert not (tmp_path / evidence.SUMS).exists()
+    shutil.copy(SBOM_FIXTURE, tmp_path / evidence.SBOM)
+    evidence.sums(tmp_path)
     return tmp_path
 
 
@@ -81,6 +84,16 @@ def test_tampered_wheel_fails_digest_and_build_info(dist: Path) -> None:
     assert evidence.verify(dist) == [
         f"{_wheel(dist).name} does not match its SHA256SUMS digest",
         "build-info.json artifacts do not match the built wheel and sdist",
+    ]
+
+
+def test_wheel_changed_after_record_fails_even_when_resummed(dist: Path) -> None:
+    """Sums are written after the SBOM job, so build-info.json's digests are
+    what catch a package changed after the build job."""
+    _wheel(dist).write_bytes(b"tampered")
+    _resum(dist)
+    assert evidence.verify(dist) == [
+        "build-info.json artifacts do not match the built wheel and sdist"
     ]
 
 
@@ -121,13 +134,13 @@ def test_sbom_mismatch_fails(dist: Path, bom: object, error: str) -> None:
     ("change", "error"),
     [
         (
-            {"serialNumber": "1234"},
-            "sbom.cdx.json has no urn:uuid serialNumber, which actions/attest requires",
+            {"serialNumber": ""},
+            "sbom.cdx.json has no serialNumber (a non-empty string), which actions/attest requires",
         ),
         ({"metadata": None}, "sbom.cdx.json does not describe sumo-qa {version}"),
         ({"components": None}, "sbom.cdx.json components is not a list"),
     ],
-    ids=["non-uuid-serial-number", "null-metadata", "null-components"],
+    ids=["empty-serial-number", "null-metadata", "null-components"],
 )
 def test_malformed_sbom_fails(dist: Path, change: dict, error: str) -> None:
     """The real SBOM with one key broken fails with a named error, never a
@@ -148,14 +161,23 @@ def test_sbom_without_serial_number_fails(dist: Path) -> None:
     (dist / evidence.SBOM).write_text(json.dumps(bom))
     _resum(dist)
     assert evidence.verify(dist) == [
-        "sbom.cdx.json has no urn:uuid serialNumber, which actions/attest requires"
+        "sbom.cdx.json has no serialNumber (a non-empty string), which actions/attest requires"
     ]
+
+
+def test_sbom_serial_number_of_any_form_passes(dist: Path) -> None:
+    """actions/attest checks presence only, so the gate accepts a non-uuid
+    serialNumber too."""
+    bom = json.loads((dist / evidence.SBOM).read_text())
+    bom["serialNumber"] = "1234"
+    (dist / evidence.SBOM).write_text(json.dumps(bom))
+    _resum(dist)
+    assert evidence.verify(dist) == []
 
 
 def test_sbom_for_other_package_fails(dist: Path) -> None:
     bom = json.loads((dist / evidence.SBOM).read_text())
     bom["metadata"]["component"]["name"] = "not-sumo-qa"
-    bom["components"] = [c for c in bom["components"] if c.get("name") != "sumo-qa"]
     (dist / evidence.SBOM).write_text(json.dumps(bom))
     _resum(dist)
     version = _wheel(dist).name.split("-")[1]
@@ -223,4 +245,6 @@ def test_cli_exit_codes(dist: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert "source commit is not" in capsys.readouterr().err
     (dist / evidence.SUMS).unlink()
     assert evidence.main(["record", str(dist)]) == 0
+    assert not (dist / evidence.SUMS).exists()
+    assert evidence.main(["sums", str(dist)]) == 0
     assert (dist / evidence.SUMS).is_file()
