@@ -235,8 +235,10 @@ def _redact(text):
     if home.parent == home:  # a filesystem-root home names no one
         return text
     # Only the whole home path: `/home/al` must not turn `/home/alice` into `~ice`, nor
-    # `/data/home/al` into `/data~`.
-    return re.sub(r"(?<![\w.-])" + re.escape(str(home)) + r"(?![\w-]|\.[\w-])", "~", text)
+    # `/data/home/al` into `/data~`. Both separator forms: Windows text may hold
+    # `C:/Users/al` as well as `C:\Users\al`.
+    forms = "|".join(re.escape(form) for form in {str(home), home.as_posix()})
+    return re.sub(r"(?<![\w.-])(?:" + forms + r")(?![\w-]|\.[\w-])", "~", text)
 
 
 def _verdict(text):

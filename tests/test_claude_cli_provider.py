@@ -11,7 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 import yaml
@@ -778,8 +778,12 @@ def test_a_reply_without_a_verdict_is_asked_once_more(monkeypatch, _reply_dir):
     assert not _reply_dir.exists()
 
 
-def test_a_second_reply_without_a_verdict_is_kept_in_full_and_redacted(monkeypatch, _reply_dir):
-    home = str(Path.home())
+def test_a_second_reply_without_a_verdict_is_kept_in_full_and_redacted(
+    monkeypatch, tmp_path, _reply_dir
+):
+    # The kept file sits under home, as tmp_path does on Windows.
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    home = str(tmp_path)
     first = "no verdict here " + "x" * 5000 + f" {home}/repo sk-ant-api03-{'a' * 30}"
     second = "no verdict " + "x" * 5000
     calls = _fake_cli(
@@ -796,7 +800,7 @@ def test_a_second_reply_without_a_verdict_is_kept_in_full_and_redacted(monkeypat
     assert error.startswith('judge reply has no verdict object with a "pass" key (asked twice')
     assert second[:_EXCERPT_CAP] in error and second[: _EXCERPT_CAP + 1] not in error
     [kept] = list(_reply_dir.iterdir())
-    assert str(kept) in error
+    assert str(kept).replace(home, "~") in error and home not in error
     saved = json.loads(kept.read_text(encoding="utf-8"))
     assert [entry["problem"] for entry in saved] == ['has no verdict object with a "pass" key'] * 2
     assert saved[0]["reply"] == first.replace(home, "~").replace(
@@ -827,7 +831,9 @@ def test_a_failed_cli_call_error_is_redacted(monkeypatch):
     assert error.startswith("claude call failed") and _KEY not in error and "[REDACTED]" in error
 
 
-def test_a_retry_that_fails_keeps_the_first_reply(monkeypatch, _reply_dir):
+def test_a_retry_that_fails_keeps_the_first_reply(monkeypatch, tmp_path, _reply_dir):
+    # The kept file sits under home, as tmp_path does on Windows.
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
     _fake_cli(
         monkeypatch,
         json.dumps({**SUCCESS, "result": "I think it passes."}),
@@ -839,7 +845,8 @@ def test_a_retry_that_fails_keeps_the_first_reply(monkeypatch, _reply_dir):
 
     [kept] = list(_reply_dir.iterdir())
     assert error.startswith("claude usage limit: ")
-    assert error.endswith(f"; the earlier judge reply is kept at {kept}")
+    kept_at = str(kept).replace(str(tmp_path), "~")
+    assert error.endswith(f"; the earlier judge reply is kept at {kept_at}")
     assert json.loads(kept.read_text(encoding="utf-8"))[0]["reply"] == "I think it passes."
     # Both calls reported usage, so both are counted, the failed one too.
     assert response["tokenUsage"] == {"prompt": 246, "completion": 14, "total": 260}
@@ -874,10 +881,18 @@ def test_home_is_redacted_before_punctuation_but_not_inside_another_path(monkeyp
 
 
 def test_home_is_redacted_before_a_full_stop_but_not_before_a_dotted_name(monkeypatch):
-    monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/Users/al")))
-    text = "/Users/al.smith/x /Users/al.old see /Users/al."
+    home = str(Path("/Users/al"))  # `\Users\al` on Windows
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: Path(home)))
+    text = f"{home}.smith/x {home}.old see {home}."
 
-    assert provider._redact(text) == "/Users/al.smith/x /Users/al.old see ~."
+    assert provider._redact(text) == f"{home}.smith/x {home}.old see ~."
+
+
+def test_a_windows_home_is_redacted_in_either_separator_form(monkeypatch):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: PureWindowsPath("C:\\Users\\al")))
+    text = "C:\\Users\\al\\repo C:/Users/al/repo C:/Users/al. C:/Users/alice/x C:/Users/al.old"
+
+    assert provider._redact(text) == "~\\repo ~/repo ~. C:/Users/alice/x C:/Users/al.old"
 
 
 def _fake_cli_stderr(monkeypatch, stderr):
