@@ -626,6 +626,31 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   verdict and hands promptfoo an object. promptfoo's own text extractor counts braces
   without reading strings: a `}` inside the judge's `reason` dropped the grade as
   unparseable, and a `{` there could turn a failing verdict into a silent pass.
+  The reply is graded only when its verdict is unambiguous: at least one top-level
+  object with a `"pass"` key decodes, every such object is the same verdict, and none is
+  the value of a quoted key (`"inner": {...}`). A key spelled `pass` in any way (any
+  case; bare, `**` bold, or in escaped, straight, curly or backtick quotes; followed by
+  `:`, `=`, `<` or a bare `true`, `false` or `null`) must sit inside that verdict. The
+  only exception is the leading key of the rubric's exact format template:
+  `{"pass": <true|false>` followed only by `<placeholder>` or quoted-string values (or
+  `...`) up to its `}`. No `{` that opens a quoted key may fail to decode (truncated, a
+  trailing comma, unescaped quotes, a key repeated at any depth). No decoded object may
+  hold a key that reads `pass` but is not exactly `"pass"` (`"Pass"`, `" pass"`), or a
+  `"passed"` or `"verdict"` key with a boolean value. A `"pass"` nested at any depth in
+  the verdict must equal the verdict's own. Any decoded object followed by `,`, `"`,
+  `'`, `:`, `}` or `]` was cut out of a larger structure, so the reply is refused. Prose
+  braces (`{x}`, `{0: 1`) and objects without `"pass"` are ignored, as are words such as
+  "passes" or "bypass" with no key separator after them. Every word `verdict` (any
+  case) followed on the same line, past only spaces, tabs, `:`, `=`, `-`, `*` and the
+  linking words `is`, `was` or `of`, by an uppercase `PASS` or `FAIL` or an inflection
+  of either ("VERDICT: FAIL", "verdict is FAILED") that is not one of two offered grades
+  ("PASS or FAIL", "PASS/FAIL"), and every PASS/FAIL or true/false string under a
+  `"verdict"`, `"passed"` or `"result"` key in the verdict, must agree with `"pass"`.
+  A reply that breaks any of these is retried and may error; it is never graded from a
+  guess.
+  A reply with no valid verdict is asked once more; when the second fails too, both
+  replies are written in full, redacted, to `tests/evals/results/judge-replies/`
+  (gitignored), and the error names that file.
 
 ### Claude-pair baseline
 
