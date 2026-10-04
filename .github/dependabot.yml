@@ -10,8 +10,23 @@ updates:
     open-pull-requests-limit: 5
     labels: ["deps"]
 
+  # Workflows pin every action to a full commit SHA with a `# vX.Y.Z`
+  # comment; Dependabot moves the SHA and the comment together.
   - package-ecosystem: github-actions
     directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Europe/London
+    open-pull-requests-limit: 5
+    labels: ["deps", "ci"]
+
+  # Hashed release locks used by .github/workflows/release.yml: build tools
+  # (requirements.txt, compiled from requirements.in) and the SBOM job's
+  # runtime dependencies (runtime-requirements.txt, compiled from pyproject.toml).
+  - package-ecosystem: pip
+    directory: /.github/release
     schedule:
       interval: weekly
       day: monday

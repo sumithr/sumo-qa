@@ -4,53 +4,323 @@ on:
   push:
     tags:
       - "v*"
+  # Dry run from any branch: build, attest and verify without publishing.
+  # The publish and release-assets jobs only run for a tag push.
+  workflow_dispatch:
 
-# Minimum-required default token scope. The build job only checks out the
-# repo and builds artefacts; the publish job overrides below with the
-# id-token write it needs for OIDC trusted publishing. Satisfies CodeQL's
-# "workflow does not contain permissions" lint.
+# Minimum-required default token scope; each job below widens only what it
+# needs. Satisfies CodeQL's "workflow does not contain permissions" lint.
 permissions:
   contents: read
 
 jobs:
+  # Builds from the hashed lock alone and fixes the package digests in
+  # build-info.json.
   build:
-    name: Build wheel + sdist
+    name: Build and record
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Kept outside the artifact store, so no later job can change it: the
+    # attest job checks build-info.json, and through it the packages, against it.
+    outputs:
+      build_info_sha256: ${{ steps.record.outputs.build_info_sha256 }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
+      # No pip cache: this job installs only the hashed lock below.
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
-      - name: Install build backend
-        run: python -m pip install build
+      # Every package here is a wheel pinned with hashes in the lock, and the
+      # build runs with --no-isolation, so this environment is the complete set of
+      # build inputs. build-info.json records it.
+      - name: Install pinned build tools
+        run: python -m pip install --require-hashes --only-binary ':all:' -r .github/release/requirements.txt
 
-      - name: Build
-        run: python -m build
+      - name: Build wheel + sdist
+        run: python -m build --no-isolation
 
-      - name: Upload artefacts
-        uses: actions/upload-artifact@v4
+      - name: Record build info and package digests
+        id: record
+        run: |
+          set -o pipefail
+          python scripts/release_evidence.py record dist
+          digest=$(sha256sum dist/build-info.json | cut -d' ' -f1)
+          [ -n "$digest" ]
+          echo "build_info_sha256=$digest" >> "$GITHUB_OUTPUT"
+
+      # Every later job takes the package bytes from this artifact.
+      - name: Upload packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dist
+          name: packages
           path: dist/
+          if-no-files-found: error
+
+  # No signing permissions, and the attest job takes only sbom.cdx.json from
+  # it: the package bytes on this runner never reach a release.
+  sbom:
+    name: SBOM
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # cyclonedx-py comes from the hashed lock.
+      - name: Install pinned build tools
+        run: python -m pip install --require-hashes --only-binary ':all:' -r .github/release/requirements.txt
+
+      - name: Download packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: packages
+          path: packages/
+
+      # build-info.json then gives the wheel digest the install below checks.
+      - name: Check build info against the build job's digest
+        env:
+          BUILD_INFO_SHA256: ${{ needs.build.outputs.build_info_sha256 }}
+        run: printf '%s  packages/build-info.json\n' "$BUILD_INFO_SHA256" | sha256sum --check --strict
+
+      # CycloneDX SBOM of the wheel installed, in a throwaway venv, from the
+      # hashed runtime lock (.github/release/runtime-requirements.txt, its
+      # Linux / CPython 3.13 resolution) with no dependency resolution: every
+      # installed file is a hash-checked wheel (--only-binary, so no sdist build
+      # pulls in an unhashed build backend), and pip check fails on a lock that
+      # no longer satisfies the wheel. cyclonedx-py validates the document against
+      # the schema before writing. No --output-reproducible: it drops the
+      # serialNumber, and actions/attest rejects a CycloneDX SBOM without one.
+      - name: Generate SBOM
+        run: |
+          set -euo pipefail
+          jq -r '.artifacts | to_entries[] | select(.key | endswith(".whl"))
+            | "packages/\(.key) --hash=sha256:\(.value)"' packages/build-info.json \
+            > "$RUNNER_TEMP/wheel-requirements.txt"
+          env_python="$RUNNER_TEMP/sbom-env/bin/python"
+          python -m venv --without-pip "$RUNNER_TEMP/sbom-env"
+          python -m pip --python "$env_python" install --require-hashes --no-deps --only-binary ':all:' \
+            -r .github/release/runtime-requirements.txt \
+            -r "$RUNNER_TEMP/wheel-requirements.txt"
+          python -m pip --python "$env_python" check
+          mkdir sbom
+          cyclonedx-py environment --pyproject pyproject.toml --mc-type library \
+            --of JSON -o sbom/sbom.cdx.json "$env_python"
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: sbom/sbom.cdx.json
+          if-no-files-found: error
+
+  # Gates first, then signs: bad bytes never get a permanent attestation.
+  attest:
+    name: Verify, then attest provenance and SBOM
+    needs: [build, sbom]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Sigstore signing certificate for the attestations
+      attestations: write
+    outputs:
+      sums_sha256: ${{ steps.sums.outputs.sums_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # The packages and build-info.json from the build job; the SBOM job
+      # contributes only sbom.cdx.json. The build job's build_info_sha256
+      # output anchors build-info.json, whose digests anchor the packages.
+      - name: Download packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: packages
+          path: dist/
+
+      - name: Check build info against the build job's digest
+        env:
+          BUILD_INFO_SHA256: ${{ needs.build.outputs.build_info_sha256 }}
+        run: printf '%s  dist/build-info.json\n' "$BUILD_INFO_SHA256" | sha256sum --check --strict
+
+      - name: Download SBOM
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sbom
+          path: sbom/
+
+      - name: Take only the SBOM
+        run: cp sbom/sbom.cdx.json dist/
+
+      # Kept outside the artifact store like build_info_sha256: publish and
+      # release-assets check the files they ship against it.
+      - name: Write SHA256SUMS
+        id: sums
+        run: |
+          set -o pipefail
+          python scripts/release_evidence.py sums dist
+          digest=$(sha256sum dist/SHA256SUMS | cut -d' ' -f1)
+          [ -n "$digest" ]
+          echo "sums_sha256=$digest" >> "$GITHUB_OUTPUT"
+
+      # Fails unless every package matches the digest the build job recorded.
+      - name: Verify digests, SBOM and build info
+        run: python scripts/release_evidence.py verify dist --commit "$GITHUB_SHA"
+
+      # SLSA build provenance for every file SHA256SUMS lists.
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Attest SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+          sbom-path: dist/sbom.cdx.json
+
+      # The one release artifact: verify, PyPI and the GitHub release all
+      # take their bytes from it.
+      - name: Upload release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-files
+          path: dist/
+          if-no-files-found: error
+
+  verify:
+    name: Verify attestations
+    needs: attest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: dist/
+
+      # Fails on any file without a provenance attestation from this
+      # workflow, commit and ref, and on a package without an SBOM attestation.
+      - name: Verify attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          check() {
+            gh attestation verify "$1" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" \
+              --deny-self-hosted-runners "${@:2}"
+          }
+          for f in dist/*; do
+            [ "${f##*/}" = SHA256SUMS ] || check "$f"
+          done
+          for f in dist/*.whl dist/*.tar.gz; do
+            check "$f" --predicate-type https://cyclonedx.org/bom
+          done
 
   publish:
     name: Publish to PyPI
-    needs: build
+    needs: [attest, verify]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write  # OIDC trusted publishing
+      # OIDC trusted publishing; the action also uploads PEP 740 attestations.
+      id-token: write
     steps:
-      - name: Download artefacts
-        uses: actions/download-artifact@v4
+      - name: Download release files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: dist
-          path: dist/
+          name: release-files
+          path: release-files/
+
+      # The release-files artifact can be replaced after the attest job, so
+      # the files must be exactly the ones SHA256SUMS lists, and SHA256SUMS
+      # the one the attest job wrote.
+      - name: Check release files against the attest job's digest
+        env:
+          SUMS_SHA256: ${{ needs.attest.outputs.sums_sha256 }}
+        working-directory: release-files
+        run: |
+          set -euo pipefail
+          printf '%s  SHA256SUMS\n' "$SUMS_SHA256" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          shopt -s dotglob
+          for f in *; do
+            [ "$f" = SHA256SUMS ] && continue
+            if [ ! -f "$f" ] || ! grep -qxF -- "$f" <(cut -c67- SHA256SUMS); then
+              echo "::error::$f is not a file SHA256SUMS lists"
+              exit 1
+            fi
+          done
+
+      # The verified bytes; PyPI takes only the packages, from dist/.
+      - name: Select the packages
+        run: mkdir dist && mv release-files/*.whl release-files/*.tar.gz dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  release-assets:
+    name: Attach release files to the GitHub release
+    needs: [attest, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: dist/
+
+      # The release-files artifact can be replaced after the attest job, so
+      # the files must be exactly the ones SHA256SUMS lists, and SHA256SUMS
+      # the one the attest job wrote.
+      - name: Check release files against the attest job's digest
+        env:
+          SUMS_SHA256: ${{ needs.attest.outputs.sums_sha256 }}
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          printf '%s  SHA256SUMS\n' "$SUMS_SHA256" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
+          shopt -s dotglob
+          for f in *; do
+            [ "$f" = SHA256SUMS ] && continue
+            if [ ! -f "$f" ] || ! grep -qxF -- "$f" <(cut -c67- SHA256SUMS); then
+              echo "::error::$f is not a file SHA256SUMS lists"
+              exit 1
+            fi
+          done
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber

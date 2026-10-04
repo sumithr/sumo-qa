@@ -70,10 +70,10 @@ jobs:
     name: external Skills CLI smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           # Pin a single Python version — this is a smoke test of the
           # real-CLI vector, not a Python-compatibility matrix. test.yml
@@ -88,7 +88,7 @@ jobs:
         # workflow would produce no signal at all — the opposite of
         # what scheduling this is for. The pinned skills@1.7.0 declares
         # engines.node >= 22.20.0, so run it on Node 24 (LTS).
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
 

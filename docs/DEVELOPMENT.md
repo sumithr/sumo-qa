@@ -124,7 +124,7 @@ Once installed (above), you get them for free on every `git commit` / `git push`
 
 | Trigger | What runs | Speed | Why |
 |---|---|---|---|
-| `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | ~1s | Auto-fixes 95% of CI lint failures before the commit lands. |
+| `git commit` | `ruff check --fix`, `ruff format`, `actionlint` on changed workflows, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | ~1s | Auto-fixes 95% of CI lint failures before the commit lands. |
 | `git push` | the full `pytest` suite at 100% coverage across pytest-xdist workers, printing its counts; the mutmut gate (see [Mutation testing](#mutation-testing) for its triggers and scope); and every other hook without a commit-only stage, on the pushed files (the fixers among them can rewrite a file and stop the push) | minutes | Stops broken or under-tested commits reaching the remote. |
 
 The pytest hook runs in pre-commit's own isolated venv, built from the explicit `additional_dependencies` pins in `.pre-commit-config.yaml` (where a hook and `pyproject.toml` pin the same package, `tests/test_toolchain_pin_lockstep.py` keeps the two in lockstep), so it's not coupled to whichever `python` happens to be on your PATH. The first `git push` after install is slower while pre-commit builds that venv; later pushes reuse it.
@@ -423,6 +423,47 @@ enforces these rules:
 The test hard-codes no version and lists every mismatch in one failure,
 naming both files, the hook id, the hook value and every candidate
 `pyproject.toml` declaration, so a bump edits the pins and nothing else.
+
+## Release supply chain
+
+- **Action pins.** Every `uses:` in `.github/workflows/` names a full commit
+  SHA with a `# vX.Y.Z` comment; `tests/test_workflow_expression_lint.py`
+  fails on a tag, branch or short SHA. Dependabot's `github-actions` entry
+  bumps the SHA and the comment together. To pin a new action, resolve the
+  tag's commit with `git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>^{}'`
+  (or `refs/tags/<tag>` for a lightweight tag).
+- **Workflow lint.** The `actionlint` pre-commit hook (pinned `rev`) runs on
+  changed workflows, and the `actionlint` job in `lint.yml` runs the same hook.
+- **Release build lock.** `.github/release/requirements.in` names the release
+  build tools; `.github/release/requirements.txt` is the hashed lock compiled
+  from it (regenerate with the command in its header). `release.yml` installs
+  it with `--require-hashes` and builds with `--no-isolation`, so the lock is
+  the whole set of build inputs. `.github/release/runtime-requirements.txt` is
+  the hashed lock of the `pyproject.toml` runtime dependencies (no extras),
+  resolved for the release runner (Linux, CPython 3.13); the SBOM job installs
+  it and the wheel with `--require-hashes --no-deps`, runs `pip check`, and
+  generates the SBOM from that environment. All three hashed release installs
+  use `--only-binary ':all:'`, so both locks must stay all-wheel for Linux
+  CPython 3.13: a dependency that ships only an sdist fails the build.
+  Regenerate the runtime lock with the command in its header after changing
+  `[project] dependencies`. `tests/test_release_runtime_lock.py` fails while a
+  direct dependency's pin no longer satisfies its specifier, and the
+  `runtime-lock` job in `lint.yml` installs the runtime lock plus the built
+  wheel and runs `pip check` on every PR, which catches the transitive breaks
+  the direct-pin test cannot see. Dependabot's `/.github/release` pip entry
+  keeps both locks current.
+- **Release evidence.** `release.yml` adds `sbom.cdx.json`, `build-info.json`
+  and `SHA256SUMS` next to the wheel and sdist. The build job records the
+  package digests; a separate job with no signing permissions builds the SBOM
+  and uploads only that. Signing waits
+  for `scripts/release_evidence.py verify`, and publishing waits for
+  `gh attestation verify` (`tests/test_release_evidence.py` covers the
+  negative cases). The publish and release-assets jobs ship only files that
+  match the `SHA256SUMS` whose digest the attest job published as a job
+  output. Run the workflow from the Actions tab
+  (`workflow_dispatch`) for a dry run that builds, attests and verifies
+  without publishing. [`SECURITY.md`](../.github/SECURITY.md) has the consumer
+  verification commands.
 
 ## Branch workflow
 

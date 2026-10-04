@@ -1,11 +1,11 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Static lint for GitHub Actions workflow files.
 
-These checks codify two specific bugs we have already shipped:
+Most of these checks codify specific bugs we have already shipped:
 
   - PR #130: `git clone https://github.com/${REPO}.git` inside a `run:` block
     falls back to interactive credential prompting on the runner. Switch to
-    `actions/checkout@v4`, which configures git auth correctly for any
+    `actions/checkout`, which configures git auth correctly for any
     follow-up `git push`.
 
   - PR #131: `fromJSON(steps.X.outputs.Y).field` evaluated unconditionally
@@ -14,7 +14,9 @@ These checks codify two specific bugs we have already shipped:
     evaluation runs regardless). Wrap with `(steps.X.outputs.Y && fromJSON(...)) || ''`.
 
 Neither pattern is caught by `actionlint` today, so we keep the lint
-local. Surfacing them as pytest cases means the standard suite blocks
+local. The third check requires every remote action to be pinned to a full
+commit SHA with a version comment (#518), which actionlint does not check
+either. Surfacing them as pytest cases means the standard suite blocks
 their reintroduction.
 """
 
@@ -107,12 +109,72 @@ def test_no_manual_github_git_clone(workflow: Path) -> None:
     """Forbid `git clone https://github.com/` in workflow `run:` blocks —
     auth via `-c http.extraheader` is unreliable on runners and falls back
     to interactive credential prompting (PR #130 regression). Use
-    `actions/checkout@v4` instead."""
+    `actions/checkout` instead."""
     offenders: list[tuple[int, str]] = []
     for lineno, raw in enumerate(workflow.read_text(encoding="utf-8").splitlines(), 1):
         if "git clone https://github.com/" in raw:
             offenders.append((lineno, raw.strip()))
     assert not offenders, (
         f"{workflow.name}: manual `git clone https://github.com/` — replace with "
-        f"actions/checkout@v4:\n" + "\n".join(f"  L{n}: {line}" for n, line in offenders)
+        f"actions/checkout:\n" + "\n".join(f"  L{n}: {line}" for n, line in offenders)
     )
+
+
+_USES = re.compile(r"^\s*(?:-\s+)?uses:\s*(\S+)(.*)$")
+_PINNED_USES = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
+_VERSION_COMMENT = re.compile(r"^\s+#\s+v\d+(\.\d+)*\s*$")
+
+
+def _unpinned_uses(workflow_text: str) -> list[tuple[int, str]]:
+    """Every remote `uses:` must name a full commit SHA followed by a
+    `# vX.Y.Z` comment (the form Dependabot keeps in step). Local `./`
+    actions are exempt: they come from the checked-out commit."""
+    offenders: list[tuple[int, str]] = []
+    for lineno, raw in enumerate(workflow_text.splitlines(), 1):
+        match = _USES.match(raw)
+        if not match or match.group(1).startswith("./"):
+            continue
+        ref, rest = match.groups()
+        if not (_PINNED_USES.match(ref) and _VERSION_COMMENT.match(rest)):
+            offenders.append((lineno, raw.strip()))
+    return offenders
+
+
+@pytest.mark.parametrize("workflow", WORKFLOWS, ids=lambda p: p.name)
+def test_actions_pinned_to_commit_sha(workflow: Path) -> None:
+    """A tag or branch ref can be moved to new code after review; a commit
+    SHA cannot (#518)."""
+    offenders = _unpinned_uses(workflow.read_text(encoding="utf-8"))
+    assert not offenders, (
+        f"{workflow.name}: pin each action to a full commit SHA with a version "
+        f"comment, e.g. `uses: actions/checkout@<40-hex sha> # v7.0.1`:\n"
+        + "\n".join(f"  L{n}: {line}" for n, line in offenders)
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "      - uses: actions/checkout@v7 # v7",
+        "        uses: pypa/gh-action-pypi-publish@release/v1 # v1",
+        "      - uses: actions/checkout@3d3c42e # v7",
+        "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pinned",
+    ],
+    ids=["major-tag", "branch", "short-sha", "no-comment", "non-version-comment"],
+)
+def test_pin_lint_rejects(line: str) -> None:
+    assert _unpinned_uses(line)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+        "        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4",
+        "      - uses: ./.github/actions/local",
+    ],
+    ids=["sha-and-version", "major-only-comment", "local-action"],
+)
+def test_pin_lint_accepts(line: str) -> None:
+    assert not _unpinned_uses(line)
