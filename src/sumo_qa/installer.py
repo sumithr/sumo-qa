@@ -47,6 +47,7 @@ if sys.version_info < (
     sys.exit(1)
 
 import collections
+import contextlib
 import functools
 import json
 import os
@@ -56,6 +57,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from sumo_qa.paths import mcp_profile_path
@@ -265,15 +267,18 @@ class HostResult:
 def _save_profile(profile: str) -> None:
     """Save ``profile`` atomically (a concurrent launch never reads a
     half-written file) and warn when this shell's env var overrides it."""
-    from sumo_qa.ingest import _write_atomic
-
     saved = mcp_profile_path()
-    umask = os.umask(0)
-    os.umask(umask)
+    tmp = saved.with_name(f".{saved.name}.{uuid.uuid4().hex}.tmp")
     try:
-        _write_atomic(saved, f"{profile}\n")
-        saved.chmod(0o666 & ~umask)  # a normal write's mode, not the temp file's 0600
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp, "x", encoding="utf-8") as fh:  # a plain create, so the umask sets the mode
+            fh.write(f"{profile}\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, saved)
     except OSError as exc:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
         raise SystemExit(
             f"sumo-qa-install: cannot save the profile to {saved}: {exc.strerror or exc}"
         ) from None

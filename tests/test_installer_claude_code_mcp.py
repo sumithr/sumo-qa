@@ -745,10 +745,15 @@ def test_main_profile_flag_replaces_the_saved_file_atomically(tmp_path: Path, mo
     reads a truncated file) and exits with one line naming the file."""
     mcp_profile_path().parent.mkdir(parents=True)
     mcp_profile_path().write_text("core\n", encoding="utf-8")
+    real_replace = os.replace
+
+    def fail_the_save(src, dst):
+        if Path(dst) == mcp_profile_path():
+            raise PermissionError(13, "Permission denied")
+        real_replace(src, dst)
+
     with (
-        # os.rename on POSIX (dir-fd path), os.replace on Windows (fallback)
-        patch("sumo_qa.ingest.os.rename", side_effect=PermissionError(13, "Permission denied")),
-        patch("sumo_qa.ingest.os.replace", side_effect=PermissionError(13, "Permission denied")),
+        patch("sumo_qa.installer.os.replace", side_effect=fail_the_save),
         pytest.raises(SystemExit) as exc,
     ):
         _run_profile_install(tmp_path, monkeypatch, "full")
@@ -771,6 +776,19 @@ def test_main_profile_flag_saves_the_file_with_the_umask_mode(
     finally:
         os.umask(old)
     assert stat.S_IMODE(mcp_profile_path().stat().st_mode) == 0o666 & ~umask
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlinks")
+def test_main_profile_flag_saves_through_a_symlinked_data_dir(tmp_path: Path, monkeypatch) -> None:
+    """A dotfiles/synced setup links the data dir elsewhere; the server reads
+    through the link, so the save must write through it too."""
+    real = tmp_path / "synced"
+    real.mkdir()
+    mcp_profile_path().parent.parent.mkdir(parents=True, exist_ok=True)
+    mcp_profile_path().parent.symlink_to(real, target_is_directory=True)
+    assert _run_profile_install(tmp_path, monkeypatch, "core") == 0
+    assert mcp_profile_path().parent.is_symlink()
+    assert (real / mcp_profile_path().name).read_text(encoding="utf-8") == "core\n"
 
 
 def test_main_profile_flag_reports_an_unwritable_data_dir(tmp_path: Path, monkeypatch) -> None:

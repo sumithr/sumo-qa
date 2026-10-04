@@ -28,10 +28,8 @@ sumo-qa-install --profile core    # or full
 
 Like a plain `sumo-qa-install`, this also configures every detected host; add a
 host flag (for example `--vscode`) to configure only that one. The saved
-profile applies to every host either way, as long as each host reads the same
-data dir: a host that does not inherit the shell's `XDG_DATA_HOME` (Claude
-Desktop started from the Dock) reads the default dir, so a profile saved with a
-custom `XDG_DATA_HOME` does not reach it (see below).
+profile applies to every host either way (with a custom `XDG_DATA_HOME`, see
+below).
 
 This writes `core` or `full` to the `mcp-profile` file in the global data dir
 (`$XDG_DATA_HOME/sumo-qa/`, else `~/.local/share/sumo-qa/`;
@@ -43,7 +41,8 @@ entry whose Settings steps it prints, and the Junie entry written by hand from
 [INSTALL.md](INSTALL.md). None of those entries carries a profile, so all of them
 serve the saved one and keep serving it after a restart. A plugin-only install
 has no `sumo-qa-install` on `PATH`; write `core` or `full` into that file
-yourself. If you set
+yourself. The file is plain text holding `core` or `full`; in Windows PowerShell
+use `Set-Content -Encoding ascii` (UTF-16 with a BOM is also read). If you set
 `XDG_DATA_HOME`, set it for every host too: a GUI host started from the Dock
 or Start menu does not see a shell's value, so it would read the default dir.
 
