@@ -107,19 +107,59 @@ def test_malformed_sums_line_fails(dist: Path) -> None:
     ("bom", "error"),
     [
         ({"bomFormat": "SPDX", "specVersion": "1.6"}, "sbom.cdx.json is not a CycloneDX document"),
-        (
-            {"bomFormat": "CycloneDX", "specVersion": "1.6", "metadata": {"component": {}}},
-            "sbom.cdx.json does not describe sumo-qa {version}",
-        ),
         ([], "sbom.cdx.json is missing or not a JSON object"),
     ],
-    ids=["not-cyclonedx", "other-package", "not-an-object"],
+    ids=["not-cyclonedx", "not-an-object"],
 )
 def test_sbom_mismatch_fails(dist: Path, bom: object, error: str) -> None:
-    version = _wheel(dist).name.split("-")[1]
     (dist / evidence.SBOM).write_text(json.dumps(bom))
     _resum(dist)
+    assert evidence.verify(dist) == [error]
+
+
+@pytest.mark.parametrize(
+    ("change", "error"),
+    [
+        (
+            {"serialNumber": "1234"},
+            "sbom.cdx.json has no urn:uuid serialNumber, which actions/attest requires",
+        ),
+        ({"metadata": None}, "sbom.cdx.json does not describe sumo-qa {version}"),
+        ({"components": None}, "sbom.cdx.json components is not a list"),
+    ],
+    ids=["non-uuid-serial-number", "null-metadata", "null-components"],
+)
+def test_malformed_sbom_fails(dist: Path, change: dict, error: str) -> None:
+    """The real SBOM with one key broken fails with a named error, never a
+    traceback."""
+    bom = json.loads((dist / evidence.SBOM).read_text())
+    bom.update(change)
+    (dist / evidence.SBOM).write_text(json.dumps(bom))
+    _resum(dist)
+    version = _wheel(dist).name.split("-")[1]
     assert evidence.verify(dist) == [error.format(version=version)]
+
+
+def test_sbom_without_serial_number_fails(dist: Path) -> None:
+    """actions/attest rejects a CycloneDX SBOM with no serialNumber, so the
+    gate does too."""
+    bom = json.loads((dist / evidence.SBOM).read_text())
+    del bom["serialNumber"]
+    (dist / evidence.SBOM).write_text(json.dumps(bom))
+    _resum(dist)
+    assert evidence.verify(dist) == [
+        "sbom.cdx.json has no urn:uuid serialNumber, which actions/attest requires"
+    ]
+
+
+def test_sbom_for_other_package_fails(dist: Path) -> None:
+    bom = json.loads((dist / evidence.SBOM).read_text())
+    bom["metadata"]["component"]["name"] = "not-sumo-qa"
+    bom["components"] = [c for c in bom["components"] if c.get("name") != "sumo-qa"]
+    (dist / evidence.SBOM).write_text(json.dumps(bom))
+    _resum(dist)
+    version = _wheel(dist).name.split("-")[1]
+    assert evidence.verify(dist) == [f"sbom.cdx.json does not describe sumo-qa {version}"]
 
 
 def test_sbom_for_other_version_fails(dist: Path) -> None:
@@ -142,6 +182,23 @@ def test_build_info_gaps_fail(dist: Path) -> None:
         "build-info.json does not record the Python version",
         "build-info.json does not record hatchling",
     ]
+
+
+@pytest.mark.parametrize("key", ["source", "python", "build_environment"])
+def test_null_build_info_section_fails(dist: Path, key: str) -> None:
+    info = json.loads((dist / evidence.BUILD_INFO).read_text())
+    info[key] = None
+    (dist / evidence.BUILD_INFO).write_text(json.dumps(info))
+    _resum(dist)
+    expected = {
+        "source": [f"build-info.json source commit is not {COMMIT}"],
+        "python": ["build-info.json does not record the Python version"],
+        "build_environment": [
+            "build-info.json does not record build",
+            "build-info.json does not record hatchling",
+        ],
+    }[key]
+    assert evidence.verify(dist, COMMIT) == expected
 
 
 def test_sdist_version_mismatch_fails(dist: Path) -> None:

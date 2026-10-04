@@ -14,14 +14,13 @@ permissions:
   contents: read
 
 jobs:
+  # No signing permissions here: the SBOM step installs the wheel's
+  # dependencies from PyPI without hashes. The attest job signs the result.
   build:
-    name: Build, SBOM and attest
+    name: Build and SBOM
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write  # Sigstore signing certificate for the attestations
-      attestations: write
-      artifact-metadata: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,18 +41,44 @@ jobs:
       - name: Build wheel + sdist
         run: python -m build --no-isolation
 
-      # CycloneDX SBOM of the dependency set installing the wheel resolves.
-      # cyclonedx-py validates the document against the schema before writing.
+      # CycloneDX SBOM of the dependency set installing the wheel resolves on
+      # this runner (Linux, CPython 3.13). cyclonedx-py validates the document
+      # against the schema before writing. No --output-reproducible: it drops
+      # the serialNumber, and actions/attest rejects a CycloneDX SBOM without one.
       - name: Generate SBOM
         run: |
           python -m venv --without-pip "$RUNNER_TEMP/sbom-env"
           python -m pip --python "$RUNNER_TEMP/sbom-env/bin/python" install dist/*.whl
           cyclonedx-py environment --pyproject pyproject.toml --mc-type library \
-            --output-reproducible --of JSON -o dist/sbom.cdx.json \
+            --of JSON -o dist/sbom.cdx.json \
             "$RUNNER_TEMP/sbom-env/bin/python"
 
       - name: Record build info and digests
         run: python scripts/release_evidence.py record dist
+
+      # The one artifact: attest, verify, PyPI and the GitHub release all
+      # take their bytes from it.
+      - name: Upload release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-files
+          path: dist/
+          if-no-files-found: error
+
+  attest:
+    name: Attest provenance and SBOM
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Sigstore signing certificate for the attestations
+      attestations: write
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: dist/
 
       # SLSA build provenance for every file SHA256SUMS lists.
       - name: Attest build provenance
@@ -69,27 +94,9 @@ jobs:
             dist/*.tar.gz
           sbom-path: dist/sbom.cdx.json
 
-      # PyPI accepts only the packages; the release files go to the
-      # GitHub release.
-      - name: Upload packages
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: dist
-          path: |
-            dist/*.whl
-            dist/*.tar.gz
-          if-no-files-found: error
-
-      - name: Upload release files
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: release-files
-          path: dist/
-          if-no-files-found: error
-
   verify:
     name: Verify digests, SBOM and attestations
-    needs: build
+    needs: attest
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -143,11 +150,15 @@ jobs:
       # OIDC trusted publishing; the action also uploads PEP 740 attestations.
       id-token: write
     steps:
-      - name: Download packages
+      - name: Download release files
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: dist
-          path: dist/
+          name: release-files
+          path: release-files/
+
+      # The verified bytes; PyPI takes only the packages, from dist/.
+      - name: Select the packages
+        run: mkdir dist && mv release-files/*.whl release-files/*.tar.gz dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

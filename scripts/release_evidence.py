@@ -16,7 +16,8 @@ the CycloneDX SBOM (``sbom.cdx.json``). It writes:
 
 ``verify DIST [--commit SHA]`` is the gate before publishing. It fails when a
 required file is missing, a file is unlisted in or absent from ``SHA256SUMS``,
-a digest does not match, the SBOM does not describe the built version, or
+a digest does not match, the SBOM lacks the ``urn:uuid`` serialNumber
+``actions/attest`` requires or does not describe the built version, or
 ``build-info.json`` names different artifacts or a different commit. The
 signed attestations are checked separately with ``gh attestation verify``.
 """
@@ -39,6 +40,8 @@ SBOM = "sbom.cdx.json"
 BUILD_INFO = "build-info.json"
 BUILD_TOOLS = ("build", "hatchling")
 _SUM_LINE = re.compile(r"^([0-9a-f]{64}) [ *](.+)$")
+# actions/attest only accepts a CycloneDX SBOM that has a serialNumber.
+_SERIAL = re.compile(r"^urn:uuid:")
 
 
 def _sha256(path: Path) -> str:
@@ -126,13 +129,22 @@ def _load_json(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def _check_sbom(dist: Path, version: str) -> list[str]:
     bom = _load_json(dist / SBOM)
     if bom is None:
         return [f"{SBOM} is missing or not a JSON object"]
     if bom.get("bomFormat") != "CycloneDX" or not bom.get("specVersion"):
         return [f"{SBOM} is not a CycloneDX document"]
-    components = [bom.get("metadata", {}).get("component", {}), *bom.get("components", [])]
+    if not _SERIAL.match(str(bom.get("serialNumber", ""))):
+        return [f"{SBOM} has no urn:uuid serialNumber, which actions/attest requires"]
+    components = bom.get("components", [])
+    if not isinstance(components, list):
+        return [f"{SBOM} components is not a list"]
+    components = [_dict(_dict(bom.get("metadata")).get("component")), *map(_dict, components)]
     if not any(
         _norm(str(c.get("name", ""))) == PACKAGE and c.get("version") == version for c in components
     ):
@@ -147,11 +159,11 @@ def _check_build_info(dist: Path, packages: list[Path], commit: str | None) -> l
     errors = []
     if info.get("artifacts") != {p.name: _sha256(p) for p in packages}:
         errors.append(f"{BUILD_INFO} artifacts do not match the built wheel and sdist")
-    if commit and info.get("source", {}).get("commit") != commit:
+    if commit and _dict(info.get("source")).get("commit") != commit:
         errors.append(f"{BUILD_INFO} source commit is not {commit}")
-    if not info.get("python", {}).get("version"):
+    if not _dict(info.get("python")).get("version"):
         errors.append(f"{BUILD_INFO} does not record the Python version")
-    tools = info.get("build_environment", {})
+    tools = _dict(info.get("build_environment"))
     errors += [f"{BUILD_INFO} does not record {tool}" for tool in BUILD_TOOLS if tool not in tools]
     return errors
 

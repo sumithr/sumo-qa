@@ -85,7 +85,7 @@ jobs:
   actionlint:
     name: actionlint (workflow lint)
     # CI mirror of the actionlint pre-commit hook: runs that same pinned hook
-    # (rev in .pre-commit-config.yaml) through the pinned pre-commit dev dep.
+    # (rev in .pre-commit-config.yaml) through the pre-commit dev dep.
     # ubuntu-latest ships shellcheck, which actionlint uses on run: blocks.
     runs-on: ubuntu-latest
     steps:

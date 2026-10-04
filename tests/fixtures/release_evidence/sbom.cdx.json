@@ -1370,12 +1370,7 @@
       "type": "library",
       "version": "0.72.1"
     },
-    "properties": [
-      {
-        "name": "cdx:reproducible",
-        "value": "true"
-      }
-    ],
+    "timestamp": "2026-10-04T00:15:48.586879+00:00",
     "tools": {
       "components": [
         {
@@ -1479,6 +1474,7 @@
       ]
     }
   },
+  "serialNumber": "urn:uuid:0d90b7c6-34fc-4430-ab62-867e283af846",
   "version": 1,
   "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",

@@ -155,9 +155,9 @@ def test_actions_pinned_to_commit_sha(workflow: Path) -> None:
 @pytest.mark.parametrize(
     "line",
     [
-        "      - uses: actions/checkout@v7",
-        "        uses: pypa/gh-action-pypi-publish@release/v1",
-        "      - uses: actions/checkout@3d3c42e",
+        "      - uses: actions/checkout@v7 # v7",
+        "        uses: pypa/gh-action-pypi-publish@release/v1 # v1",
+        "      - uses: actions/checkout@3d3c42e # v7",
         "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
         "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pinned",
     ],
