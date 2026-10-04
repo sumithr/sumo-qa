@@ -357,6 +357,7 @@ _INSTRUCTION_RULES = {"SQA-EXT-001", "SQA-EXT-002"}
 _LINT_LIMIT = 4000
 _LONG_LINE = ("SQA-EXT-017", "high", "long_lines", "line too long to lint fully")
 _CONTINUED = re.compile(r"(\\|\||&&)\s*$")
+_BACKSLASH_END = re.compile(r"\\\s*$")
 _FENCE = re.compile(r"^\s*(?:```|~~~)")
 # Leading blockquote, list, table and heading markers, and a closing table pipe.
 _MARKERS = re.compile(r"^(?:\s*(?:>|[-*+](?=\s)|\d{1,9}[.)](?=\s)|#{1,6}(?=\s|$)|\|))*|\|\s*$")
@@ -479,7 +480,8 @@ def rollback_external_skill(
     reproduce its recorded digest; the record it replaced is dropped from the
     history, so rolling back again steps further back. Its source is checked
     against the trust policy again, so an unlisted one needs ``elevated_trust``.
-    When the skill is installed for more than one agent, ``agent`` picks which.
+    Only a single agent's install is rolled back (``agent`` picks which when
+    several are recorded); a shared one is refused before anything changes.
     """
     if not confirmed:
         raise ExternalSkillInstallConfirmationRequired(
@@ -495,18 +497,9 @@ def rollback_external_skill(
     lock_base = cwd if scope == "project" else home
     with _lock_guard(lock_base):
         lock = _read_lock(lock_base)
-        paths = _rollback_paths(skill, scope, agent, lock["skills"])
         history = lock.get("history", {})
-        agents = {
-            lock["skills"][p].get("agent") for p in paths if isinstance(lock["skills"][p], dict)
-        }
-        # Another agent's install may have written the folder before this one:
-        # only this agent's own records are its previous versions.
-        previous = next(
-            (r for p in paths for r in reversed(history.get(p, [])) if r["agent"] in agents),
-            None,
-        )
-        _check_no_dependent_link(lock_base, paths, lock["skills"], history, previous is not None)
+        paths = _rollback_paths(skill, scope, agent, lock_base, lock["skills"], history)
+        previous = next((r for p in paths for r in reversed(history.get(p, []))), None)
         for path in paths:
             _check_unchanged(lock_base / path, path, lock["skills"][path])
         if previous is None:
@@ -518,7 +511,6 @@ def rollback_external_skill(
                         f"could not remove {folder}; the lock is unchanged, so retry the rollback"
                     )
                 del lock["skills"][path]
-                history.pop(path, None)  # only other agents' records, for a folder now gone
             _write_lock(lock_base, lock)
             return {"skill": skill, "scope": scope, "action": "removed", "removed": paths}
     # The same test _rollback_paths applies: the CLI writes both to one folder.
@@ -549,10 +541,19 @@ def rollback_external_skill(
     }
 
 
-def _rollback_paths(skill: str, scope: str, agent: str, skills: dict[str, Any]) -> list[str]:
-    """The lock keys one rollback acts on: ``<root>/<name>`` folders of a single
-    agent's install. A key naming the skill anywhere else (``..``, absolute) is
-    refused: the lock may ship with the repository, so it never picks the path."""
+def _rollback_paths(
+    skill: str,
+    scope: str,
+    agent: str,
+    lock_base: Path,
+    skills: dict[str, Any],
+    history: dict[str, Any],
+) -> list[str]:
+    """The lock keys one rollback acts on: the ``<root>/<name>`` folders of one
+    agent's install of the skill. A key naming the skill anywhere else (``..``,
+    absolute) is refused: the lock may ship with the repository, so it never
+    picks the path. So is a shared install: a folder another agent's record or
+    history names, or one linked with another agent's recorded folder."""
     names = _candidate_skill_names(skill)
     allowed = {f"{first}/{second}/{name}" for first, second, _ in _SKILL_ROOTS for name in names}
     stray = sorted(p for p in skills if p not in allowed and PurePosixPath(p).name in names)
@@ -563,115 +564,53 @@ def _rollback_paths(skill: str, scope: str, agent: str, skills: dict[str, Any]) 
         )
     # A name variant (``a-b`` for ``a_b``) reaches another skill's folder: only
     # records whose own skill the CLI writes to the requested folder count.
-    folder = _candidate_skill_names(skill)[0]
-    found = {
-        p: r
+    folder = names[0]
+    owners = {
+        p: {_agent_of(r), *(e["agent"] for e in history.get(p, []))}
         for p, r in sorted(skills.items())
         if p in allowed
         and not (isinstance(r, dict) and _candidate_skill_names(str(r.get("skill")))[0] != folder)
     }
-    if agent:
-        found = {p: r for p, r in found.items() if isinstance(r, dict) and r.get("agent") == agent}
-    if not found:
+    recorded = set().union(*owners.values())
+    if not agent and len(recorded) > 1:
+        raise _shared(skill, recorded, list(owners), "; or retry with agent set to one of them")
+    agent = agent or next(iter(recorded), "")
+    paths = [p for p, found in owners.items() if agent in found]
+    if not paths:
         raise ExternalSkillError(
             f"no sumo-qa install record for {skill!r} in {scope} scope; nothing to roll back"
         )
-    # One install may write several folders (a canonical copy and agent links),
-    # all recorded with its agent; installs for different agents are separate.
-    agents = {r.get("agent") if isinstance(r, dict) else None for r in found.values()}
-    if len(agents) > 1:
-        listed = ", ".join(
-            f"{p} ({r.get('agent') if isinstance(r, dict) else '?'})" for p, r in found.items()
-        )
-        raise ExternalSkillError(
-            f"{skill!r} is installed for more than one agent in {scope} scope: {listed}; "
-            "retry with agent set to the one to roll back"
-        )
-    return list(found)
-
-
-def _check_no_dependent_link(
-    lock_base: Path,
-    paths: list[str],
-    skills: dict[str, Any],
-    history: dict[str, Any],
-    restore: bool,
-) -> None:
-    """Refuse a rollback that would break or rewrite another agent's install.
-
-    A removal unlinks this install's links, which breaks only a link chained
-    through one of them, so its real folders count and its links only as a hop.
-    A restore rewrites the canonical copy its links point at, so their targets
-    count too, and a target recorded as another agent's folder is refused
-    outright: the restore would overwrite its record. When the other install
-    could not be rolled back first either (it restores through the same
-    folder), the refusal says so instead of sending the caller round in a
-    circle; a link into a subfolder does not block the other's restore, but
-    that restore may link here again, so the refusal names both steps.
-    """
-    targets = {
-        path: (lock_base / path).resolve()
-        for path in paths
-        if restore or not (lock_base / path).is_symlink()
-    }
-    hops = {path: _located(lock_base / path) for path in paths}
-    mine = {skills[p].get("agent") for p in paths if isinstance(skills[p], dict)}
+    others = set().union(*(owners[p] for p in paths)) - {agent}
+    shared = [p for p in paths if owners[p] != {agent}]
+    real = {p: (lock_base / p).resolve() for p in skills}
     for other, record in skills.items():
-        if other in paths:
+        if _agent_of(record) == agent or other in paths:
             continue
-        entry = lock_base / other
-        owner = record.get("agent") if isinstance(record, dict) else None
-        resolved = entry.resolve()
-        chain = _link_chain(entry)
-        for path in paths:
-            target = targets.get(path)
-            if hops[path] in chain or (
-                target and entry.is_symlink() and (resolved == target or target in resolved.parents)
-            ):
-                restores = owner not in mine and any(
-                    r["agent"] == owner for r in history.get(other, [])
-                )
-                if not restores:
-                    way_out = f"roll back {other} first"
-                elif hops[path] in chain or resolved == target:
-                    way_out = _CIRCULAR
-                else:  # a link into a subfolder: its own rollback is not blocked
-                    way_out = (
-                        f"roll back {other} first; if it still links here after that, remove "
-                        "it by hand (the link and its lock record)"
-                    )
-                raise ExternalSkillProvenanceError(
-                    f"{other} (agent {owner!r}) links into {path}, which this rollback would "
-                    f"remove or replace; {way_out}"
-                )
-            if restore and resolved == target and owner not in mine:
-                raise ExternalSkillProvenanceError(
-                    f"{path} links into {other}, recorded for agent {owner!r}: restoring it "
-                    f"would rewrite that agent's install and its record; {_CIRCULAR}"
-                )
+        linked = [p for p in paths if _linked(real[p], real[other])]
+        if linked:
+            others.add(_agent_of(record))
+            shared += [*linked, other]
+    if others:
+        raise _shared(skill, others, sorted(set(shared)))
+    return paths
 
 
-# Two agents' installs that share a folder and each have history block each
-# other's rollback, whichever is tried first.
-_CIRCULAR = (
-    "each install blocks rolling back the other, so neither install can be rolled back "
-    "alone: remove one agent's install by hand (its folder and its lock record) or "
-    "reinstall the skill"
-)
+def _agent_of(record: Any) -> Any:
+    return record.get("agent") if isinstance(record, dict) else None
 
 
-def _located(path: Path) -> Path:
-    """``path`` with its folder resolved but not itself, so a link names itself."""
-    return path.parent.resolve() / path.name
+def _linked(a: Path, b: Path) -> bool:
+    """Whether two resolved folders are one, or one sits inside the other: a
+    link to, into, or through a folder resolves there too."""
+    return a == b or a in b.parents or b in a.parents
 
 
-def _link_chain(entry: Path) -> list[Path]:
-    """The links ``entry`` passes through after itself on the way to its target."""
-    chain: list[Path] = []
-    while entry.is_symlink() and len(chain) < 40:
-        chain.append(_located(entry))
-        entry = _located(entry).parent / os.readlink(entry)
-    return chain[1:]
+def _shared(skill: str, agents: set[Any], paths: list[str], retry: str = "") -> ExternalSkillError:
+    listed = ", ".join(sorted(map(repr, agents)))
+    return ExternalSkillError(
+        f"{skill!r} is shared with {listed}; sumo-qa rolls back single-agent installs only. "
+        f"Remove or reinstall it by hand: {', '.join(paths)}{retry}"
+    )
 
 
 def _check_unchanged(folder: Path, path: str, record: Any) -> None:
@@ -689,7 +628,7 @@ def _check_unchanged(folder: Path, path: str, record: Any) -> None:
 
 def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list[dict[str, Any]]:
     """Safety-lint one payload file: one finding per rule it trips, at the first
-    line that trips it (an instruction rule's verb, a joined line's first)."""
+    line that trips it (where an instruction match starts, a joined line's first)."""
     findings = []
     suffix = Path(relpath).suffix.lower()
     if executable or suffix in _BINARY_SUFFIXES or suffix in _SCRIPT_SUFFIXES:
@@ -739,13 +678,14 @@ def _windows(text: str) -> range:
 
 def _collapsed(physical: list[str]) -> tuple[str, list[tuple[int, int]]]:
     """The whole file as one line for the instruction rules: each line's
-    markdown markers stripped, every whitespace run made one space. Returns it
+    continuation backslash and markdown markers stripped, every whitespace run
+    made one space. Returns it
     with (offset, line number) for the start of each non-blank line."""
     parts: list[str] = []
     starts: list[tuple[int, int]] = []
     offset = 0
     for number, line in enumerate(physical, 1):
-        words = _MARKERS.sub("", line).split()
+        words = _MARKERS.sub("", _BACKSLASH_END.sub("", line)).split()
         if words:
             starts.append((offset, number))
             part = " ".join(words)
@@ -1200,9 +1140,10 @@ def rollback_hint_for_exception(exc: BaseException) -> str:
         )
     if type(exc) is ExternalSkillError:
         return (
-            "Surface the error above. If it lists installs for several agents, ask the user "
-            "which one and retry with agent set to it; if there is no record, there is "
-            "nothing to roll back."
+            "Surface the error above. If the skill is shared between agents, tell the user "
+            "sumo-qa does not roll it back and they remove or reinstall it by hand; when it "
+            "also says to retry with agent set, ask the user which agent's install and retry "
+            "with agent set to it. If there is no record, there is nothing to roll back."
         )
     return hint_for_exception(exc)
 
@@ -1866,11 +1807,12 @@ def _merge_into_lock(base: Path, records: list[dict[str, Any]], restore: bool = 
         stack = history.setdefault(record["path"], [])
         current = lock["skills"].get(record["path"])
         if restore:
-            # The newest entry with the restored content (another agent's may
-            # be newer), under the folder actually written, with this
-            # restore's own trust decision and time.
+            # The newest entry this restore brought back, under the folder
+            # actually written, with this restore's own trust decision and time.
             found = [
-                i for i, e in enumerate(stack) if e["content_digest"] == record["content_digest"]
+                i
+                for i, e in enumerate(stack)
+                if all(e[k] == record[k] for k in ("content_digest", "agent", "resolved_ref"))
             ]
             if found:
                 records[index] = record = {
