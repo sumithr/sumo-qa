@@ -327,6 +327,40 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
     assert provider.call_api("the prompt", JUDGE_OPTIONS)["output"] == verdict
 
 
+# A stated grade is `verdict`, then on the same line only spaces, `:`, `=`, `-`, `*` or
+# `is`/`was`/`of`, then an uppercase PASS or FAIL not offered as one of two grades. None
+# means the text states no grade, so the verdict is graded whichever its "pass".
+@pytest.mark.parametrize(
+    ("text", "stated"),
+    [
+        pytest.param("**Verdict:**\n\n{V}", None, id="a-bold-verdict-heading"),
+        pytest.param("Verdict:\n```\n{V}\n```", None, id="a-fenced-verdict"),
+        pytest.param("| Verdict |\n| PASS |\n\n{V}", None, id="an-echoed-table-header"),
+        pytest.param("the NOT SAFE verdict fails to name the eval. {V}", None, id="prose-fails"),
+        pytest.param("Give a verdict of PASS or FAIL. {V}", None, id="pass-or-fail"),
+        pytest.param("The verdict is PASS/FAIL. {V}", None, id="pass-slash-fail"),
+        pytest.param("Final verdict is FAIL. {V}", False, id="verdict-is-fail"),
+        pytest.param("Verdict was FAILED. {V}", False, id="verdict-was-failed"),
+        pytest.param("VERDICT: FAILS. {V}", False, id="verdict-colon-fails"),
+        pytest.param("VERDICT - PASS. {V}", True, id="verdict-dash-pass"),
+        pytest.param("**Verdict:** PASS\n\n{V}", True, id="a-bold-verdict-pass"),
+        pytest.param("Verdict PASS. {V}", True, id="verdict-pass"),
+    ],
+)
+@pytest.mark.parametrize("passed", [True, False])
+def test_a_verdict_word_is_a_grade_only_when_it_states_one(monkeypatch, text, stated, passed):
+    verdict = {"pass": passed, "score": 0.5, "reason": "r"}
+    reply = text.replace("{V}", json.dumps(verdict))
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
+
+    response = provider.call_api("the prompt", JUDGE_OPTIONS)
+
+    if stated in (None, passed):
+        assert response["output"] == verdict
+    else:
+        assert "contradicts" in response["error"]
+
+
 # promptfoo grades a missing or non-boolean "pass" as a pass (`parsed.pass ?? true`, and
 # "yes" matches its truthy pattern), so every reply here must be an error, never a grade.
 @pytest.mark.parametrize(
@@ -624,7 +658,7 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
                 ("verdict: FAILS", True),
                 ("VERDICT - PASS", False),
                 ("The verdict of PASSES", False),
-                ("verdict = passed", False),
+                ("verdict = PASSED", False),
             ]
         ),
         # Only an exact format template is exempt: a filled-in placeholder is not one.
@@ -1022,6 +1056,17 @@ def test_a_kept_reply_has_bare_secrets_redacted(monkeypatch, _reply_dir, secret)
         ("access_key=ak1", "access_key=[REDACTED]"),
         ("Private-Key: pk1", "Private-Key: [REDACTED]"),
         ('"password": "hunter2"', '"password": [REDACTED]'),
+        ("**Password:** hunter2", "**Password:** [REDACTED]"),
+        ("password: **hunter2**", "password: **[REDACTED]**"),
+        ("DB_PASSWORD=hunter2", "DB_PASSWORD=[REDACTED]"),
+        ("client_secret: abc123", "client_secret: [REDACTED]"),
+        ("SECRET_KEY=x", "SECRET_KEY=[REDACTED]"),
+        ("access_token=xyz", "access_token=[REDACTED]"),
+        ("MY_AWS_SECRET_ACCESS_KEY=" + _AWS_SECRET, "MY_AWS_SECRET_ACCESS_KEY=[REDACTED]"),
+        ('"password": "correct horse battery"', '"password": [REDACTED]'),
+        ("bearer: opaque123", "bearer: [REDACTED]"),
+        ("Authorization: Bearer opaque.tok-123", "Authorization: Bearer [REDACTED]"),
+        ("Authorization: Basic dXNlcjpwYXNz", "Authorization: Basic [REDACTED]"),
         (
             "aws_secret_access_key=" + _AWS_SECRET,
             "aws_secret_access_key=[REDACTED]",
@@ -1049,7 +1094,8 @@ def test_a_kept_reply_has_credential_assignment_values_redacted(
     [
         "the password field is required",
         "token count: 12",
-        "the secret is safe; a passwords=3 or my_token=4 key is not one",
+        "the secret is safe",
+        "password:\n\nThe candidate failed",
         "an AWS secret key of 39 chars " + _AWS_SECRET[:39],
     ],
 )

@@ -84,16 +84,22 @@ _SECRET = re.compile(
     r"|eyJ[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,})",
     re.DOTALL,
 )
-# Credential assignments, value only (the key name stays): `password`, `passwd`, `pwd`,
-# `secret`, `token`, `api key`, `access key` or `private key` (`_`, `-` or no separator, any
-# case) as a whole word, an optional closing quote, then `:` or `=` and the value up to the
-# next whitespace; and a 40-character `[A-Za-z0-9/+=]` AWS secret access key after a key name
-# such as `aws_secret_access_key` or "AWS secret key", with or without `:` or `=`. The first
-# extends the assignment shape src/sumo_qa/feedback_memory.py refuses; "token count: 12" or
-# "the password field" have no separator straight after the key and stay as written.
+# Credential assignments, value only (the key name stays). The key is one token of letters,
+# digits, `_` or `-` holding `password`, `passwd`, `pwd`, `secret`, `token`, `bearer`,
+# `authorization`, `api key`, `access key` or `private key` (`_`, `-` or no separator, any
+# case), so `DB_PASSWORD`, `client_secret` and `access_token` count; optionally in `**` bold
+# or quotes. Then `:` or `=` (a `**` may close the bold after it) with spaces or tabs only,
+# never a newline; then an optional `Bearer`, `Basic` or `Token` scheme, kept; then the
+# value: a quoted string up to its closing quote, else the run of non-space characters up
+# to any `**`. Also a 40-character `[A-Za-z0-9/+=]` AWS secret access key after a key name
+# such as "AWS secret key", with or without `:` or `=`. "token count: 12" or "the password
+# field" have no separator straight after the key and stay as written.
 _ASSIGNED = re.compile(
-    r"""(\b(?:passw(?:or)?d|pwd|secret|token|(?:api|access|private)[_-]?key)\b["']?\s*[:=]\s*)\S+"""
-    r"""|(\baws[\w -]{0,20}?secret[\w -]{0,20}?key\b["']?\s*[:=]?\s*["']?)"""
+    r"""((?:\*\*)?["']?[A-Za-z0-9_-]*(?:passw(?:or)?d|pwd|secret|token|bearer|authorization"""
+    r"""|(?:api|access|private)[_-]?key)[A-Za-z0-9_-]*["']?(?:\*\*)?[ \t]*[:=](?:\*\*)?[ \t]*(?:\*\*)?"""
+    r"""(?:(?:bearer|basic|token)[ \t]+)?)"""
+    r"""(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|(?:(?!\*\*)\S)+)"""
+    r"""|(\baws[\w -]{0,20}?secret[\w -]{0,20}?key\b["']?[ \t]*[:=]?[ \t]*["']?)"""
     r"""[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])""",
     re.IGNORECASE,
 )
@@ -121,10 +127,12 @@ _KEY_BEFORE = re.compile(r"""["']\s*:\s*(?:\[\s*)?\Z""")
 # outer object that closed early on an unescaped quote), so its siblings are not top level.
 _CUT_AFTER = re.compile(r"""\s*[,"':}\]]""")
 # Every rubric asks the reason to end in its verdict ("Verdict PASS.", "VERDICT: FAIL"). The
-# word "verdict", then any run of spaces, punctuation and the linking words `is`, `was` or
-# `of`, then PASS or FAIL, bare or as PASSED/PASSES/FAILED/FAILS, in any case.
+# word "verdict" in any case, then on the same line only spaces, tabs, `:`, `=`, `-`, `*`
+# and the linking words `is`, `was` or `of`, then an uppercase PASS or FAIL, bare or as
+# PASSED/PASSES/FAILED/FAILS. "PASS or FAIL" and "PASS/FAIL" offer both and state neither.
 _VERDICT_WORD = re.compile(
-    r"\bverdict\b(?:\W|\b(?:is|was|of)\b)*?\b(pass|fail)(?:ed|es|s)?\b", re.IGNORECASE
+    r"(?i:\bverdict\b)(?:[ \t:=*-]|(?i:\b(?:is|was|of)\b))*\b(PASS|FAIL)(?:ED|ES|S)?\b"
+    r"(?![ \t]+(?i:or)[ \t]+(?:PASS|FAIL)|[ \t]*/[ \t]*(?:PASS|FAIL))"
 )
 # A string a "verdict", "passed" or "result" key may state the grade in.
 _STATED = {"pass": True, "true": True, "fail": False, "false": False}
@@ -311,7 +319,7 @@ def _verdict(text):
     if not isinstance(verdict.get("reason", ""), str):
         return None, '"reason" is not a string'
     # A verdict word anywhere in the reply, or a stated grade inside the verdict, must agree.
-    stated = [m[1].casefold() == "pass" for m in _VERDICT_WORD.finditer(text)]
+    stated = [m[1] == "PASS" for m in _VERDICT_WORD.finditer(text)]
     if any(said != verdict["pass"] for said in stated + _stated(verdict)):
         return None, 'states a verdict that contradicts "pass"'
     return verdict, None

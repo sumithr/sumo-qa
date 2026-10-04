@@ -640,10 +640,11 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   the verdict must equal the verdict's own. Any decoded object followed by `,`, `"`,
   `'`, `:`, `}` or `]` was cut out of a larger structure, so the reply is refused. Prose
   braces (`{x}`, `{0: 1`) and objects without `"pass"` are ignored, as are words such as
-  "passes" or "bypass" with no key separator after them. Every word `verdict` in the
-  reply followed, past only punctuation and the linking words `is`, `was` or `of`, by
-  `PASS` or `FAIL` or an inflection of either ("VERDICT: FAIL", "verdict is FAILED", any
-  case), and every PASS/FAIL or true/false string under a
+  "passes" or "bypass" with no key separator after them. Every word `verdict` (any
+  case) followed on the same line, past only spaces, tabs, `:`, `=`, `-`, `*` and the
+  linking words `is`, `was` or `of`, by an uppercase `PASS` or `FAIL` or an inflection
+  of either ("VERDICT: FAIL", "verdict is FAILED") that is not one of two offered grades
+  ("PASS or FAIL", "PASS/FAIL"), and every PASS/FAIL or true/false string under a
   `"verdict"`, `"passed"` or `"result"` key in the verdict, must agree with `"pass"`.
   A reply that breaks any of these is retried and may error; it is never graded from a
   guess.
