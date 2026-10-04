@@ -76,14 +76,14 @@ _SECRET = re.compile(
 )
 # A "pass" key in either quote style, also one whose colon is missing (`"pass" false`).
 _PASS_KEY = re.compile(r"""(["'])pass\1\s*(?::|<|(?:true|false|True|False|null)\b)""")
-# The rubrics' own output-format template, `{"pass": <true|false>, ...}`: its "pass" key is
-# not a verdict.
-_FORMAT_TEMPLATE = re.compile(r"""\{\s*(["'])pass\1\s*:\s*<[^<>]*>""")
+# The rubrics' own output-format template, `{"pass": <true|false>`, exactly: its "pass" key
+# is not a verdict. `<false>` or `<b>` is not the template.
+_FORMAT_TEMPLATE = re.compile(r"""\{\s*"pass"\s*:\s*<true\|false>""")
 # A `{` opening a quoted key starts an object; `{x}` or `{0: 1` is prose.
 _OBJECT_START = re.compile(r"""\{\s*["']""")
-# What a brace count must step over: a quoted string in either style (to the end of the
-# text when it never closes), or a brace.
-_BRACE_SCAN = re.compile(r"""(["'])(?:\\.|(?!\1)[^\\])*\1?|[{}]""", re.DOTALL)
+# Text ending in a quoted key and its colon (`"inner": ` or `"axes": [`): an object after it
+# is that key's value, inside an outer object that closed early on an unescaped `"}`.
+_KEY_BEFORE = re.compile(r"""["']\s*:\s*(?:\[\s*)?\Z""")
 
 
 def call_api(prompt, options=None, context=None):
@@ -213,32 +213,35 @@ def _redact(text):
 
 
 def _verdict(text):
-    """(verdict, None) for the reply's one verdict object, else (None, the problem)."""
-    verdicts, starts, broken = {}, [], []
+    """(verdict, None) for the reply's one unambiguous verdict object, else (None, the
+    problem). Fail-closed: a reply is graded only when nothing in it could be another
+    verdict, so a doubtful reply is asked again, never graded from a guess."""
+    verdicts, spans = {}, []
     start = text.find("{")
     while start != -1:
         try:
             value, end = _DECODER.raw_decode(text, start)
         except ValueError:
-            # An object that does not decode (truncated, a trailing comma, unescaped
-            # quotes) spans to its closing brace, or to the end of the text. The next `{`
-            # is scanned, so an object nested inside it is still found.
-            if _OBJECT_START.match(text, start):
-                broken.append((start, _closing(text, start)))
+            # A quoted-key object that does not decode (truncated, a trailing comma,
+            # unescaped quotes) may be or hold the verdict: the reply is refused whole.
+            # Prose braces (`{x}`, `{0: 1`) and the rubric's format template are skipped.
+            if _OBJECT_START.match(text, start) and not _FORMAT_TEMPLATE.match(text, start):
+                return None, "has a malformed verdict object"
             start = text.find("{", start + 1)
             continue
         # Top level only: an object nested inside a decoded one is never scanned on its own.
         # Objects without "pass" (a quoted snippet, trailing notes) are not verdicts.
         if isinstance(value, dict) and "pass" in value:
-            starts.append(start)
+            if _KEY_BEFORE.search(text, 0, start):
+                return None, "has a malformed verdict object"
+            spans.append((start, end))
             verdicts.setdefault(json.dumps(_canonical(value), sort_keys=True), value)
         start = text.find("{", end)
-    # A verdict, or a "pass" key, inside an object that did not decode belongs to that
-    # object, whose own verdict is unknown: the reply is refused whole. A "pass" key in
-    # prose outside every such object, or in the rubric's format template, is not a grade.
+    # Every "pass" key must belong to a decoded verdict: one in prose, in a non-verdict
+    # object or in an object that did not decode may be the grade. Only the format
+    # template's own key is exempt.
     templates = [m.span() for m in _FORMAT_TEMPLATE.finditer(text)]
-    keys = [m.start() for m in _PASS_KEY.finditer(text) if not _within(m.start(), templates)]
-    if any(_within(at, broken) for at in starts + keys):
+    if any(not _within(m.start(), spans + templates) for m in _PASS_KEY.finditer(text)):
         return None, "has a malformed verdict object"
     if not verdicts:
         return None, 'has no verdict object with a "pass" key'
@@ -254,17 +257,6 @@ def _verdict(text):
     if not isinstance(verdict.get("reason", ""), str):
         return None, '"reason" is not a string'
     return verdict, None
-
-
-def _closing(text, start):
-    """Where the object opening at `start` closes, counting braces outside quoted strings;
-    the end of the text when it never does."""
-    depth = 0
-    for token in _BRACE_SCAN.finditer(text, start):
-        depth += {"{": 1, "}": -1}.get(token[0], 0)
-        if not depth:
-            return token.end()
-    return len(text)
 
 
 def _within(at, spans):

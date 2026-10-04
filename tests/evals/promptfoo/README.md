@@ -626,17 +626,17 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   verdict and hands promptfoo an object. promptfoo's own text extractor counts braces
   without reading strings: a `}` inside the judge's `reason` dropped the grade as
   unparseable, and a `{` there could turn a failing verdict into a silent pass.
-  The verdict is the reply's one top-level object with a `"pass"` key, wherever it sits;
-  other objects, prose and braces that do not decode (`{x}`, `{'a': 1}`) are ignored.
-  Two different verdicts are an error. So is a verdict, or any `"pass"` key, inside an
-  object that opens with a quoted key but does not decode (truncated, a trailing comma,
-  unescaped quotes), counted to its closing brace outside quoted strings, or to the end
-  of the reply: that object's own verdict is unknown, and nothing nested in it is graded
-  in its place. The rubric's own format template (`{"pass": <true|false>, ...}`) and a
-  `"pass"` key in prose outside every such object are not verdicts. A reply with no
-  valid verdict is asked once more; when the second has none either, both replies are
-  written in full, redacted, to `tests/evals/results/judge-replies/` (gitignored), and
-  the error names that file.
+  The reply is graded only when its verdict is unambiguous: at least one top-level
+  object with a `"pass"` key decodes, every such object is the same verdict, and none is
+  the value of a quoted key (`"inner": {...}`). Every `"pass"` key in the reply must sit
+  inside that verdict, except in the rubric's exact format template (`{"pass":
+  <true|false>`), and no `{` that opens a quoted key may fail to decode (truncated, a
+  trailing comma, unescaped quotes). Prose braces (`{x}`, `{0: 1`) and objects without
+  `"pass"` are ignored. A reply that mentions a pass key outside its verdict, or quotes
+  an unclosed JSON fragment, is retried and may error; it is never graded from a guess.
+  A reply with no valid verdict is asked once more; when the second fails too, both
+  replies are written in full, redacted, to `tests/evals/results/judge-replies/`
+  (gitignored), and the error names that file.
 
 ### Claude-pair baseline
 

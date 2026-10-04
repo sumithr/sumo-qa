@@ -277,22 +277,11 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
             {"pass": True, "d": {"s": [1]}},
             id="the-same-verdict-with-a-nested-int-then-float",
         ),
-        # A `{` that does not decode and holds no "pass" key is skipped, not refused.
+        # A prose `{` (no quoted key after it) that does not decode is skipped.
         pytest.param(
             "Sets {x}, {} and {0: 1 aside: " + json.dumps(_VERDICT),
             _VERDICT,
             id="stray-prose-braces-before-the-verdict",
-        ),
-        pytest.param(
-            "The candidate printed {'status': 'ok'} correctly. "
-            '{"pass": true, "score": 1, "reason": "ok"}',
-            {"pass": True, "score": 1, "reason": "ok"},
-            id="a-quoted-python-dict-before-the-verdict",
-        ),
-        pytest.param(
-            'Code: {"id": user.id}. {"pass": true, "score": 0.9, "reason": "ok"}',
-            {"pass": True, "score": 0.9, "reason": "ok"},
-            id="a-quoted-js-snippet-before-the-verdict",
         ),
         # The rubric's own output-format template, quoted before the real verdict, is
         # not a verdict (its values are <placeholders>).
@@ -307,24 +296,6 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
             '{ "pass": <true|false>, ... } Here: {"pass": true, "score": 0.9, "reason": "ok"}',
             {"pass": True, "score": 0.9, "reason": "ok"},
             id="a-spaced-format-template-before-the-verdict",
-        ),
-        # A "pass" key in plain prose, outside every object that failed to decode, is not
-        # a verdict.
-        pytest.param(
-            'Rubric requires "pass": true only if A.\n{"pass": false, "score": 0.2, "reason": "bad"}',
-            {"pass": False, "score": 0.2, "reason": "bad"},
-            id="a-pass-key-in-prose-before-the-verdict",
-        ),
-        pytest.param(
-            'Axis A: "pass": true. Axis B: "pass": false. '
-            '{"pass": false, "score": 0.4, "reason": "B fails"}',
-            {"pass": False, "score": 0.4, "reason": "B fails"},
-            id="per-axis-pass-keys-in-prose-before-the-verdict",
-        ),
-        pytest.param(
-            '{"id": user.id}. {"pass": true, "score": 1, "reason": "ok"}',
-            {"pass": True, "score": 1, "reason": "ok"},
-            id="a-closed-undecodable-object-before-the-verdict",
         ),
         pytest.param(
             '{x} {"pass": true, "score": 1, "reason": "ok"}',
@@ -445,8 +416,73 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
         pytest.param("I think it passes {", "no verdict", id="stray-opening-brace"),
         pytest.param(
             '{"summary": {"pass": true, "score": 1}}',
-            "no verdict",
+            "malformed verdict",
             id="pass-only-inside-a-non-verdict-object",
+        ),
+        # Fail-closed: a quoted-key object that does not decode, or a "pass" key outside
+        # every decoded verdict, may be the grade, so the reply is never graded from a guess.
+        pytest.param(
+            'Printed {\'status\': \'ok\'} as "ok". {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-quoted-python-dict-before-the-verdict",
+        ),
+        pytest.param(
+            'Code: {"id": user.id}. {"pass": true, "score": 0.9, "reason": "ok"}',
+            "malformed verdict",
+            id="a-quoted-js-snippet-before-the-verdict",
+        ),
+        pytest.param(
+            'Steps {"steps": [1, 2 then {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="an-unclosed-steps-fragment-before-the-verdict",
+        ),
+        pytest.param(
+            'Sends {"method": "POST" here. {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="an-unclosed-method-fragment-before-the-verdict",
+        ),
+        pytest.param(
+            'Rubric requires "pass": true only if A.\n{"pass": false, "score": 0.2, "reason": "bad"}',
+            "malformed verdict",
+            id="a-pass-key-in-prose-before-the-verdict",
+        ),
+        pytest.param(
+            'Axis A: "pass": true. Axis B: "pass": false. '
+            '{"pass": false, "score": 0.4, "reason": "B fails"}',
+            "malformed verdict",
+            id="per-axis-pass-keys-in-prose-before-the-verdict",
+        ),
+        pytest.param(
+            'Final: "pass": false. Example of format: {"pass": true, "score": 1, "reason": "ok"}',
+            "malformed verdict",
+            id="a-prose-grade-then-an-example-verdict",
+        ),
+        pytest.param(
+            'Example: {"pass": true, "score": 1, "reason": "ok"}. My verdict: '
+            '{"pass": <false>, "score": 0.1, "reason": "bad"}',
+            "malformed verdict",
+            id="an-example-verdict-then-a-placeholder-verdict",
+        ),
+        pytest.param(
+            '{"reason": "the "}" char", "inner": {"pass": true, "score": 1, "reason": "x"}}',
+            "malformed verdict",
+            id="a-quoted-closing-brace-before-a-nested-verdict",
+        ),
+        pytest.param(
+            '{"reason": "x "} y", "inner": [{"pass": true, "score": 1, "reason": "x"}]}',
+            "malformed verdict",
+            id="a-quoted-closing-brace-before-a-verdict-in-a-list",
+        ),
+        pytest.param(
+            '{"reason": "it printed "}" alone", "axes": [{"pass": true, "score": 1}], '
+            '"pass": false, "score": 0.1}',
+            "malformed verdict",
+            id="a-quoted-closing-brace-before-nested-axis-passes",
+        ),
+        pytest.param(
+            'Example: {"pass": true, "score": 1, "reason": "ok"}. Mine: {score: 0.1, "pass": false}',
+            "malformed verdict",
+            id="an-example-verdict-then-an-unquoted-key-verdict",
         ),
         pytest.param('{"pass": null, "score": 1}', '"pass"', id="pass-null"),
         pytest.param('{"pass": "yes", "score": 1}', '"pass"', id="pass-string"),
@@ -508,16 +544,6 @@ def test_a_json_reply_without_a_boolean_verdict_is_an_error(monkeypatch, reply, 
     assert problem in response["error"]
     # The excerpt is the reply's repr, which escapes a quote the reply mixes with the other.
     assert repr(reply[:40])[1:-1] in response["error"]
-
-
-@pytest.mark.parametrize("comma", ["", ","], ids=["no-comma", "trailing-comma"])
-def test_a_verdict_nested_in_a_non_verdict_object_is_never_graded(monkeypatch, comma):
-    reply = '{"summary": {"pass": true, "score": 1}, "reason": "x"' + comma + "}"
-    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
-
-    response = provider.call_api("the prompt", JUDGE_OPTIONS)
-
-    assert "output" not in response and response["error"].startswith("judge reply ")
 
 
 # Real judge replies (tests/fixtures/judge_replies.json). The replies the old parser
