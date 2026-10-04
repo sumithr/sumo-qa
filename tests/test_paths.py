@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Tests for sumo_qa.paths — scope-keyed user-pack directory resolution."""
 
+import ntpath
 import os
 from pathlib import Path
 
@@ -49,16 +50,36 @@ def test_windows_global_root_falls_back_to_home_appdata(tmp_path, monkeypatch):
     assert paths._windows_global_root() == tmp_path / "AppData" / "Local" / "sumo-qa"
 
 
-def test_windows_global_root_fallback_home_follows_a_passed_env(tmp_path, monkeypatch):
-    """With no LOCALAPPDATA in a host entry's env, the fallback home is that
-    env's USERPROFILE, else HOMEDRIVE+HOMEPATH, never this process's home."""
+@pytest.mark.parametrize(
+    "env",
+    [
+        pytest.param({"USERPROFILE": r"C:\up", "HOMEDRIVE": "D:", "HOMEPATH": r"\hp"}, id="both"),
+        pytest.param({"USERPROFILE": "", "HOMEDRIVE": "D:", "HOMEPATH": r"\hp"}, id="empty-up"),
+        pytest.param({"LOCALAPPDATA": "", "HOMEDRIVE": "D:", "HOMEPATH": r"\hp"}, id="drive-path"),
+        pytest.param({"HOMEPATH": r"\hp"}, id="no-drive"),
+        pytest.param({"HOMEDRIVE": "D:", "HOMEPATH": ""}, id="empty-hp"),
+        pytest.param({"USERPROFILE": r"C:\os", "UserProfile": r"C:\entry"}, id="mixed-case"),
+        pytest.param({"homepath": r"\hp", "HomeDrive": "E:"}, id="lower-case"),
+        pytest.param({"HOMEDRIVE": "D:"}, id="drive-only"),
+        pytest.param({}, id="no-keys"),
+    ],
+)
+def test_windows_global_root_fallback_home_matches_ntpath(env, tmp_path, monkeypatch):
+    """The fallback home is the one the launched server's Path.home() resolves
+    from the same env: ntpath.expanduser over Windows' case-insensitive env,
+    where the last-written spelling of a name wins."""
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "own"))
-    assert paths._windows_global_root({"USERPROFILE": str(tmp_path / "up")}) == (
-        tmp_path / "up" / "AppData" / "Local" / "sumo-qa"
-    )
-    entry = {"LOCALAPPDATA": "", "HOMEDRIVE": str(tmp_path), "HOMEPATH": "/hp"}
-    assert paths._windows_global_root(entry) == tmp_path / "hp" / "AppData" / "Local" / "sumo-qa"
-    assert paths._windows_global_root({}) == tmp_path / "own" / "AppData" / "Local" / "sumo-qa"
+    monkeypatch.setattr(os, "environ", {k.upper(): v for k, v in env.items()})
+    home = ntpath.expanduser("~")
+    expected = (tmp_path / "own" if home == "~" else Path(home)) / "AppData" / "Local" / "sumo-qa"
+    assert paths._windows_global_root(env) == expected
+
+
+def test_windows_env_names_are_case_insensitive_last_written_wins(monkeypatch):
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path("own")))
+    entry = {"USERPROFILE": r"C:\os", "UserProfile": r"C:\entry"}
+    assert paths._windows_global_root(entry) == Path(r"C:\entry") / "AppData" / "Local" / "sumo-qa"
+    assert paths._windows_global_root({"LocalAppData": "la"}) == Path("la") / "sumo-qa"
 
 
 def test_unknown_scope_raises(tmp_path):

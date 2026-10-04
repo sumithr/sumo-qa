@@ -14,6 +14,7 @@ already used by the installer.
 
 from __future__ import annotations
 
+import ntpath
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -22,18 +23,23 @@ SCOPES = ("project", "global")
 
 
 def _windows_global_root(env: Mapping[str, str] | None = None) -> Path:
-    """Windows user-data dir: ``%LOCALAPPDATA%\\sumo-qa`` else ``~/AppData/Local/sumo-qa``,
-    ``~`` taken from a passed ``env``'s ``USERPROFILE`` (else ``HOMEDRIVE`` +
-    ``HOMEPATH``) when it sets one, as ``Path.home()`` does for this process."""
-    local = (os.environ if env is None else env).get("LOCALAPPDATA")
-    if local:
-        return Path(local) / "sumo-qa"
-    home = None
-    if env is not None:
-        home = env.get("USERPROFILE") or (
-            env.get("HOMEDRIVE", "") + env["HOMEPATH"] if env.get("HOMEPATH") else None
-        )
-    return (Path(home) if home else Path.home()) / "AppData" / "Local" / "sumo-qa"
+    """Windows user-data dir: ``%LOCALAPPDATA%\\sumo-qa`` else ``~/AppData/Local/sumo-qa``.
+
+    Names are matched case-insensitively and, where a mapping spells one name
+    twice (``{**os.environ, "UserProfile": ...}``), the last-written spelling
+    wins. For a passed ``env``, ``~`` is what ``ntpath.expanduser`` makes of it:
+    ``USERPROFILE`` if present (even empty), else ``HOMEDRIVE`` joined to
+    ``HOMEPATH`` if ``HOMEPATH`` is present, else this process's ``Path.home()``."""
+    norm = {k.upper(): v for k, v in (os.environ if env is None else env).items()}
+    if norm.get("LOCALAPPDATA"):
+        return Path(norm["LOCALAPPDATA"]) / "sumo-qa"
+    if env is not None and "USERPROFILE" in norm:
+        home = Path(norm["USERPROFILE"])
+    elif env is not None and "HOMEPATH" in norm:
+        home = Path(ntpath.join(norm.get("HOMEDRIVE", ""), norm["HOMEPATH"]))
+    else:
+        home = Path.home()
+    return home / "AppData" / "Local" / "sumo-qa"
 
 
 def _posix_global_root(env: Mapping[str, str] | None = None) -> Path:
