@@ -438,11 +438,19 @@ naming both files, the hook id, the hook value and every candidate
   build tools; `.github/release/requirements.txt` is the hashed lock compiled
   from it (regenerate with the command in its header). `release.yml` installs
   it with `--require-hashes` and builds with `--no-isolation`, so the lock is
-  the whole set of build inputs. Dependabot watches `/.github/release`.
+  the whole set of build inputs. `.github/release/runtime-requirements.txt` is
+  the hashed lock of the `pyproject.toml` runtime dependencies (no extras),
+  resolved for the release runner (Linux, CPython 3.13); the SBOM job installs
+  it and the wheel with `--require-hashes --no-deps`, runs `pip check`, and
+  generates the SBOM from that environment. Regenerate it with the command in
+  its header after changing `[project] dependencies`;
+  `tests/test_release_runtime_lock.py` fails while a dependency's pin no longer
+  satisfies its specifier. Dependabot's `/.github/release` pip entry keeps both
+  locks current.
 - **Release evidence.** `release.yml` adds `sbom.cdx.json`, `build-info.json`
   and `SHA256SUMS` next to the wheel and sdist. The build job records the
-  package digests before anything unhashed is installed; a separate job with
-  no signing permissions builds the SBOM and uploads only that. Signing waits
+  package digests; a separate job with no signing permissions builds the SBOM
+  and uploads only that. Signing waits
   for `scripts/release_evidence.py verify`, and publishing waits for
   `gh attestation verify` (`tests/test_release_evidence.py` covers the
   negative cases). The publish and release-assets jobs ship only files that

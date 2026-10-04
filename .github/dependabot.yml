@@ -22,8 +22,9 @@ updates:
     open-pull-requests-limit: 5
     labels: ["deps", "ci"]
 
-  # Hashed release build lock (.github/release/requirements.txt, compiled from
-  # requirements.in) used by .github/workflows/release.yml.
+  # Hashed release locks used by .github/workflows/release.yml: build tools
+  # (requirements.txt, compiled from requirements.in) and the SBOM job's
+  # runtime dependencies (runtime-requirements.txt, compiled from pyproject.toml).
   - package-ecosystem: pip
     directory: /.github/release
     schedule:

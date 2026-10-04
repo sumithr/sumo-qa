@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   # Builds from the hashed lock alone and fixes the package digests in
-  # build-info.json before anything unhashed is installed anywhere.
+  # build-info.json.
   build:
     name: Build and record
     runs-on: ubuntu-latest
@@ -62,9 +62,8 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  # Installs the wheel's dependencies from PyPI without hashes, so this job
-  # gets no signing permissions and the attest job takes only sbom.cdx.json
-  # from it: the package bytes on this runner never reach a release.
+  # No signing permissions, and the attest job takes only sbom.cdx.json from
+  # it: the package bytes on this runner never reach a release.
   sbom:
     name: SBOM
     needs: build
@@ -91,19 +90,34 @@ jobs:
           name: packages
           path: packages/
 
-      # CycloneDX SBOM of the dependency set installing the wheel resolves on
-      # this runner (Linux, CPython 3.13), in a throwaway venv. cyclonedx-py
-      # validates the document against the schema before writing. No
-      # --output-reproducible: it drops the serialNumber, and actions/attest
-      # rejects a CycloneDX SBOM without one.
+      # build-info.json then gives the wheel digest the install below checks.
+      - name: Check build info against the build job's digest
+        env:
+          BUILD_INFO_SHA256: ${{ needs.build.outputs.build_info_sha256 }}
+        run: printf '%s  packages/build-info.json\n' "$BUILD_INFO_SHA256" | sha256sum --check --strict
+
+      # CycloneDX SBOM of the wheel installed, in a throwaway venv, from the
+      # hashed runtime lock (.github/release/runtime-requirements.txt, its
+      # Linux / CPython 3.13 resolution) with no dependency resolution: every
+      # installed file is hash-checked, and pip check fails on a lock that no
+      # longer satisfies the wheel. cyclonedx-py validates the document against
+      # the schema before writing. No --output-reproducible: it drops the
+      # serialNumber, and actions/attest rejects a CycloneDX SBOM without one.
       - name: Generate SBOM
         run: |
+          set -euo pipefail
+          jq -r '.artifacts | to_entries[] | select(.key | endswith(".whl"))
+            | "packages/\(.key) --hash=sha256:\(.value)"' packages/build-info.json \
+            > "$RUNNER_TEMP/wheel-requirements.txt"
+          env_python="$RUNNER_TEMP/sbom-env/bin/python"
           python -m venv --without-pip "$RUNNER_TEMP/sbom-env"
-          python -m pip --python "$RUNNER_TEMP/sbom-env/bin/python" install packages/*.whl
+          python -m pip --python "$env_python" install --require-hashes --no-deps \
+            -r .github/release/runtime-requirements.txt \
+            -r "$RUNNER_TEMP/wheel-requirements.txt"
+          python -m pip --python "$env_python" check
           mkdir sbom
           cyclonedx-py environment --pyproject pyproject.toml --mc-type library \
-            --of JSON -o sbom/sbom.cdx.json \
-            "$RUNNER_TEMP/sbom-env/bin/python"
+            --of JSON -o sbom/sbom.cdx.json "$env_python"
 
       - name: Upload SBOM
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
