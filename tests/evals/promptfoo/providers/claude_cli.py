@@ -84,6 +84,19 @@ _SECRET = re.compile(
     r"|eyJ[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,}\.[0-9A-Za-z_-]{6,})",
     re.DOTALL,
 )
+# Credential assignments, value only (the key name stays): `password`, `passwd`, `pwd`,
+# `secret`, `token`, `api key`, `access key` or `private key` (`_`, `-` or no separator, any
+# case) as a whole word, an optional closing quote, then `:` or `=` and the value up to the
+# next whitespace; and a 40-character `[A-Za-z0-9/+=]` AWS secret access key after a key name
+# such as `aws_secret_access_key` or "AWS secret key", with or without `:` or `=`. The first
+# extends the assignment shape src/sumo_qa/feedback_memory.py refuses; "token count: 12" or
+# "the password field" have no separator straight after the key and stay as written.
+_ASSIGNED = re.compile(
+    r"""(\b(?:passw(?:or)?d|pwd|secret|token|(?:api|access|private)[_-]?key)\b["']?\s*[:=]\s*)\S+"""
+    r"""|(\baws[\w -]{0,20}?secret[\w -]{0,20}?key\b["']?\s*[:=]?\s*["']?)"""
+    r"""[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])""",
+    re.IGNORECASE,
+)
 # The word "pass" as a key in any spelling: any case, bare or in (escaped) straight, curly
 # or backtick quotes or `**` bold, then `:`, `=`, `<` or a bare literal (`"pass" false`).
 # "passes", "bypass" or "passed the test" have no key separator and do not match.
@@ -107,8 +120,12 @@ _KEY_BEFORE = re.compile(r"""["']\s*:\s*(?:\[\s*)?\Z""")
 # An object followed by `,` `"` `'` `:` `}` or `]` was cut out of a larger structure (an
 # outer object that closed early on an unescaped quote), so its siblings are not top level.
 _CUT_AFTER = re.compile(r"""\s*[,"':}\]]""")
-# Every rubric asks the reason to end in its verdict ("Verdict PASS.", "VERDICT: FAIL").
-_VERDICT_WORD = re.compile(r"\bverdict\b\W{0,6}(pass|fail)\b", re.IGNORECASE)
+# Every rubric asks the reason to end in its verdict ("Verdict PASS.", "VERDICT: FAIL"). The
+# word "verdict", then any run of spaces, punctuation and the linking words `is`, `was` or
+# `of`, then PASS or FAIL, bare or as PASSED/PASSES/FAILED/FAILS, in any case.
+_VERDICT_WORD = re.compile(
+    r"\bverdict\b(?:\W|\b(?:is|was|of)\b)*?\b(pass|fail)(?:ed|es|s)?\b", re.IGNORECASE
+)
 # A string a "verdict", "passed" or "result" key may state the grade in.
 _STATED = {"pass": True, "true": True, "fail": False, "false": False}
 
@@ -229,8 +246,9 @@ def _keep(unparsed):
 
 
 def _redact(text):
-    """The text with bare secrets and the home directory scrubbed."""
+    """The text with bare secrets, credential values and the home directory scrubbed."""
     text = _SECRET.sub("[REDACTED]", text)
+    text = _ASSIGNED.sub(lambda m: (m[1] or m[2]) + "[REDACTED]", text)
     home = Path.home()
     if home.parent == home:  # a filesystem-root home names no one
         return text

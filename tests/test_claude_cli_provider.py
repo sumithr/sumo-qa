@@ -611,6 +611,22 @@ def test_the_graded_verdict_is_the_one_top_level_verdict(monkeypatch, reply, ver
             "contradicts",
             id="a-string-verdict-key-that-contradicts-pass",
         ),
+        # Linking words and inflected grades between "verdict" and the grade still count.
+        *(
+            pytest.param(
+                json.dumps({"pass": grade, "score": 0.5, "reason": f"x. {said}."}),
+                "contradicts",
+                id=f"a-reason-saying-{said}-against-pass-{grade}",
+            )
+            for said, grade in [
+                ("Final verdict is FAIL", True),
+                ("Verdict was FAILED", True),
+                ("verdict: FAILS", True),
+                ("VERDICT - PASS", False),
+                ("The verdict of PASSES", False),
+                ("verdict = passed", False),
+            ]
+        ),
         # Only an exact format template is exempt: a filled-in placeholder is not one.
         pytest.param(
             '{"pass": <true|false> false, "score": 0.1}\n{"pass": true, "score": 1, "reason": "ok"}',
@@ -956,6 +972,9 @@ def test_a_root_home_is_never_redacted(monkeypatch, tmp_path):
     assert provider._redact(text) == text
 
 
+_AWS_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+
 @pytest.mark.parametrize(
     "secret",
     [
@@ -987,6 +1006,55 @@ def test_a_kept_reply_has_bare_secrets_redacted(monkeypatch, _reply_dir, secret)
     [kept] = list(_reply_dir.iterdir())
     text = kept.read_text(encoding="utf-8")
     assert secret not in text and "key [REDACTED] here" in text
+
+
+@pytest.mark.parametrize(
+    ("text", "kept"),
+    [
+        ("password=hunter2", "password=[REDACTED]"),
+        ("passwd: x", "passwd: [REDACTED]"),
+        ("pwd=x1", "pwd=[REDACTED]"),
+        ("api_key: abc", "api_key: [REDACTED]"),
+        ("API-KEY=abc123", "API-KEY=[REDACTED]"),
+        ("apikey = abc", "apikey = [REDACTED]"),
+        ("secret=s3cr3t", "secret=[REDACTED]"),
+        ("token: tok123", "token: [REDACTED]"),
+        ("access_key=ak1", "access_key=[REDACTED]"),
+        ("Private-Key: pk1", "Private-Key: [REDACTED]"),
+        ('"password": "hunter2"', '"password": [REDACTED]'),
+        (
+            "aws_secret_access_key=" + _AWS_SECRET,
+            "aws_secret_access_key=[REDACTED]",
+        ),
+        (
+            "AWS_SECRET_ACCESS_KEY: " + _AWS_SECRET,
+            "AWS_SECRET_ACCESS_KEY: [REDACTED]",
+        ),
+        ("AWS secret access key " + _AWS_SECRET, "AWS secret access key [REDACTED]"),
+    ],
+)
+def test_a_kept_reply_has_credential_assignment_values_redacted(
+    monkeypatch, _reply_dir, text, kept
+):
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": f"no verdict, {text} here"}))
+
+    provider.call_api("the prompt", JUDGE_OPTIONS)
+
+    [path] = list(_reply_dir.iterdir())
+    assert f"no verdict, {kept} here" in json.loads(path.read_text(encoding="utf-8"))[0]["reply"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the password field is required",
+        "token count: 12",
+        "the secret is safe; a passwords=3 or my_token=4 key is not one",
+        "an AWS secret key of 39 chars " + _AWS_SECRET[:39],
+    ],
+)
+def test_prose_about_credentials_is_not_redacted(text):
+    assert provider._redact(text) == text
 
 
 def test_an_unwritable_reply_dir_still_returns_the_error(monkeypatch, tmp_path):
