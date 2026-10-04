@@ -387,7 +387,7 @@ class CheckExternalSkillNotInstalledOutput(_StrictBase):
     installed: Literal[False] = Field(description="Discriminator: the skill is not installed.")
     skill: str = Field(description="Echo of the requested skill name, whitespace-stripped.")
     scope: Literal["auto", "project", "global"] = Field(
-        description="Echo of the scope that was searched."
+        description="Echo of the requested scope (`auto` means project and global were both checked)."
     )
 
 

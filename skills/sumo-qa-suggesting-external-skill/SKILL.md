@@ -26,7 +26,7 @@ Any install is gated by the per-candidate `[y/N]` prompt below; no global switch
 
 You MUST work through these steps in order. External lifecycle operations are MCP tool calls, not host-shell `npx` calls.
 
-1. **Check local install first.** Call `sumo_qa_check_external_skill_installed` if the router or user named a likely skill. If found, call `sumo_qa_execute_external_skill` with the original intent and follow the returned `skill_body`. On `installed: false`, or an execute `isError`, do NOT stop — fall through to step 2 and search for an alternative.
+1. **Check local install first.** Call `sumo_qa_check_external_skill_installed` if the router or user named a likely skill. If found, call `sumo_qa_execute_external_skill` with the original intent and follow the returned `skill_body`. On `installed: false`, or an execute `isError`, do NOT stop: fall through to step 2 and search for an alternative.
 
 2. **Search externally.** Call `sumo_qa_search_external_skills` with a concise query built from the capability needed:
    - `entry_kind: qa` → the QA surface and stack, e.g. `python type checking mypy`, `playwright e2e`, `pact contract testing`.
