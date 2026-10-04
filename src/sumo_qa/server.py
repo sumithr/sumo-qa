@@ -302,9 +302,12 @@ def _user_approver(ctx: Any) -> Callable[[dict[str, Any]], bool]:
 def _resume_cancellation(exc: BaseException) -> None:
     """A decline caused by the tool call's own cancellation: once the library
     has cleaned up (nothing was written), hand the SDK its cancellation back
-    rather than a result for a cancelled request."""
+    rather than a result for a cancelled request. The worker sees it as
+    concurrent.futures.CancelledError (anyio.from_thread.run converts the
+    event loop's asyncio.CancelledError); either is re-raised as it is, and
+    the SDK's own cancel scope then ends the awaiting task."""
     if isinstance(exc, ExternalSkillDeclinedError) and isinstance(
-        exc.__cause__, asyncio.CancelledError
+        exc.__cause__, (concurrent.futures.CancelledError, asyncio.CancelledError)
     ):
         raise exc.__cause__
 

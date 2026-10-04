@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import shutil
@@ -415,7 +416,7 @@ def test_external_skill_server_tools_route_hint_by_exception_type(monkeypatch) -
         (ext.ExternalSkillPolicyError("x"), "current version stays", "candidate"),
         (ext.ExternalSkillError("shared"), "do not retry with another agent", "install it first"),
         (ext.ExternalSkillProvenanceError("x"), "nothing was removed", "Do not execute"),
-        (ext.ExternalSkillRolledBackError("x"), "may now be missing", "nothing was removed"),
+        (ext.ExternalSkillRolledBackError("x"), "lock still records", "nothing was removed"),
         (ext.ExternalSkillTrustPolicyError("x"), "trust policy file", "elevated_trust"),
         (ext.ExternalSkillInstallConfirmationRequired("x"), "the rollback", "the install"),
         (ext.ExternalSkillDeclinedError("x"), "declined the rollback", "candidate"),
@@ -903,3 +904,16 @@ def test_an_unanswered_prompt_through_the_real_server_writes_nothing(monkeypatch
 
     assert answers == []
     assert "declined" in output["error"]["actionable_hint"]
+
+
+@pytest.mark.parametrize(
+    "cancellation", [concurrent.futures.CancelledError(), asyncio.CancelledError()]
+)
+def test_a_decline_caused_by_either_cancellation_hands_it_back(cancellation) -> None:
+    """anyio.from_thread.run turns the event loop's cancellation into
+    concurrent.futures.CancelledError in the worker; both are handed back."""
+    declined = ext.ExternalSkillDeclinedError("cancelled while asked")
+    declined.__cause__ = cancellation
+
+    with pytest.raises(type(cancellation)):
+        sumo_server._resume_cancellation(declined)

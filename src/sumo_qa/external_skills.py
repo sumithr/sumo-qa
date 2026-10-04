@@ -375,8 +375,10 @@ _INSTRUCTION_RULES = {"SQA-EXT-001", "SQA-EXT-002"}
 _LINT_LIMIT = 4000
 _LONG_LINE = ("SQA-EXT-017", "high", "long_lines", "line too long to lint fully")
 # Every payload file is linted, binary or not, decoded with replacement and a
-# NUL read as whitespace; bytes past this many are disclosed as SQA-EXT-017.
+# NUL read as whitespace, up to this many bytes; a larger file is unlinted
+# past the cap, so it blocks (SQA-EXT-018).
 _LINT_BYTES = 1024 * 1024
+_TOO_LARGE = ("SQA-EXT-018", "critical", None, "file too large to lint fully")
 _CONTINUED = re.compile(r"(\\|\||&&)\s*$")
 _BACKSLASH_END = re.compile(r"\\\s*$")
 _FENCE = re.compile(r"^\s*(?:```|~~~)")
@@ -689,25 +691,25 @@ def _agents_of(record: Any) -> set[Any]:
 
 def _check_no_other_links(skill: str, lock_base: Path, paths: list[str]) -> None:
     """Refuse when anything under the scope's skill roots, other than the
-    folders being changed and what is inside them, reaches one of them (to,
-    into or through it) through a link, recorded or not: an install made
+    folders being changed, what is inside them and the folders their own
+    spelling passes through, really is one of them or sits inside or above
+    one (a link to, into or through it), recorded or not: an install made
     outside sumo-qa would lose its skill. The link may be the entry itself, a
     skill root or a parent of one (``.claude/skills -> ../.agents/skills``
-    lists the folder as a plain entry), so each root and each entry is
-    compared by where it really is against where its spelling puts it. A
-    folder that cannot be listed or a link loop is refused, never skipped."""
+    makes ``.agents/skills/<name>`` the same folder as ``.claude/skills/<name>``),
+    so every root and entry is compared by where it really is. A root on the
+    folder's own path may itself be a link (``.claude -> ~/dotfiles/claude``):
+    it is how the folder is reached, not another way in. A folder that cannot
+    be listed or a link loop is refused, never skipped."""
     ours = [lock_base / p for p in paths]
     real = [_real(folder) for folder in ours]
-    base = _real(lock_base)
     found: list[str] = []
 
     def check(entry: Path) -> None:
-        if any(entry == folder or folder in entry.parents for folder in ours):
+        if any(entry == folder or entry in folder.parents for folder in ours):
             return
         target = _real(entry)
-        if target != base / entry.relative_to(lock_base) and any(
-            _linked(target, folder) for folder in real
-        ):
+        if any(_linked(target, folder) for folder in real):
             found.append(entry.relative_to(lock_base).as_posix())
 
     def unreadable(error: OSError) -> None:
@@ -723,6 +725,7 @@ def _check_no_other_links(skill: str, lock_base: Path, paths: list[str]) -> None
         check(root)
         for dirpath, dirnames, filenames in os.walk(root, onerror=unreadable):
             current = Path(dirpath)
+            dirnames[:] = [name for name in dirnames if current / name not in ours]
             for name in [*dirnames, *filenames]:
                 check(current / name)
     if found:
@@ -735,8 +738,8 @@ def _check_no_other_links(skill: str, lock_base: Path, paths: list[str]) -> None
 
 def _real(path: Path) -> Path:
     """Where ``path`` really is: every link followed, a dangling one to where
-    it points. A link loop or an unreadable link is a typed refusal (Python
-    3.10 to 3.12 raise RuntimeError for a loop, later ones ignore it)."""
+    it points. A link loop or an unreadable link, an OSError from realpath
+    (ELOOP for a loop), is a typed refusal."""
     try:
         return Path(os.path.realpath(path, strict=True))
     except FileNotFoundError:
@@ -785,8 +788,15 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
             _EXECUTABLE_ASSET if executable or suffix in _BINARY_SUFFIXES else _SCRIPT_ASSET
         )
         findings.append(_finding(rule, severity, message, relpath, None, 1))
+    if len(data) > _LINT_BYTES:
+        rule, severity, _, message = _TOO_LARGE
+        message += f": only its first {_LINT_BYTES} bytes were linted"
+        findings.append(_finding(rule, severity, message, relpath, None, 1))
     text = data[:_LINT_BYTES].decode("utf-8", errors="replace").replace("\0", " ")
-    physical = text.splitlines()
+    # Lines break at \n only, as a shell reads them (a CRLF line's \r dropped):
+    # splitlines() also breaks at \v, \f, \x1c-\x1e, \x85, U+2028 and U+2029,
+    # which would split one shell command into lines the rules read apart.
+    physical = [line.removesuffix("\r") for line in text.split("\n")]
     lines = _logical_lines(physical)
     text, starts = _collapsed(physical)
     long = sorted({start for start, _, unit in lines if len(unit) > _LINT_LIMIT})
@@ -804,12 +814,8 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
             ]
         if hits:
             findings.append(_finding(rule, severity, message, relpath, hits[0], len(hits)))
-    rule, severity, _, message = _LONG_LINE
-    if len(data) > _LINT_BYTES:
-        # One finding per rule: the cut, after any long line, is disclosed too.
-        message = f"file too large to lint fully: only its first {_LINT_BYTES} bytes were linted"
-        long.append(len(physical) or 1)
     if long:
+        rule, severity, _, message = _LONG_LINE
         findings.append(_finding(rule, severity, message, relpath, long[0], len(long)))
     return findings
 
@@ -958,7 +964,7 @@ def describe_approval(request: dict[str, Any]) -> str:
         f"Commit: {_shown(request['resolved_ref'])}",
         f"Content digest: {_shown(request['content_digest'])}",
         f"Trust: {_shown(trust['tier'])}{reasons}",
-        f"Folders under {under} the Skills CLI may write for this agent:",
+        f"Folders the Skills CLI may write for this agent (relative ones under {under}):",
         *(f"- {_shown(t['path'])}: {_target_state(t)}" for t in request["targets"]),
         "Safety findings:" if findings else "Safety findings: none",
         *(
@@ -985,16 +991,29 @@ def _target_state(target: dict[str, Any]) -> str:
         )
     if target["state"] == "unrecorded":
         return "replaces a folder sumo-qa has no record of"
+    if target["state"] == "untracked":
+        return "sumo-qa does not record, verify or roll back this folder"
     return "new"
 
 
-def _targets(skill: str, lock_base: Path) -> list[dict[str, Any]]:
+def _targets(
+    skill: str, scope: str, agent: str, lock_base: Path, guarded: bool = False
+) -> list[dict[str, Any]]:
     """The scope's folders an install of ``skill`` may write (the CLI picks
     among them by agent), each with what it would replace: an install the
     lock records (its agents, source and commit), a folder sumo-qa has no
-    record of, or nothing."""
+    record of, or nothing. ``guarded``: the caller holds the lock's guard.
+
+    A global claude-code install goes where skills@1.7.0 puts it,
+    ``$CLAUDE_CONFIG_DIR/skills`` when that is set, which sumo-qa does not
+    track: it is listed as ``untracked``. (The CLI reads CODEX_HOME too, but
+    writes a codex skill to ``.agents/skills`` either way.) Any other agent's
+    folder outside these roots fails the preview's staged install, so it is
+    never asked about."""
     skills: dict[str, Any] = {}
-    if os.path.lexists(lock_base / _LOCK_RELPATH):
+    if guarded:
+        skills = _read_lock(lock_base)["skills"]
+    elif os.path.lexists(lock_base / _LOCK_RELPATH):
         with _lock_guard(lock_base):
             skills = _read_lock(lock_base)["skills"]
     name = _candidate_skill_names(skill)[0]
@@ -1014,6 +1033,14 @@ def _targets(skill: str, lock_base: Path) -> list[dict[str, Any]]:
         elif os.path.lexists(lock_base / path):
             target["state"] = "unrecorded"
         targets.append(target)
+    config = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    if scope == "global" and agent == "claude-code" and config:
+        path = str(Path(config) / "skills" / name)
+        if Path(path) != lock_base / ".claude" / "skills" / name:
+            targets.append(
+                {"path": path, "state": "untracked", "agents": []}
+                | {"source": None, "resolved_ref": None}
+            )
     return targets
 
 
@@ -1138,6 +1165,7 @@ def _install(
         args = ["add", str(checkout), "--skill", skill, "-a", agent, "-y"]
         if scope == "global":
             args.append("-g")
+        targets = _targets(skill, scope, agent, lock_base)
         _ask_user(
             approve,
             {
@@ -1151,7 +1179,7 @@ def _install(
                 "content_digest": payload["content_digest"],
                 "trust": trust,
                 "findings": payload["findings"],
-                "targets": _targets(skill, lock_base),
+                "targets": targets,
             },
             f"the user can install this commit themselves with: "
             f"{_manual_install_command(remote_url, resolved_ref, skill, agent, scope)}",
@@ -1164,6 +1192,11 @@ def _install(
         with _lock_guard(lock_base):
             if restore is not None:
                 restore()
+            if _targets(skill, scope, agent, lock_base, guarded=True) != targets:
+                raise ExternalSkillProvenanceError(
+                    f"the folders the approval prompt showed for {skill!r} changed while the "
+                    "user was asked; nothing was written, so install again to be asked again"
+                )
             before = _folder_identities(skill, scope, cwd, home)
             # Every entry that could be written, with or without a SKILL.md: a
             # dangling alias is the user's, and rollback must keep it.
@@ -1171,10 +1204,11 @@ def _install(
                 candidate.path.parent: _entry_identity(candidate.path.parent)
                 for candidate in _iter_installed_skill_candidates(skill, scope, cwd, home)
             }
+            backups = _back_up(before_entries, workdir / "previous")
             try:
                 stdout, stderr = _run_cli_process(command, timeout, cwd)
             except BaseException as exc:
-                _roll_back_failed_cli(exc, skill, scope, cwd, home, before, before_entries)
+                _roll_back_failed_cli(exc, skill, scope, cwd, home, before, before_entries, backups)
                 raise
             after = _folder_identities(skill, scope, cwd, home)
             written = _written_folders(skill, scope, before, after)
@@ -1190,7 +1224,7 @@ def _install(
                         )
                 _merge_into_lock(lock_base, records, restoring)
             except BaseException as exc:
-                remaining = _roll_back(written, before_entries)
+                remaining = _roll_back(written, before_entries, backups)
                 paths = ", ".join(f.as_posix() for f in remaining)
                 if not isinstance(exc, Exception):
                     if remaining:
@@ -1466,10 +1500,9 @@ def rollback_hint_for_exception(exc: BaseException) -> str:
     if isinstance(exc, ExternalSkillRolledBackError):
         return (
             "The restore failed after the Skills CLI had rewritten the skill folder, and "
-            "sumo-qa removed what it wrote: the skill folder may now be missing (the error "
-            "names any folder left behind) while the lock still records the version that was "
-            "installed. Tell the user; reinstall the skill through preview and install once "
-            "they confirm."
+            "sumo-qa put back what the folder held before, the version the lock still "
+            "records; the error names any folder it could not put back. Tell the user; "
+            "reinstall such a folder through preview and install once they confirm."
         )
     if isinstance(exc, ExternalSkillProvenanceError):
         return (
@@ -1515,7 +1548,7 @@ def build_skills_cli_command(npx: str, args: Sequence[str]) -> list[str]:
 
 
 def skill_content_digest(folder: Path) -> str:
-    """SHA-256 over every file path and file content under an installed skill."""
+    """SHA-256 over every path, file content and executable bit under an installed skill."""
     return _digest_of(_content_entries(Path(folder)))
 
 
@@ -1525,8 +1558,9 @@ def _content_entries(
     """Map each ``(kind, relative path)`` under ``root`` to its content, and
     each file's bytes into ``contents`` when given (so a caller reads them once).
 
-    ``kind`` is ``file`` (value: SHA-256 of its bytes) or ``link`` (value: the
-    link target). A symlink inside the folder is pinned by its target and not
+    ``kind`` is ``file`` (value: SHA-256 of its bytes), ``executable`` (an
+    extra, empty entry for a file with any executable bit) or ``link`` (value:
+    the link target). A symlink inside the folder is pinned by its target and not
     followed; the bytes it reaches are hashed at their own path. A link
     leaving the folder, or anything that is not a regular file, cannot be
     pinned and is refused.
@@ -1548,6 +1582,9 @@ def _content_entries(
                     if contents is not None:
                         contents[relpath] = data
                     entries[("file", relpath)] = hashlib.sha256(data).hexdigest()
+                    # Windows has no executable bit: every file there is not.
+                    if sys.platform != "win32" and path.stat().st_mode & 0o111:
+                        entries[("executable", relpath)] = ""
     except OSError as exc:
         raise ExternalSkillReadError(f"could not read {exc.filename or root}: {exc}") from exc
     return entries
@@ -1619,13 +1656,15 @@ def _inspect_payload(folder: Path) -> dict[str, Any]:
     entries = _content_entries(folder, contents)
     files, findings = [], []
     for (kind, relpath), value in sorted(entries.items(), key=lambda item: item[0][1]):
+        if kind == "executable":
+            continue
         entry: dict[str, Any] = {"path": relpath, "size": None, "sha256": None}
         entry |= {"executable": False, "link_target": None}
         if kind == "link":  # pragma: no cover -- platform-conditional (POSIX only)
             files.append({**entry, "link_target": value})
             continue
         data = contents[relpath]
-        executable = sys.platform != "win32" and bool((folder / relpath).stat().st_mode & 0o111)
+        executable = ("executable", relpath) in entries
         files.append({**entry, "size": len(data), "sha256": value, "executable": executable})
         findings += lint_skill_file(relpath, data, executable)
     findings.sort(key=lambda f: (_SEVERITIES.index(f["severity"]), f["rule"], f["file"]))
@@ -1893,15 +1932,47 @@ class _Uninspectable:
     """An entry lstat could not read; compares equal only to itself."""
 
 
+def _back_up(
+    entries: dict[Path, tuple[int, int] | _Uninspectable | None], into: Path
+) -> dict[Path, Path]:
+    """A copy of every existing entry the CLI may replace (a link as a link,
+    modes kept), so a rolled-back update puts the previous version back. One
+    that cannot be copied refuses the install before the CLI runs."""
+    backups: dict[Path, Path] = {}
+    for number, (entry, identity) in enumerate(entries.items()):
+        if not isinstance(identity, tuple):
+            continue
+        copy = into / str(number)
+        try:
+            into.mkdir(exist_ok=True)
+            if entry.is_symlink():
+                os.symlink(os.readlink(entry), copy)
+            elif entry.is_dir():
+                shutil.copytree(entry, copy, symlinks=True)
+            else:
+                shutil.copy2(entry, copy)
+        except OSError as exc:
+            raise ExternalSkillReadError(
+                f"could not keep a copy of {entry} to restore if the install fails ({exc}); "
+                "nothing was written"
+            ) from exc
+        backups[entry] = copy
+    return backups
+
+
 def _roll_back(
     written: list[InstalledSkill],
     before_entries: dict[Path, tuple[int, int] | _Uninspectable | None],
+    backups: dict[Path, Path],
 ) -> list[Path]:
-    """Best-effort removal of what an unrecordable install wrote.
+    """Best-effort undo of what an unrecordable install wrote: a folder that
+    existed before gets its previous copy (``backups``) back, a new one is
+    removed.
 
     Keeps entries the CLI did not replace (a user's alias link), never lets a
-    failed removal stop the others, and returns every entry still present so
-    the caller can report it rather than leave it to run unrecorded.
+    failed removal stop the others, and returns every entry not back to its
+    previous state so the caller can report it rather than leave it to run
+    unrecorded.
     """
     current = {location.path.parent: _entry_identity(location.path.parent) for location in written}
     replaced = [folder for folder, now in current.items() if before_entries.get(folder) != now]
@@ -1913,9 +1984,13 @@ def _roll_back(
             # Unknown identity now or before: never chmod or remove it, report it.
             remaining.append(folder)
             continue
+        restored = False
         with suppress(OSError):
             _remove_install(folder)
-        if _entry_identity(folder) is not None:
+            if folder in backups and _entry_identity(folder) is None:
+                shutil.move(backups[folder], folder)
+                restored = True
+        if not restored and (folder in backups or _entry_identity(folder) is not None):
             remaining.append(folder)
     return remaining
 
@@ -1928,8 +2003,9 @@ def _roll_back_failed_cli(
     home: Path,
     before: dict[Path, tuple[InstalledSkill, tuple[int, int]]],
     before_entries: dict[Path, tuple[int, int] | _Uninspectable | None],
+    backups: dict[Path, Path],
 ) -> None:
-    """Remove what a failed or interrupted CLI run wrote before it stopped.
+    """Undo what a failed or interrupted CLI run wrote before it stopped.
 
     Returns when nothing is left behind, so the caller re-raises the CLI's
     own error. Otherwise it names what may remain rather than leave it to run
@@ -1942,7 +2018,7 @@ def _roll_back_failed_cli(
     except OSError as scan_error:
         leftover = f"sumo-qa could not check what it left behind ({scan_error})"
     else:
-        remaining = _roll_back(_changed_folders(before, after), before_entries)
+        remaining = _roll_back(_changed_folders(before, after), before_entries, backups)
         if not remaining:
             return
         paths = ", ".join(f.as_posix() for f in remaining)
