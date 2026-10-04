@@ -195,3 +195,94 @@ def test_mcp_tools_list_count_matches_registry(mcp_proc):
     tools = response.get("result", {}).get("tools", [])
     expected = _expected_tool_count()
     assert len(tools) == expected, f"Expected {expected} tools from tools/list, got {len(tools)}"
+
+
+# ---------------------------------------------------------------------------
+# Every launch path resolves the saved profile (#809)
+# ---------------------------------------------------------------------------
+
+
+def _host_entry(config: Path, key: str) -> dict:
+    return json.loads(config.read_text(encoding="utf-8"))[key]["sumo-qa"]
+
+
+def _launch_entries(tmp_path: Path, monkeypatch) -> dict[str, dict]:
+    """The ``sumo-qa`` entry each launch path starts the server from, in a
+    clean temp HOME. The installer writes the VS Code and Claude Desktop
+    entries; the Claude Code and Codex plugins share the shipped ``.mcp.json``,
+    whose ``uvx --from <plugin root>`` command needs the network, so it is
+    swapped for this interpreter while its ``env`` is kept (a real uvx launch
+    is a manual clean-install check). JetBrains and Junie are given the same
+    command the installer prints, which is the direct launch."""
+    from sumo_qa import installer
+
+    home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    (workspace / ".git").mkdir(parents=True)
+    desktop_config = installer._claude_desktop_config_path(home, "Linux")
+    desktop_config.parent.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    direct = installer.McpCommand(command=sys.executable, args=["-m", "sumo_qa"])
+    installer._setup_vscode_copilot(direct, workspace)
+    installer._setup_claude_desktop(direct, "Linux")
+    plugin = _host_entry(REPO_ROOT / ".mcp.json", "mcpServers")
+    return {
+        "direct CLI / JetBrains / Junie": direct.to_config_entry(),
+        "installer VS Code": _host_entry(workspace / ".vscode" / "mcp.json", "servers"),
+        "installer Claude Desktop": _host_entry(desktop_config, "mcpServers"),
+        "Claude Code / Codex plugin": {**direct.to_config_entry(), "env": plugin.get("env", {})},
+    }
+
+
+def _launch_and_discover(entry: dict, cwd: Path) -> tuple[set[str], dict]:
+    """Start the server as a host would from ``entry`` and return its
+    ``tools/list`` names and its ``sumo_qa_capabilities`` result."""
+    src_path = str(REPO_ROOT / "src")
+    proc = subprocess.Popen(
+        [entry["command"], *entry.get("args", [])],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        cwd=str(cwd),
+        env={**os.environ, "PYTHONPATH": src_path, **entry.get("env", {})},
+        text=True,
+    )
+    try:
+        recv = _receiver(_start_stdout_reader(proc))
+        _send(proc, _INITIALIZE_REQUEST)
+        recv(1)
+        _send(proc, _INITIALIZED_NOTIFICATION)
+        _send(proc, _TOOLS_LIST_REQUEST)
+        names = {t["name"] for t in recv(2)["result"]["tools"]}
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "sumo_qa_capabilities", "arguments": {}},
+            },
+        )
+        capabilities = json.loads(recv(3)["result"]["content"][0]["text"])
+        return names, capabilities
+    finally:
+        _terminate(proc)
+
+
+def test_every_launch_path_serves_the_saved_profile_across_a_restart(tmp_path, monkeypatch):
+    """With ``core`` saved (what ``sumo-qa-install --profile core`` writes) and
+    no profile in any entry, every launch path serves ``core``: its
+    capability discovery reports ``core`` and its ``tools/list`` is exactly the
+    core tool set. A second launch (a host restart) serves the same."""
+    from sumo_qa.paths import mcp_profile_path
+    from sumo_qa.tool_registry import PROFILE_ENV, profile_tool_names
+
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text("core\n", encoding="utf-8")
+    monkeypatch.delenv(PROFILE_ENV, raising=False)
+    for path, entry in _launch_entries(tmp_path, monkeypatch).items():
+        assert PROFILE_ENV not in entry.get("env", {}), path
+        for launch in ("first launch", "after restart"):
+            names, capabilities = _launch_and_discover(entry, tmp_path)
+            assert capabilities["active_profile"] == "core", (path, launch)
+            assert names == profile_tool_names("core"), (path, launch)

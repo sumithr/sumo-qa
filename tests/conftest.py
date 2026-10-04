@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -13,10 +14,27 @@ from sumo_qa.tool_registry import PROFILE_ENV
 
 def pytest_configure(config):
     """``build_mcp_server()`` and the installer read the tool profile from the
-    environment, so a caller's exported value would silently change what every
-    test builds. Clearing it here runs before collection-time imports and every
-    fixture scope; tests that need a profile set it explicitly."""
+    environment, then from the saved profile file under the global data dir, so
+    a caller's exported value or saved file would silently change what every
+    test builds. Clearing the env var and pointing ``XDG_DATA_HOME`` at an empty
+    temp dir here runs before collection-time imports and every fixture scope;
+    tests that need a profile set it explicitly."""
     os.environ.pop(PROFILE_ENV, None)
+    config._sumo_qa_data_home = tempfile.TemporaryDirectory(prefix="sumo-qa-test-data-")
+    os.environ["XDG_DATA_HOME"] = config._sumo_qa_data_home.name
+
+
+def pytest_unconfigure(config):
+    data_home = getattr(config, "_sumo_qa_data_home", None)
+    if data_home is not None:
+        data_home.cleanup()
+
+
+@pytest.fixture(autouse=True)
+def _empty_saved_profile(tmp_path_factory: pytest.TempPathFactory, monkeypatch) -> None:
+    """A fresh global data dir per test, so a profile one test saves never
+    reaches another."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("xdg-data")))
 
 
 @pytest.fixture

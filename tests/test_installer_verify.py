@@ -926,3 +926,14 @@ def test_required_tool_names_follow_a_profile_changed_in_process(monkeypatch) ->
     core = set(installer._derive_required_tool_names())
 
     assert core < full
+
+
+def test_required_tool_names_for_builds_the_profile_it_is_keyed_on(monkeypatch) -> None:
+    """The cache key is the surface built, whatever the env says at call time."""
+    from sumo_qa.tool_registry import PROFILE_ENV
+
+    monkeypatch.setenv(PROFILE_ENV, "core")
+    core = set(installer._derive_required_tool_names())
+    monkeypatch.setenv(PROFILE_ENV, "full")
+    installer._required_tool_names_for.cache_clear()
+    assert set(installer._required_tool_names_for("core")) == core

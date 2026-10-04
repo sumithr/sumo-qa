@@ -9,7 +9,7 @@ All optional. Defaults work out of the box after `pip install sumo-qa && sumo-qa
 | `QA_TEST_DATA_PATH` | `knowledge/test_data` (cwd) | Override the known-good test data catalogue. **No samples ship in the wheel**, the catalogue is empty on a fresh install; populate it per your team's domains. |
 | `QA_KNOWLEDGE_PATH` | bundled `_data/knowledge` / repo `knowledge` | Override the canonical knowledge catalogues (classifications, approaches, principles, techniques) |
 | `SUMO_QA_DEBUG_DIR` | unset | Directory to capture per-tool-call args + output as JSON for debugging / grading |
-| `SUMO_QA_MCP_PROFILE` | `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist tools or external-skill search/check/install/execute tools). See [Tool profiles](#tool-profiles) |
+| `SUMO_QA_MCP_PROFILE` | the saved profile, else `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist tools or external-skill search/check/install/execute tools). Overrides the profile `sumo-qa-install --profile` saves. See [Tool profiles](#tool-profiles) |
 
 These env vars are the lowest-level override and always win. For a no-clone way
 to add custom content, see [Adding custom knowledge without cloning the
@@ -19,9 +19,38 @@ bundled defaults.
 
 ## Tool profiles
 
-`SUMO_QA_MCP_PROFILE` picks which tools the server lists, once at startup:
+The profile picks which tools the server lists, once at startup. Save it once
+for every host:
 
-- `full` (default; also when unset or empty): every tool, unchanged.
+```bash
+sumo-qa-install --profile core    # or full
+```
+
+Like a plain `sumo-qa-install`, this also configures every detected host; add a
+host flag (for example `--vscode`) to configure only that one. The saved
+profile applies to every host either way (with a custom `XDG_DATA_HOME`, see
+below).
+
+This writes `core` or `full` to the `mcp-profile` file in the global data dir
+(`$XDG_DATA_HOME/sumo-qa/`, else `~/.local/share/sumo-qa/`;
+`%LOCALAPPDATA%\sumo-qa\` on Windows). The server reads that file at every
+launch, whichever way it was started: the `sumo-qa` command, `python -m
+sumo_qa`, the Claude Code and Codex plugins (`uvx`), the entries the
+installer writes for Claude Code, Claude Desktop and VS Code, the JetBrains
+entry whose Settings steps it prints, and the Junie entry written by hand from
+[INSTALL.md](INSTALL.md). None of those entries carries a profile, so all of them
+serve the saved one and keep serving it after a restart. A plugin-only install
+has no `sumo-qa-install` on `PATH`; write `core` or `full` into that file
+yourself. The file is plain text holding `core` or `full`; in Windows PowerShell
+use `Set-Content -Encoding ascii` (UTF-16 with a BOM is also read). If you set
+`XDG_DATA_HOME`, set it for every host too: a GUI host started from the Dock
+or Start menu does not see a shell's value, so it would read the default dir.
+
+`SUMO_QA_MCP_PROFILE` overrides the saved file for the one launch whose env
+sets it (a host entry's `env`, or the shell a host inherits). Unset or empty, it
+falls back to the saved file; with no saved file the profile is `full`.
+
+- `full` (default): every tool, unchanged.
 - `core`: the tools the native QA workflows use: the entry router, every
   workflow skill, the knowledge loaders, the test-data, repo-map, evidence and
   report tools, and `sumo_qa_capabilities`. It leaves out the specialist tools
@@ -45,8 +74,10 @@ bundled defaults.
   tools cannot be found or called, the skill sends the host to
   `sumo_qa_capabilities` for the same setting.
 
-Any other value stops the server at launch with an error naming the valid
-profiles. Each tool's capability group and profile membership live in
+Any other value, in the env var or the saved file, stops the server at launch
+with an error naming the valid profiles (and the file, when it came from
+there); `sumo-qa-install --profile <core|full>` rewrites a bad file. Each
+tool's capability group and profile membership live in
 `src/sumo_qa/tool_registry.py`.
 
 `sumo_qa_capabilities` reports the active profile, the capability groups it
@@ -54,7 +85,8 @@ serves, and each group it leaves out with its open-world flag and the setting
 that enables it. Its `workflows` list leaves out any workflow the profile
 cannot run.
 
-Set the profile in the host's `sumo-qa` entry `env`. Re-running
+To give one host its own profile, set it in that host's `sumo-qa` entry
+`env`. Re-running
 `sumo-qa-install` refreshes the entry's `command` and `args` and keeps its
 `env` in every host it writes: `claude_desktop_config.json` (Claude Desktop,
 and the copy written for Claude Code), `.vscode/mcp.json`, and Claude Code's
@@ -111,7 +143,8 @@ it:
 - Claude Desktop: nothing is expanded; the entry launches as written, so a
   `${...}` in its command is a launch FAIL.
 
-An invalid profile is a FAIL; otherwise the probe requires every tool the
+An invalid profile is a FAIL; its fix names the entry's env, the shell, or,
+when neither sets one, `sumo-qa-install --profile`. Otherwise the probe requires every tool the
 launch profile serves. An entry whose command cannot be started (a moved
 venv) is a FAIL naming the command and the config file. An entry `env` key
 containing `=` cannot be passed to a process: the probe launches without it

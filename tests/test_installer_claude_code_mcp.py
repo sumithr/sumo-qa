@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
@@ -11,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from sumo_qa import installer
+from sumo_qa.paths import mcp_profile_path
 
 # No ``select`` fixture needed — the production reader uses a daemon thread +
 # ``queue.Queue.get(timeout=...)``, which works identically on POSIX and
@@ -653,3 +656,146 @@ def test_main_claude_only_flag(tmp_path: Path, monkeypatch) -> None:
         rc = installer.main()
 
     assert rc == 0
+
+
+# --profile saves the profile every launch path reads (#809). Technique:
+# equivalence partitioning over the saved file's prior state (absent, the other
+# profile, an invalid value the flag must be able to repair).
+@pytest.mark.parametrize("prior", [None, "full\n", "bogus\n"])
+def test_main_profile_flag_saves_the_profile_for_every_host(
+    tmp_path: Path, monkeypatch, prior
+) -> None:
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    handshake = _handshake_proc()  # derives the tool list, so before any saved file
+    if prior is not None:
+        mcp_profile_path().parent.mkdir(parents=True)
+        mcp_profile_path().write_text(prior, encoding="utf-8")
+
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+        patch("sumo_qa.installer.subprocess.Popen", return_value=handshake),
+        patch("sys.argv", ["sumo-qa-install", "--claude-code", "--profile", "core"]),
+    ):
+        rc = installer.main()
+
+    assert rc == 0
+    assert mcp_profile_path().read_text(encoding="utf-8") == "core\n"
+
+
+def test_main_profile_flag_rejects_an_unknown_profile_and_saves_nothing(capsys) -> None:
+    with (
+        patch("sys.argv", ["sumo-qa-install", "--profile", "minimal"]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        installer.main()
+    assert exc.value.code == 2
+    assert "invalid choice: 'minimal'" in capsys.readouterr().err
+    assert not mcp_profile_path().exists()
+
+
+def test_main_rejects_profile_with_uninstall_and_saves_nothing(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)  # an unrejected run would uninstall from the cwd workspace
+    with (
+        patch("sys.argv", ["sumo-qa-install", "--uninstall", "--profile", "core"]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        installer.main()
+    assert exc.value.code == 2
+    assert "--profile cannot be used with --uninstall" in capsys.readouterr().err
+    assert not mcp_profile_path().exists()
+
+
+def _run_profile_install(tmp_path: Path, monkeypatch, profile: str) -> int:
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+        patch("sumo_qa.installer.subprocess.Popen", side_effect=lambda *a, **k: _handshake_proc()),
+        patch("sys.argv", ["sumo-qa-install", "--claude-code", "--profile", profile]),
+    ):
+        return installer.main()
+
+
+# Technique: equivalence partitioning over the shell's SUMO_QA_MCP_PROFILE
+# (unset, the saved value, another value): only another value warns.
+@pytest.mark.parametrize(("shell", "warns"), [(None, False), ("full", False), ("core", True)])
+def test_main_profile_flag_warns_when_the_shell_overrides_it(
+    tmp_path: Path, monkeypatch, capsys, shell, warns
+) -> None:
+    if shell is not None:
+        monkeypatch.setenv(installer.PROFILE_ENV, shell)
+    assert _run_profile_install(tmp_path, monkeypatch, "full") == 0
+    warning = (
+        f"WARNING: {installer.PROFILE_ENV}={shell} in this shell overrides the saved "
+        "profile for hosts launched from it"
+    )
+    assert (warning in capsys.readouterr().out) is warns
+    assert mcp_profile_path().read_text(encoding="utf-8") == "full\n"
+
+
+def test_main_profile_flag_replaces_the_saved_file_atomically(tmp_path: Path, monkeypatch) -> None:
+    """A failed write leaves the prior profile whole (a concurrent launch never
+    reads a truncated file) and exits with one line naming the file."""
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text("core\n", encoding="utf-8")
+    real_replace = os.replace
+
+    def fail_the_save(src, dst):
+        if Path(dst) == mcp_profile_path():
+            raise PermissionError(13, "Permission denied")
+        real_replace(src, dst)
+
+    with (
+        patch("sumo_qa.installer.os.replace", side_effect=fail_the_save),
+        pytest.raises(SystemExit) as exc,
+    ):
+        _run_profile_install(tmp_path, monkeypatch, "full")
+    assert str(exc.value) == (
+        f"sumo-qa-install: cannot save the profile to {mcp_profile_path()}: Permission denied"
+    )
+    assert mcp_profile_path().read_text(encoding="utf-8") == "core\n"
+    assert list(mcp_profile_path().parent.iterdir()) == [mcp_profile_path()]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+@pytest.mark.parametrize("umask", [0o022, 0o077])
+def test_main_profile_flag_saves_the_file_with_the_umask_mode(
+    tmp_path: Path, monkeypatch, umask: int
+) -> None:
+    """The saved file gets a normal write's mode, not the temp file's 0600."""
+    old = os.umask(umask)
+    try:
+        _run_profile_install(tmp_path, monkeypatch, "core")
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(mcp_profile_path().stat().st_mode) == 0o666 & ~umask
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlinks")
+def test_main_profile_flag_saves_through_a_symlinked_data_dir(tmp_path: Path, monkeypatch) -> None:
+    """A dotfiles/synced setup links the data dir elsewhere; the server reads
+    through the link, so the save must write through it too."""
+    real = tmp_path / "synced"
+    real.mkdir()
+    mcp_profile_path().parent.parent.mkdir(parents=True, exist_ok=True)
+    mcp_profile_path().parent.symlink_to(real, target_is_directory=True)
+    assert _run_profile_install(tmp_path, monkeypatch, "core") == 0
+    assert mcp_profile_path().parent.is_symlink()
+    assert (real / mcp_profile_path().name).read_text(encoding="utf-8") == "core\n"
+
+
+def test_main_profile_flag_reports_an_unwritable_data_dir(tmp_path: Path, monkeypatch) -> None:
+    mcp_profile_path().parent.parent.mkdir(parents=True, exist_ok=True)
+    mcp_profile_path().parent.write_text("", encoding="utf-8")  # a file where the dir belongs
+    with pytest.raises(SystemExit) as exc:
+        _run_profile_install(tmp_path, monkeypatch, "core")
+    assert str(exc.value).startswith(
+        f"sumo-qa-install: cannot save the profile to {mcp_profile_path()}: "
+    )

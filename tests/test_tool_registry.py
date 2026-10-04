@@ -16,6 +16,7 @@ import pytest
 
 from sumo_qa import server, skill_prompts
 from sumo_qa.capabilities import _CORE_WORKFLOWS
+from sumo_qa.paths import mcp_profile_path
 from sumo_qa.skill_manifest import load_skill_context
 from sumo_qa.tool_registry import (
     GROUPS,
@@ -62,6 +63,96 @@ def test_resolve_profile_rejects_unknown_values_without_coercion(monkeypatch, va
     message = str(exc.value)
     assert f"{PROFILE_ENV}={value!r}" in message
     assert "core, full" in message
+
+
+# The saved profile file is the one source every launch path shares (#809);
+# the env var overrides it per process. Technique: decision tables over
+# env value x file state.
+@pytest.mark.parametrize(
+    ("env_value", "file_text", "expected"),
+    [
+        (None, None, "full"),
+        (None, "core\n", "core"),
+        ("", "core\n", "core"),
+        (None, "full\n", "full"),
+        ("full", "core\n", "full"),
+        ("core", "full\n", "core"),
+        (None, "", "full"),
+    ],
+)
+def test_resolve_profile_reads_the_saved_profile_when_the_env_sets_none(
+    monkeypatch, tmp_path, env_value, file_text, expected
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    if env_value is None:
+        monkeypatch.delenv(PROFILE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(PROFILE_ENV, env_value)
+    if file_text is not None:
+        mcp_profile_path().parent.mkdir(parents=True)
+        mcp_profile_path().write_text(file_text, encoding="utf-8")
+    assert mcp_profile_path() == tmp_path / "sumo-qa" / "mcp-profile"
+    assert resolve_profile() == expected
+
+
+@pytest.mark.parametrize("file_text", ["bogus\n", "CORE\n", "minimal"])
+def test_resolve_profile_rejects_an_unknown_saved_profile_naming_the_file(
+    monkeypatch, tmp_path, file_text
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text(file_text, encoding="utf-8")
+    with pytest.raises(ValueError) as exc:
+        resolve_profile()
+    assert str(exc.value) == (
+        f"{mcp_profile_path()} holds {file_text.strip()!r}, which is not a valid "
+        "MCP tool profile; expected one of: core, full"
+    )
+
+
+# Windows users write the file by hand (docs/CONFIGURATION.md): PowerShell 5.1
+# `Set-Content -Encoding UTF8` adds a BOM, `Out-File` / `>` write UTF-16 LE with a BOM.
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("\ufeffcore\r\n".encode(), "core"), ("\ufefffull".encode(), "full")],
+)
+def test_resolve_profile_reads_a_saved_profile_with_a_utf8_bom(
+    monkeypatch, tmp_path, raw, expected
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_bytes(raw)
+    assert resolve_profile() == expected
+
+
+@pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+def test_resolve_profile_reads_a_utf16_saved_profile_with_a_bom(
+    monkeypatch, tmp_path, codec
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_bytes("\ufeffcore\r\n".encode(codec))
+    assert resolve_profile() == "core"
+
+
+def test_resolve_profile_names_the_file_when_it_is_not_text(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_bytes(b"\xffcore\n")  # not UTF-8, no UTF-16 BOM
+    with pytest.raises(ValueError) as exc:
+        resolve_profile()
+    assert str(exc.value) == (
+        f"cannot read {mcp_profile_path()}: not UTF-8 or UTF-16 text; rewrite it "
+        "as plain text holding core or full (PowerShell: `Set-Content -Encoding "
+        "ascii`), or run `sumo-qa-install --profile <core|full>`"
+    )
+
+
+def test_resolve_profile_reports_an_unreadable_saved_profile(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    mcp_profile_path().mkdir(parents=True)  # a directory where the file belongs
+    with pytest.raises(ValueError, match=f"cannot read {re.escape(str(mcp_profile_path()))}"):
+        resolve_profile()
 
 
 def test_profile_tool_names_rejects_unknown_profile() -> None:
@@ -271,3 +362,42 @@ def test_load_skill_context_keeps_its_never_raises_contract_on_a_bad_profile(
         "error": f"{PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
         "expected one of: core, full"
     }
+
+
+# The profile is resolved once per process (#809 review): rewriting the saved
+# file mid-session must not make the skill gate, the skill loader or its
+# resources disagree with the tools/list and capability discovery fixed at
+# build time. Technique: state transition over saved file -> build -> rewrite,
+# both directions plus a corrupted rewrite.
+@pytest.mark.parametrize(
+    ("saved", "rewritten"),
+    [("core", "full\n"), ("full", "core\n"), ("core", "bogus\n")],
+)
+def test_skill_tools_keep_the_build_time_profile_after_the_file_changes(saved, rewritten) -> None:
+    import json
+
+    mcp_profile_path().parent.mkdir(parents=True)
+    mcp_profile_path().write_text(f"{saved}\n", encoding="utf-8")
+    mcp = server.build_mcp_server()
+    mcp_profile_path().write_text(rewritten, encoding="utf-8")
+
+    def call(name: str, args: dict) -> str:
+        return asyncio.run(mcp.call_tool(name, args)).content[0].text
+
+    def read(uri: str) -> str:
+        return next(iter(asyncio.run(mcp.read_resource(uri)))).content
+
+    assert set(_live_names(mcp)) == profile_tool_names(saved)
+    assert json.loads(call("sumo_qa_capabilities", {}))["active_profile"] == saved
+    gated = saved == "core"
+    tool_text = call(_EXTERNAL_SKILL.replace("-", "_"), {})
+    assert (tool_text.splitlines()[:3] == _ACTIVATION) is gated
+    loaded = json.loads(
+        call("sumo_qa_load_skill_context", {"skill_name": _EXTERNAL_SKILL, "mode": "manifest"})
+    )
+    resource = json.loads(read(f"sumoqa://skills/{_EXTERNAL_SKILL}/manifest"))
+    for out in (loaded, resource):
+        if gated:
+            assert out["error"].splitlines()[:3] == _ACTIVATION
+        else:
+            assert "error" not in out and out["skill_name"] == _EXTERNAL_SKILL

@@ -47,6 +47,7 @@ if sys.version_info < (
     sys.exit(1)
 
 import collections
+import contextlib
 import functools
 import json
 import os
@@ -56,10 +57,12 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 
+from sumo_qa.paths import mcp_profile_path
 from sumo_qa.plugin_metadata import PluginMetadata
-from sumo_qa.tool_registry import resolve_profile_or_exit
+from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, resolve_profile_or_exit
 
 # Canonical plugin metadata — loaded once at import time from the bundled
 # snapshot at sumo_qa/_data/plugin_metadata.json. Every host-config write
@@ -111,8 +114,8 @@ def _derive_required_tool_names() -> tuple[str, ...]:
     return _required_tool_names_for(resolve_profile_or_exit())
 
 
-# Keyed on the profile: ``build_mcp_server`` reads the same env var, so a
-# profile changed later in the process derives its own surface.
+# Keyed on the profile it builds, so a profile changed later in the process
+# derives its own surface.
 @functools.cache
 def _required_tool_names_for(_profile: str) -> tuple[str, ...]:
     """Compute the canonical atomic tool surface from the live MCP registry.
@@ -126,7 +129,7 @@ def _required_tool_names_for(_profile: str) -> tuple[str, ...]:
     from sumo_qa import skill_prompts
     from sumo_qa.server import build_mcp_server
 
-    mcp = build_mcp_server()
+    mcp = build_mcp_server(profile=_profile)
     live_tool_names = set(mcp._tool_manager._tools.keys())
 
     skills_dir = skill_prompts._skills_dir()
@@ -261,6 +264,33 @@ class HostResult:
         return line
 
 
+def _save_profile(profile: str) -> None:
+    """Save ``profile`` atomically (a concurrent launch never reads a
+    half-written file) and warn when this shell's env var overrides it."""
+    saved = mcp_profile_path()
+    tmp = saved.with_name(f".{saved.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp, "x", encoding="utf-8") as fh:  # a plain create, so the umask sets the mode
+            fh.write(f"{profile}\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, saved)
+    except OSError as exc:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise SystemExit(
+            f"sumo-qa-install: cannot save the profile to {saved}: {exc.strerror or exc}"
+        ) from None
+    print(f"MCP tool profile `{profile}` saved to {saved}")
+    shell = os.environ.get(PROFILE_ENV)
+    if shell and shell != profile:
+        print(
+            f"WARNING: {PROFILE_ENV}={shell} in this shell overrides the saved "
+            "profile for hosts launched from it"
+        )
+
+
 def main() -> int:
     import argparse
 
@@ -317,6 +347,16 @@ def main() -> int:
         help="Don't reinstall the MCP binary via uv (assume it's already installed).",
     )
     parser.add_argument(
+        "--profile",
+        choices=PROFILES,
+        default=None,
+        help=(
+            "Save the MCP tool profile every host's sumo-qa reads at launch "
+            f"(`full` when none is saved). An entry or shell {PROFILE_ENV} "
+            "still overrides it for that one launch."
+        ),
+    )
+    parser.add_argument(
         "--uninstall",
         action="store_true",
         help=(
@@ -328,6 +368,8 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.uninstall and args.profile:
+        parser.error("--profile cannot be used with --uninstall")
 
     # If no host flag is set, default to all.
     explicit_hosts = bool(args.claude_code or args.vscode or args.jetbrains or args.claude_desktop)
@@ -374,6 +416,8 @@ def main() -> int:
         print("`pip uninstall sumo-qa` separately to remove the package itself.")
         return 0
 
+    if args.profile:
+        _save_profile(args.profile)
     # The verify step derives the tool surface from the profile; stop on a bad
     # one before any host config is written.
     resolve_profile_or_exit()
