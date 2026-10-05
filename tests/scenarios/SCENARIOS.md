@@ -318,7 +318,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 **Expected interaction shape:**
 1. Recognises that Playwright setup is *outside* the native sumo-qa skill set (the catalogue is concept-level discipline; the tool-bring-up is implementation-level work).
 2. Calls `sumo_qa_search_external_skills` to find current external skill candidates instead of using a remembered tool list.
-3. Offers — with `[y/N]` confirmation — to install the chosen external skill through `sumo_qa_install_external_skill`.
+3. Offers — with `[y/N]` confirmation — to install the chosen external skill, previews it with `sumo_qa_preview_external_skill`, and asks a second `[y/N]` on that exact payload before `sumo_qa_install_external_skill`.
 4. **Never auto-installs** anything. The `[y/N]` is real; default is "no".
 5. After install, calls `sumo_qa_execute_external_skill` and follows the returned `SKILL.md` body.
 6. If Node.js / npx is missing, surfaces the MCP tool's actionable hint and stops — does NOT auto-elevate via sudo.

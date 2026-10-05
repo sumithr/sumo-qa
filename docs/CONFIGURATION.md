@@ -9,7 +9,7 @@ All optional. Defaults work out of the box after `pip install sumo-qa && sumo-qa
 | `QA_TEST_DATA_PATH` | `knowledge/test_data` (cwd) | Override the known-good test data catalogue. **No samples ship in the wheel**, the catalogue is empty on a fresh install; populate it per your team's domains. |
 | `QA_KNOWLEDGE_PATH` | bundled `_data/knowledge` / repo `knowledge` | Override the canonical knowledge catalogues (classifications, approaches, principles, techniques) |
 | `SUMO_QA_DEBUG_DIR` | unset | Directory to capture per-tool-call args + output as JSON for debugging / grading |
-| `SUMO_QA_MCP_PROFILE` | the saved profile, else `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist tools or external-skill search/check/install/execute tools). Overrides the profile `sumo-qa-install --profile` saves. See [Tool profiles](#tool-profiles) |
+| `SUMO_QA_MCP_PROFILE` | the saved profile, else `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist tools or external-skill search/preview/check/install/rollback/execute tools). Overrides the profile `sumo-qa-install --profile` saves. See [Tool profiles](#tool-profiles) |
 
 These env vars are the lowest-level override and always win. For a no-clone way
 to add custom content, see [Adding custom knowledge without cloning the
@@ -58,7 +58,7 @@ falls back to the saved file; with no saved file the profile is `full`.
   `sumo_qa_export_test_cases`, `sumo_qa_ingest_knowledge_pack`) and the
   external-skill tools. The external-skill workflow's tool,
   `sumo_qa_suggesting_external_skill`, stays in the tool list, but the
-  search, check, install and execute tools it drives are absent, so it cannot
+  search, preview, check, install, rollback and execute tools it drives are absent, so it cannot
   run under `core`: calling it, or loading it through
   `sumo_qa_load_skill_context` or the skill resources, returns one activation
   path instead of the skill:
@@ -251,6 +251,36 @@ routes through the `sumo-qa-suggesting-external-skill` flow: it finds, installs,
 and runs a converter skill to turn the source into markdown (the converter owns
 any URL fetch), then re-ingests the result with an explicit `--type` /
 `content_type`. Don't transcribe the source by hand.
+
+## External-skill trust policy
+
+An external skill install needs an explicit elevated-trust decision from the
+user unless its source is trusted AND pinned to a full commit SHA (`#<sha>`).
+The default source, `vercel-labs/skills`, is trusted; add or deny others in
+`~/.sumo-qa/external-skills.policy.json`:
+
+```json
+{
+  "trusted_sources": ["acme/skills", "https://git.example.com/team/skills.git"],
+  "denied_sources": ["untrusted-org/skills"]
+}
+```
+
+Entries use the install-source forms (`owner/repo` or a git URL) without a
+`#ref` or `@skill` (an entry with one fails closed). An entry matches a source
+when both name the same host and path once the scheme, user, the scheme's
+default port (443 for https, 80 for http, 22 for ssh, 9418 for git), trailing
+`/` and `.git` are dropped and the host is lowercased. On GitHub, `github.com`,
+`www.github.com` and `ssh.github.com` on any port are one host and the owner
+and repository are case-insensitive. On any other host any other port and a `www.`
+prefix are kept, since either can name another server: trusting
+`git.example.com` does not cover `git.example.com:8443` or
+`www.git.example.com`, and the path keeps its case. A denied source is rejected by preview, install, and a
+rollback that would restore it. The file is read only from your home
+directory: a project cannot ship one that raises trust in its own sources. An
+unreadable or invalid file fails closed. See
+[TOOLS.md](TOOLS.md#external-skill-lifecycle) for the preview, safety lint, and
+rollback it feeds.
 
 ## Review feedback memory
 

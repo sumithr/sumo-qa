@@ -15,9 +15,9 @@ Core covers every advertised workflow: the entry router and every workflow
 skill, plus each tool a core skill names (pinned by tests/test_tool_registry.py)
 and ``sumo_qa_capabilities`` for discovery. The external-skill workflow body is
 core so the router never points at a missing tool, but the open-world and
-external-skill tools it drives (search, check, install, execute) are not: under
-``core`` that workflow's tool is in ``tools/list``, and its entry declares ``requires`` on that
-group, so calling it (or loading it through ``sumo_qa_load_skill_context``)
+external-skill tools it drives (search, preview, check, install, rollback,
+execute) are not: under ``core`` that workflow's tool is in ``tools/list``, and
+its entry declares ``requires`` on that group, so calling it (or loading it through ``sumo_qa_load_skill_context``)
 returns ``unavailable_capability``'s activation path instead of the skill body.
 """
 
@@ -117,12 +117,13 @@ TOOLS: tuple[ToolMeta, ...] = (
         integration="skills-cli",
     ),
     ToolMeta("sumo_qa_check_external_skill_installed", "external", core=False),
-    ToolMeta(
-        "sumo_qa_install_external_skill",
-        "external",
-        core=False,
-        open_world=True,
-        integration="skills-cli",
+    *(
+        ToolMeta(name, "external", core=False, open_world=True, integration="skills-cli")
+        for name in (
+            "sumo_qa_preview_external_skill",
+            "sumo_qa_install_external_skill",
+            "sumo_qa_rollback_external_skill",
+        )
     ),
     ToolMeta("sumo_qa_execute_external_skill", "external", core=False),
 )
