@@ -526,16 +526,16 @@ trigger = "startup|clear|compact"
 [tool.sumo-qa.context-budget]
 # bootstrap: SessionStart additionalContext on a healthy session.
 # tools_list: the compact JSON of every advertised MCP tool, per profile.
-# core's budget is a ratchet set just above its measurement.
+# core's budget is the 6,000 target, also fixed in
+# tests/test_audit_context_budget.py; full's is a ratchet just above its
+# measurement.
 # Each workflow's `bundle` caps its one-call sumo_qa_load_skill_context
 # result: include_body=false, as a skill loads its own context, unless the
 # workflow sets `handoff`, where the router enters the skill through the
 # bundle and the body is included. `loaders` names the per-loader chain it is
 # compared against; `catalogues` names whole catalogues the bundle carries.
 bootstrap = 1000
-# full 12200: the external-skill preview and rollback tools (#520), outside core,
-# and the bundle's catalogues= parameter (#802).
-tools_list = { core = 9400, full = 12200 }
+tools_list = { core = 6000, full = 9000 }
 
 [[tool.sumo-qa.context-budget.workflow]]
 name = "review: business logic change"
