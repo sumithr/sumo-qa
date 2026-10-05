@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.75.0](https://github.com/sumithr/sumo-qa/compare/v0.74.0...v0.75.0) (2026-10-05)
+
+
+### Features
+
+* **external-skills:** preview, trust policy, safety lint, and rollback for external skills ([#845](https://github.com/sumithr/sumo-qa/issues/845)) ([d1a8f73](https://github.com/sumithr/sumo-qa/commit/d1a8f73f4f18d79b09820c1c839e29e905dbe260))
+
 ## [0.74.0](https://github.com/sumithr/sumo-qa/compare/v0.73.1...v0.74.0) (2026-10-04)
 
 
