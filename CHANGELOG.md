@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.75.1](https://github.com/sumithr/sumo-qa/compare/v0.75.0...v0.75.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump ruff from 0.16.9 to 0.16.10 ([#846](https://github.com/sumithr/sumo-qa/issues/846)) ([4ab5739](https://github.com/sumithr/sumo-qa/commit/4ab57396b745434d65ccaece18a68415bdc92a6b))
+* **deps:** bump actions/download-artifact from 4.3.0 to 8.0.1 ([#840](https://github.com/sumithr/sumo-qa/issues/840)) ([fd1e619](https://github.com/sumithr/sumo-qa/commit/fd1e6199e494131d15bbe460e3a9dfa9d751ab8e))
+* **deps:** bump actions/upload-artifact from 4.6.2 to 7.0.1 ([#841](https://github.com/sumithr/sumo-qa/issues/841)) ([2126c29](https://github.com/sumithr/sumo-qa/commit/2126c29af9c0666573da35cf60d973e82841d1a0))
+
+
+### Continuous Integration
+
+* **dependabot:** stop proposing pydantic-core bumps on their own for the release lock ([#850](https://github.com/sumithr/sumo-qa/issues/850)) ([ba9f49f](https://github.com/sumithr/sumo-qa/commit/ba9f49f5f595cd9b6a19bc82b3b3e2a87cc56e8c))
+
 ## [0.75.0](https://github.com/sumithr/sumo-qa/compare/v0.74.0...v0.75.0) (2026-10-05)
 
 
