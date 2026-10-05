@@ -342,8 +342,11 @@ class ExternalSkillProvenanceRecord(_StrictBase):
     content_digest: str = Field(
         description="sha256:<hex> over every file path and content in the installed folder."
     )
-    executable_files: list[str] = Field(
-        description="Sorted POSIX paths of the folder's files with an executable bit."
+    executable_files: list[str] | None = Field(
+        description=(
+            "Sorted POSIX paths of the folder's files with an executable bit; "
+            "null when written on Windows, which has no executable bit."
+        )
     )
     agent: str = Field(description="Agent flavour the skill was installed for.")
     agents: list[str] = Field(

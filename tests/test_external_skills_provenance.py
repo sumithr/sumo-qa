@@ -4329,6 +4329,20 @@ def test_the_findings_list_is_capped(monkeypatch) -> None:
     assert "and 7 more" in text
 
 
+def test_executable_files_do_not_push_higher_findings_out_of_the_prompt() -> None:
+    findings = ext.lint_skill_file("SKILL.md", b"sudo make install\n")
+    for i in range(ext._PROMPT_FINDINGS):
+        findings += ext.lint_skill_file(f"bin/t{i:02}", b"x\n", True)
+    findings.sort(key=lambda f: (ext._SEVERITIES.index(f["severity"]), f["rule"], f["file"]))
+
+    text = ext.describe_approval(_install_request(findings=findings))
+
+    assert "- SQA-EXT-007 high SKILL.md:1 runs commands with elevated privileges" in text
+    for i in range(ext._PROMPT_FINDINGS):
+        assert f"- SQA-EXT-010 high bin/t{i:02} ships an executable file" in text
+    assert "- and " not in text
+
+
 def test_the_prompt_names_the_folders_written_and_what_they_replace(toolchain) -> None:
     toolchain.bodies = {SHA: "# v1\n", OTHER_SHA: "# v2\n"}
     _install(toolchain, approved_digest=_preview(toolchain)["content_digest"])
@@ -4585,6 +4599,20 @@ def test_windows_skips_the_executable_files_check(monkeypatch) -> None:
     monkeypatch.setattr(ext.sys, "platform", "win32")
 
     ext._check_executables(".agents/skills/x", {"executable_files": ["run.sh"]}, [])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="executable bits are POSIX")
+def test_a_record_written_on_windows_verifies_an_executable_file_on_posix(
+    monkeypatch, toolchain
+) -> None:
+    _with_script(toolchain, lambda base: 0o644)  # Windows reads no executable bit
+    with monkeypatch.context() as windows:
+        windows.setattr(ext, "_executable_files", lambda entries: None)
+        _install(toolchain, approved_digest=_preview(toolchain)["content_digest"])
+    assert _lock(toolchain.cwd)["skills"][".agents/skills/find-skills"]["executable_files"] is None
+    (_skill_md(toolchain).parent / "run.sh").chmod(0o755)
+
+    assert _execute(toolchain)["provenance"]["status"] == "verified"
 
 
 # ---------------------------------------------------------------------------

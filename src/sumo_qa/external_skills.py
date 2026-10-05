@@ -959,10 +959,12 @@ def describe_approval(request: dict[str, Any]) -> str:
     verb = "Install" if action == "install" else "Restore the previous version of"
     trust = request["trust"]
     reasons = f" ({', '.join(map(_shown, trust['reasons']))})" if trust["reasons"] else ""
-    # Executable files first and always listed: nothing else in the prompt
-    # shows an executable bit, and a critical finding never reaches it.
-    findings = sorted(request["findings"], key=lambda f: f["rule"] != _EXECUTABLE_ASSET[0])
-    shown = max(_PROMPT_FINDINGS, sum(f["rule"] == _EXECUTABLE_ASSET[0] for f in findings))
+    # The other findings up to _PROMPT_FINDINGS, then every executable file:
+    # nothing else in the prompt shows an executable bit.
+    others = [f for f in request["findings"] if f["rule"] != _EXECUTABLE_ASSET[0]]
+    findings = others[:_PROMPT_FINDINGS] + [
+        f for f in request["findings"] if f["rule"] == _EXECUTABLE_ASSET[0]
+    ]
     under = "the project" if scope == "project" else "your home folder"
     lines = [
         f"{verb} external skill '{skill}' for {_shown(request['agent'])} ({scope} scope)?",
@@ -977,9 +979,13 @@ def describe_approval(request: dict[str, Any]) -> str:
             f"- {_shown(f['rule'])} {_shown(f['severity'])} {_shown(f['file'])}"
             + (f":{_shown(f['line'])}" if f["line"] is not None else "")
             + f" {_shown(f['message'])}"
-            for f in findings[:shown]
+            for f in findings
         ),
-        *([f"- and {len(findings) - shown} more"] if len(findings) > shown else []),
+        *(
+            [f"- and {len(others) - _PROMPT_FINDINGS} more"]
+            if len(others) > _PROMPT_FINDINGS
+            else []
+        ),
         "Approve only if you want exactly this payload written.",
     ]
     return "\n".join(lines)
@@ -1237,7 +1243,7 @@ def _install(
                         raise ExternalSkillProvenanceError(
                             f"{record['path']} does not hold the approved payload"
                         )
-                    if record["executable_files"] != staged_executables:
+                    if record["executable_files"] not in (None, staged_executables):
                         raise ExternalSkillProvenanceError(
                             f"{record['path']} does not hold the approved payload's "
                             "executable files"
@@ -1572,14 +1578,18 @@ def skill_content_digest(folder: Path) -> str:
     return _digest_of(_content_entries(Path(folder)))
 
 
-def _executable_files(entries: dict[tuple[str, str], str]) -> list[str]:
+def _executable_files(entries: dict[tuple[str, str], str]) -> list[str] | None:
+    """The sorted executable files, or None on Windows, which has no executable bit."""
+    if sys.platform == "win32":  # pragma: no cover -- platform-conditional (Windows only)
+        return None
     return sorted(relpath for kind, relpath in entries if kind == "executable")
 
 
-def _check_executables(key: str, record: dict[str, Any], actual: list[str]) -> None:
+def _check_executables(key: str, record: dict[str, Any], actual: list[str] | None) -> None:
     """Refuse a folder whose executable files are not the recorded ones. Skipped
-    on Windows, which has no executable bit, and for a record without the field."""
-    if sys.platform == "win32" or "executable_files" not in record:
+    on Windows, which has no executable bit, and for a record whose field is
+    missing or None (one written on Windows)."""
+    if sys.platform == "win32" or record.get("executable_files") is None:
         return
     if record["executable_files"] != actual:
         raise ExternalSkillProvenanceError(
