@@ -14,6 +14,7 @@ import json
 
 import pytest
 
+from sumo_qa.ledger_models import RiskLedgerRow
 from sumo_qa.server import build_mcp_server
 from sumo_qa.server_schemas import FormatQaScorecardOutput
 
@@ -60,6 +61,16 @@ def test_tool_description_is_declarative(server):
     desc = (server._tool_manager._tools["sumo_qa_format_qa_scorecard"].description or "").lower()
     for forbidden in ("use this when", "use this before"):
         assert forbidden not in desc
+
+
+def test_tool_description_names_every_required_ledger_row_field(server):
+    # A host can load this tool without sumo_qa_format_risk_ledger, so the row
+    # shape has to be in this description itself.
+    desc = server._tool_manager._tools["sumo_qa_format_qa_scorecard"].description
+    required = [n for n, f in RiskLedgerRow.model_fields.items() if f.is_required()]
+    assert required
+    for name in required:
+        assert f"`{name}`" in desc, name
 
 
 def test_uncovered_blocker_is_blocked(tool):
