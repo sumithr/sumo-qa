@@ -79,7 +79,7 @@ This router's own loads are `load_classifications` + `load_approaches` (step 2).
 - `sumo-qa-preparing-for-work` → `load_standards` + `load_rules` + `load_techniques`.
 - `sumo-qa-strategising` → `load_principles` + `load_classifications`.
 - `sumo-qa-answering-testing-question` → `load_principles` + `load_techniques`.
-- `sumo-qa-security-testing` → the router enters it with `sumo_qa_load_skill_context(skill_name="sumo-qa-security-testing", mode="bundle", classification="security_change", catalogues="techniques")` INSTEAD of its skill tool; never call both.
+- `sumo-qa-security-testing` → enter via `sumo_qa_load_skill_context(skill_name="sumo-qa-security-testing", mode="bundle", classification="security_change", catalogues="techniques")` INSTEAD of its skill tool, never both; on an `error`, call `sumo_qa_security_testing`.
 
 The router never loads principles: the skill citing one loads it.
 
