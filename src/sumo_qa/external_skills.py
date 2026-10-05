@@ -527,6 +527,11 @@ def rollback_external_skill(
     cwd = cwd or Path.cwd()
     home = home or Path.home()
     lock_base = cwd if scope == "project" else home
+    # No lock, no record: refused before the guard, which would create its file.
+    if not os.path.lexists(lock_base / _LOCK_RELPATH):
+        raise ExternalSkillError(
+            f"no sumo-qa install record for {skill!r} in {scope} scope; nothing to roll back"
+        )
     with _lock_guard(lock_base):
         lock = _read_lock(lock_base)
         paths, previous = _rollback_plan(skill, scope, agent, lock_base, lock)

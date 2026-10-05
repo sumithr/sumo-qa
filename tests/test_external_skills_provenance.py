@@ -2993,6 +2993,18 @@ def test_rollback_of_a_first_install_removes_it_cleanly(toolchain) -> None:
         _rollback(toolchain)
 
 
+def test_rollback_in_a_project_with_no_lock_creates_nothing(tmp_path) -> None:
+    def approve(request):
+        raise AssertionError("the user must not be asked")
+
+    with pytest.raises(ext.ExternalSkillError, match="nothing to roll back"):
+        ext.rollback_external_skill(
+            "find-skills", confirmed=True, cwd=tmp_path, home=tmp_path, approve=approve
+        )
+
+    assert not os.path.lexists(tmp_path / ".sumo-qa")
+
+
 def test_rollback_that_cannot_remove_a_folder_leaves_the_lock_unchanged(
     monkeypatch, toolchain
 ) -> None:
