@@ -22,17 +22,17 @@ SHAPE FIRST, then REACHABILITY. Decide single-change vs repo-wide vs `no-tests-r
 Work through these in order as private reasoning. Never render them in chat: no numbered tracker, no `[DONE]` statuses, no step narration. If the host has a task primitive, keep this hop off it; a visible router checklist is the leak this skill exists to prevent.
 
 1. Read the user's intent verbatim and any supplied target paths.
-2. Call `sumo_qa_load_classifications()` and `sumo_qa_load_approaches()` — the only catalogues this router loads (see *Catalogue responsibilities*).
+2. Call `sumo_qa_load_classifications()` and `sumo_qa_load_approaches()`, this router's own loads (see *Catalogue responsibilities*).
 3. Reason about classification: which single catalogue entry is the PRIMARY one? Decide it by the executable-behaviour rule, not path; cite the words internally. Then run the grounded security-relevance pass (see `using-sumo-qa`) on ORDINARY work too, not only explicit security requests: if the change ALSO touches auth/authorisation, secrets, input sanitisation, rate limiting, audit logging, or a security-relevant config/dependency movement, note internally that `security_change` co-applies (it does NOT replace the primary classification) so the routed sub-skill carries that grounded gap forward — no parallel taxonomy; not grounded → don't add it. The routing payload still emits the single primary `classification`.
 4. Reason about shape: single change vs repo-wide / strategy ask vs config tweak vs docs-only? Strategy-shaped asks ("audit", "strategy", "pyramid", "rollout") route to `strategy-orchestration` — do NOT force per-change output.
 5. Run the removability gate BEFORE picking a test-writing approach. If the user named target paths and the code is orphaned — zero internal callers, zero CI/workflow refs, zero README/docs refs, no entry-point declaration (`pyproject [project.scripts]`, `package.json scripts`, etc.) — set the approach to `recommend-removal` regardless of natural classification, and surface the reachability evidence in the rationale. If reachability is genuinely ambiguous (external cron, hand-invoked tooling, public CLI), ask ONE clarifying question.
 6. Pick the approach. Security-test requests or material grounded security gaps needing deeper evidence route to `security-focused-qa`; simple gaps stay as test/review/static/dynamic/config/dependency actions. The catalogue is authoritative; use `n/a` only when no catalogue approach fits and capture the non-canonical surface in `rationale`.
 7. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question. Otherwise, do not ask.
-8. Return INTERNALLY using the Routing-payload shape below — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; it produces what the user sees. On STOP, answer in plain English instead.
+8. Return INTERNALLY using the Routing-payload shape below — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently (security testing: via its bundle); it produces what the user sees. On STOP, answer in plain English instead.
 
 ## Process Flow
 
-See the Checklist above — that's the flow.
+See the Checklist above.
 
 ## Routing-payload shape
 
@@ -62,7 +62,7 @@ Anti-patterns:
 | strengthen-test-coverage | sumo-qa-strengthening-tests |
 | closed-loop-gap-fix | sumo-qa-closing-qa-gaps |
 | triage-test-failure | sumo-qa-triaging-test-failures |
-| security-focused-qa | sumo-qa-security-testing |
+| security-focused-qa | sumo-qa-security-testing (one bundle call, below) |
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
 | recommend-removal | (stop — propose deletion, no sub-skill) |
@@ -71,7 +71,7 @@ Anti-patterns:
 
 ## Catalogue responsibilities (lazy-load contract)
 
-This router loads ONLY `load_classifications` + `load_approaches` (step 2). Every other catalogue is the routed sub-skill's responsibility, loaded on demand:
+This router's own loads are `load_classifications` + `load_approaches` (step 2). Every other catalogue is the routed sub-skill's, loaded on demand; for security testing the handoff itself is one bundle call that enters the skill with its catalogues:
 
 - `sumo-qa-implementing-with-tdd` / `sumo-qa-strengthening-tests` → `load_techniques`.
 - `sumo-qa-reviewing-before-merge` → one `load_skill_context` bundle.
@@ -79,8 +79,9 @@ This router loads ONLY `load_classifications` + `load_approaches` (step 2). Ever
 - `sumo-qa-preparing-for-work` → `load_standards` + `load_rules` + `load_techniques`.
 - `sumo-qa-strategising` → `load_principles` + `load_classifications`.
 - `sumo-qa-answering-testing-question` → `load_principles` + `load_techniques`.
+- `sumo-qa-security-testing` → enter via `sumo_qa_load_skill_context(skill_name="sumo-qa-security-testing", mode="bundle", classification="security_change", catalogues="techniques")` INSTEAD of its skill tool, never both; on an `error`, call `sumo_qa_security_testing`.
 
-This router does NOT load `load_principles` — the routing payload's `rationale` is internal scratch (not user output), and the sub-skill that cites a principle in its user-facing output is the one that loads it.
+The router never loads principles: the skill citing one loads it.
 
 ## Fallback to external skills
 
@@ -97,10 +98,10 @@ When **no canonical approach fits**, decide whether the intent involves a tool, 
 | "User said 'design our strategy' — I'll still scaffold tests" | Strategy asks route to `strategy-orchestration`. Don't force per-change output. |
 | "Description says docs-only change but I'll add tests anyway" | Inert prose: `no-tests-recommended` is honest senior-QA; tests waste signal. Runtime by the executable-behaviour rule is not. |
 | "Mutation testing follow-up needs new prod code" | No — that's `strengthen-test-coverage`. Production code stays unchanged. |
-| "A test is failing — that's a bug, route to `regression-first`" | Only if the CAUSE is already known to be a product defect. An unknown-cause or flaky failure routes to `triage-test-failure` first — it may be a test bug, fixture, environment, or order/timing issue, none of which fix production. |
+| "A test is failing — that's a bug, route to `regression-first`" | Only if the CAUSE is already known to be a product defect. An unknown-cause or flaky failure routes to `triage-test-failure` first — it may be a test, fixture, environment or timing issue. |
 | "I'll show the routing object / checklist so the user sees my reasoning" | Never. The payload, taxonomy labels, "Picking the QA approach…", `[DONE]` steps, and ANY sentence that names or previews the handoff ("Routing to…", "I'm routing you to…", "the next step will…") are internal state. Route silently; on STOP, answer in plain English. |
-| "I'll ask the user 3 clarifying questions to be sure" | Ask ONE if needed. More than one means the skill is hoarding context; the LLM should infer. |
-| "User named a file and asked for tests — scaffold" / "orphan code is just no-tests-recommended" | Check reachability FIRST. Orphan code (zero callers/CI/docs refs + no entry-point declaration) → `recommend-removal` — NOT scaffolding, and NOT `no-tests-recommended` (that's for docs/typos / behaviour-less change). Scaffolding tests on dead code is wasted signal — the PR #68 install.sh failure mode. |
+| "I'll ask the user 3 clarifying questions to be sure" | Ask ONE if needed; infer the rest. |
+| "User named a file and asked for tests — scaffold" / "orphan code is just no-tests-recommended" | Check reachability FIRST. Orphan code (zero callers/CI/docs refs + no entry-point declaration) → `recommend-removal` — NOT scaffolding, and NOT `no-tests-recommended` (docs/typos, behaviour-less change). Scaffolding tests on dead code is wasted signal. |
 
 ## Examples
 
@@ -110,7 +111,7 @@ When **no canonical approach fits**, decide whether the intent involves a tool, 
 
 User: "create a test plan for refactoring the pricing pipeline".
 - Internally: refactor of pricing logic — behaviour-preserving, so characterization tests pin behaviour before any code moves.
-- Route to `sumo-qa-creating-test-plan` (which loads its own catalogues — `standards`, `rules`, `techniques`, `principles` — and is the place to ground any principle citation in user-facing output).
+- Route to `sumo-qa-creating-test-plan` (which loads its own catalogues and grounds any principle citation in user-facing output).
 
 User: "audit our test coverage across the repo and design where to invest QA effort next quarter".
 - Internally return `{classification: "n/a", approach: "strategy-orchestration", rationale: "Repo-wide QA strategy ask, not a single change-shaped intent.", next_action: {skill: "sumo-qa-strategising"}}`.

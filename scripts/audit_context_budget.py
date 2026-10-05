@@ -14,8 +14,11 @@ Measures, with the repository's canonical estimator
 * **root skills**: every ``skills/*/SKILL.md``;
 * **workflows**: the MCP tool results a routed skill loads, through the real
   server's ``call_tool``. Each workflow is reported twice: the per-loader
-  chain (classifications, standards, rules, one call per module) and the
-  bundled path (one ``sumo_qa_load_skill_context(mode="bundle")`` call), with
+  chain (its ``loaders``, by default classifications, standards, rules, then
+  one call per module) and the bundled path (one
+  ``sumo_qa_load_skill_context(mode="bundle")`` call carrying any whole
+  ``catalogues``; with ``handoff`` the router enters the skill through that
+  bundle, body included, instead of the skill's own tool), with
   call counts and a re-sent estimate (an agent loop re-sends every earlier
   result on each later turn, so N results cost the sum of their prefixes).
   The workflows run on the ``core`` server, so every audited workflow is
@@ -65,6 +68,8 @@ ROUTER_CALLS = (
     ("sumo_qa_load_classifications", {}),
     ("sumo_qa_load_approaches", {}),
 )
+# The ``sumo_qa_load_<name>`` catalogue loaders a workflow's ``loaders`` may name.
+LOADERS = ("approaches", "classifications", "principles", "rules", "standards", "techniques")
 
 
 # Absent on mcp 2.0.x; a crash inside a tool is told apart from a rejected call only where it exists.
@@ -125,22 +130,32 @@ def _text(result: Any) -> str:
 
 
 def _workflow_calls(wf: dict[str, Any], bundled: bool) -> list[tuple[str, dict[str, Any]]]:
+    """A workflow's MCP calls after routing. ``loaders`` names its per-loader
+    chain (default: the review chain); ``catalogues`` rides in its bundle; with
+    ``handoff`` the router enters the skill through the bundle, body included,
+    so the bundled path skips the skill's own tool."""
     skill = wf["skill"]
-    calls = [*ROUTER_CALLS, (skill.replace("-", "_"), {})]
+    handoff = wf.get("handoff", False)
+    calls = [*ROUTER_CALLS]
+    if not (bundled and handoff):
+        calls.append((skill.replace("-", "_"), {}))
     if bundled:
         bundle = {
             "skill_name": skill,
             "mode": "bundle",
             "classification": wf["classification"],
             "modules": wf.get("modules", ""),
-            "include_body": False,
+            "catalogues": wf.get("catalogues", ""),
+            "include_body": handoff,
         }
         return [*calls, ("sumo_qa_load_skill_context", bundle)]
-    calls += [
-        ("sumo_qa_load_classifications", {}),
-        ("sumo_qa_load_standards", {"classification": wf["classification"]}),
-        ("sumo_qa_load_rules", {"classification": wf["classification"]}),
-    ]
+    for loader in (
+        n.strip() for n in wf.get("loaders", "classifications,standards,rules").split(",")
+    ):
+        if loader not in LOADERS:
+            raise ValueError(f"unknown loader {loader!r} (known: {', '.join(LOADERS)})")
+        args = {"classification": wf["classification"]} if loader in ("standards", "rules") else {}
+        calls.append((f"sumo_qa_load_{loader}", args))
     for module in filter(None, wf.get("modules", "").split(",")):
         args = {"skill_name": skill, "mode": "module", "module": module.strip()}
         calls.append(("sumo_qa_load_skill_context", args))
@@ -206,8 +221,13 @@ def validate_config(config: dict[str, Any]) -> None:
         for key in ("name", "skill", "classification"):
             if not isinstance(wf.get(key), str) or not wf[key]:
                 raise ConfigError(f"{where} requires a non-empty string {key}")
-        if not isinstance(wf.get("modules", ""), str):
-            raise ConfigError(f"{where} modules must be a string")
+        for key in ("modules", "loaders", "catalogues"):
+            if not isinstance(wf.get(key, ""), str):
+                raise ConfigError(f"{where} {key} must be a string")
+        if "loaders" in wf and not any(n.strip() for n in wf["loaders"].split(",")):
+            raise ConfigError(f"{where} loaders must name at least one loader")
+        if not isinstance(wf.get("handoff", False), bool):
+            raise ConfigError(f"{where} handoff must be true or false")
         _positive_int(wf, "bundle", where)
 
 
@@ -287,9 +307,14 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
     failures: list[str] = []
     for wf in config.get("workflow", []):
         try:
+            chains = {bundled: _workflow_calls(wf, bundled) for bundled in (False, True)}
+        except ValueError as exc:  # an unknown loader name
+            failures.append(f"workflow {wf['name']}: {exc}")
+            continue
+        try:
             core_bundle: list[str] = []
             for bundled in (False, True):
-                texts = _run(servers["core"], _workflow_calls(wf, bundled), "core")
+                texts = _run(servers["core"], chains[bundled], "core")
                 if bundled:
                     core_bundle = texts
                     _check_bundle(wf, texts[-1], failures)
@@ -307,7 +332,7 @@ def audit(config: dict[str, Any], repo: Path = REPO) -> tuple[list[dict[str, Any
                 if profile == "core":
                     texts = core_bundle  # already run and checked above
                 else:
-                    texts = _run(server, _workflow_calls(wf, bundled=True), profile)
+                    texts = _run(server, chains[True], profile)
                     _check_bundle(wf, texts[-1], failures, profile)
                 row(
                     "end-to-end",

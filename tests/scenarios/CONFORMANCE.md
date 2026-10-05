@@ -51,10 +51,10 @@ Field reference:
 | Field | Meaning |
 |---|---|
 | `mode` | `deterministic` (scored here) or `provider-backed` (the validator skips it; promptfoo judges it) |
-| `expected_entry_skill` | the skill tool the router chain must reach (`null` for a pure tool-selection scenario or a non-QA development control); see *The first hop* below |
+| `expected_entry_skill` | the skill tool the router chain must reach (`null` for a pure tool-selection scenario or a non-QA development control); see *The first hop* below. A bundle-mode `sumo_qa_load_skill_context` call that carries a routed skill's body (`include_body` not false) counts as that skill's tool here and in every tool clause below; one recorded as returning an error (unknown id, oversize) does not |
 | `required_tool_calls` | tools that MUST appear in the transcript (checked as a set: presence, not order or multiplicity, a documented first-slice limit) |
-| `required_one_of` | alternatives, at least one of which MUST match a call: a tool name, or `{tool, args}` where each listed argument must equal its value (`"*"`: present and non-empty), so a requirement can name the arguments that make a call count |
-| `forbidden_tool_calls` | tools that MUST NOT appear |
+| `required_one_of` | alternatives, at least one of which MUST match a call: a tool name, or `{tool, args}` where each listed argument must equal its value (`"*"`: present and non-empty), so a requirement can name the arguments that make a call count; a body-carrying bundle call matches under its own name and its routed skill's tool name |
+| `forbidden_tool_calls` | tools that MUST NOT appear (a body-carrying bundle call appears as both `sumo_qa_load_skill_context` and its routed skill's tool) |
 | `required_output_markers` | substrings that MUST appear in the final assistant output (case-insensitive) |
 | `forbidden_output_markers` | substrings that MUST NOT appear (anti-pattern claims, leaked internal labels; case-insensitive, so pin distinctive phrases: `INV-12345` also matches inside `INV-123456`) |
 | `forbid_sumo_qa_calls` | `true`: the transcript must contain no sumo-qa call at all (`using_sumo_qa` or any `sumo_qa_*` tool); for requests that must not enter sumo-qa |
@@ -97,6 +97,15 @@ the first sumo-qa call (`using_sumo_qa` or any `sumo_qa_*` tool) must be
 `sumo_qa_deciding_approach`, and the expected skill must occur in that order,
 with no other sumo-qa call (a specialist or a catalogue loader) between the
 router and the decider.
+A bundle-mode `sumo_qa_load_skill_context` call that carries a routed skill's
+body is entry into that skill: it stands in for the skill's tool in the chain
+and in `expected_entry_skill`, `required_tool_calls`, `forbidden_tool_calls`
+and `required_one_of`. A bundle without the body (`include_body` false, read
+the way the server coerces it), a manifest/section/module/full load, a bundle
+for the router or decider, and a bundle recorded as returning an error (the
+server's debug capture records `error` with each call; unknown id, oversize)
+are not entry. A transcript with no result information is judged on the
+call's arguments alone.
 Host tools (file reads, shell) may come anywhere. A transcript that answers
 with no sumo-qa call, loads a catalogue before the router or before the
 decider, enters a specialist directly, or skips the decider fails with

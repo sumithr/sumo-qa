@@ -17,8 +17,12 @@ import pytest
 from sumo_qa import skill_manifest as sm
 from sumo_qa.knowledge_loaders import (
     load_catalogue_entry,
+    sumo_qa_load_approaches,
+    sumo_qa_load_classifications,
+    sumo_qa_load_principles,
     sumo_qa_load_rules,
     sumo_qa_load_standards,
+    sumo_qa_load_techniques,
 )
 
 REVIEW = "sumo-qa-reviewing-before-merge"
@@ -316,3 +320,67 @@ def test_module_ids_are_not_unquoted():
 def test_module_ids_split_on_commas_and_strip_whitespace():
     out = _bundle(modules=" runtime-scope ,, coverage-ledger ")
     assert [m["id"] for m in out["modules"]] == ["runtime-scope", "coverage-ledger"]
+
+
+# --- catalogues=: whole knowledge catalogues in the same one call ---
+# Technique: equivalence partitioning over the catalogue names (each valid
+# name, several valid names, an unknown name, none at all).
+
+
+@pytest.mark.parametrize(
+    ("name", "loader"),
+    [
+        ("techniques", sumo_qa_load_techniques),
+        ("principles", sumo_qa_load_principles),
+        ("classifications", sumo_qa_load_classifications),
+        ("approaches", sumo_qa_load_approaches),
+    ],
+)
+def test_each_catalogue_part_is_byte_identical_to_its_loader(name, loader):
+    out = _bundle(catalogues=name, include_body=False)
+    assert "error" not in out, out
+    assert out["catalogues"] == {name: loader()}
+
+
+def test_catalogues_keep_request_order_and_drop_duplicates():
+    out = _bundle(catalogues=" principles,techniques , principles", include_body=False)
+    assert list(out["catalogues"]) == ["principles", "techniques"]
+    assert out["catalogues"]["techniques"] == sumo_qa_load_techniques()
+
+
+def test_catalogues_ride_alongside_the_classification_parts():
+    out = _bundle(classification="security_change", catalogues="techniques", include_body=False)
+    assert out["rules"] == sumo_qa_load_rules(classification="security_change")
+    assert out["catalogues"] == {"techniques": sumo_qa_load_techniques()}
+
+
+def test_unknown_catalogue_returns_envelope_listing_the_valid_names():
+    out = _bundle(catalogues="techniques,Principles")
+    assert "Principles" in out["error"]
+    assert out["available_catalogues"] == [
+        "approaches",
+        "classifications",
+        "principles",
+        "techniques",
+    ]
+
+
+def test_no_catalogues_requested_means_no_catalogues_part():
+    assert "catalogues" not in _bundle(classification="test_change", include_body=False)
+
+
+def test_unreadable_catalogue_returns_envelope_not_raise(monkeypatch):
+    def _boom():
+        raise OSError("gone")
+
+    monkeypatch.setitem(sm._CATALOGUE_LOADERS, "techniques", _boom)
+    out = _bundle(catalogues="techniques")
+    assert "unreadable" in out["error"]
+
+
+def test_over_cap_bundle_sizes_the_catalogues_part():
+    out = _bundle(catalogues="techniques", include_body=False, token_cap=100)
+    assert out["oversize"] is True
+    assert "catalogues" in out["part_tokens"]
+    for remedy in ("fewer modules", "include_body=False", "drop catalogues"):
+        assert remedy in out["error"]

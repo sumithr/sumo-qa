@@ -117,6 +117,12 @@ name = "broken"
 skill = "sumo-qa-reviewing-before-merge"
 classification = "test_change"
 modules = "no-such-module"
+
+[[tool.sumo-qa.context-budget.workflow]]
+name = "misnamed"
+skill = "sumo-qa-security-testing"
+classification = "security_change"
+loaders = "standards,rule"
 """,
         encoding="utf-8",
     )
@@ -128,6 +134,7 @@ modules = "no-such-module"
     assert "FAIL root skill using-sumo-qa" in out
     assert "FAIL bundle tight" in out
     assert "FAIL workflow broken: bundle failed" in out
+    assert "FAIL workflow misnamed: unknown loader 'rule'" in out
     assert "context budget: FAILED" in out
 
 
@@ -218,6 +225,30 @@ def test_workflow_calling_a_tool_not_served_under_core_fails_a_named_row():
         (
             {"workflow": [{"name": "w", "skill": "s", "classification": "c", "modules": ["m"]}]},
             r"workflow\[0\] modules must be a string",
+        ),
+        (
+            {
+                "workflow": [
+                    {"name": "w", "skill": "s", "classification": "c", "loaders": ["rules"]}
+                ]
+            },
+            r"workflow\[0\] loaders must be a string",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "loaders": " "}]},
+            r"workflow\[0\] loaders must name at least one loader",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "loaders": " , "}]},
+            r"workflow\[0\] loaders must name at least one loader",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "catalogues": 5}]},
+            r"workflow\[0\] catalogues must be a string",
+        ),
+        (
+            {"workflow": [{"name": "w", "skill": "s", "classification": "c", "handoff": "false"}]},
+            r"workflow\[0\] handoff must be true or false",
         ),
         (
             {"workflow": [{"name": "w", "skill": "", "classification": "c"}]},
@@ -314,3 +345,36 @@ def test_end_to_end_workflow_costs_less_under_core(shipped_rows):
         assert by_profile["core"]["calls"] == by_profile["full"]["calls"]
         assert by_profile["core"]["tokens"] < by_profile["full"]["tokens"]
         assert by_profile["core"]["resent"] < by_profile["full"]["resent"]
+
+
+def test_a_handoff_workflow_enters_through_the_bundle_with_the_body():
+    wf = {
+        "skill": "sumo-qa-security-testing",
+        "classification": "security_change",
+        "loaders": "standards,rules,techniques",
+        "catalogues": "techniques",
+        "handoff": True,
+    }
+    per_loader = [name for name, _ in audit_mod._workflow_calls(wf, bundled=False)]
+    assert per_loader[-4:] == [
+        "sumo_qa_security_testing",
+        "sumo_qa_load_standards",
+        "sumo_qa_load_rules",
+        "sumo_qa_load_techniques",
+    ]
+    bundled = audit_mod._workflow_calls(wf, bundled=True)
+    assert "sumo_qa_security_testing" not in [name for name, _ in bundled]
+    assert bundled[-1][1]["include_body"] is True
+    assert bundled[-1][1]["catalogues"] == "techniques"
+
+
+def test_loaders_are_stripped_and_checked_against_the_known_loader_tools():
+    wf = {"skill": "sumo-qa-security-testing", "classification": "security_change"}
+    calls = audit_mod._workflow_calls(wf | {"loaders": " standards , techniques"}, bundled=False)
+    assert calls[-2:] == [
+        ("sumo_qa_load_standards", {"classification": "security_change"}),
+        ("sumo_qa_load_techniques", {}),
+    ]
+    for bad in ("standards,", "standards,bogus"):
+        with pytest.raises(ValueError, match="unknown loader"):
+            audit_mod._workflow_calls(wf | {"loaders": bad}, bundled=False)

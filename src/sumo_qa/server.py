@@ -2225,6 +2225,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         classification: str | None = None,
         modules: str | None = None,
         include_body: bool = True,
+        catalogues: str | None = None,
     ) -> str:
         """Load just one slice of a skill's context as a JSON string, instead of
         the whole SKILL.md body.
@@ -2248,7 +2249,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
             by heading), plus the standards and rules, which equal
             `sumo_qa_load_standards` / `sumo_qa_load_rules` called with the
             same argument and are returned exactly as those loaders return
-            them. Any id that matches nothing returns an error envelope; an
+            them, plus the whole `catalogues` named (comma-separated:
+            techniques, principles, classifications, approaches), each
+            exactly as its `sumo_qa_load_<name>` loader returns it. Any id
+            or name that matches nothing returns an error envelope; an
             exception from a loader returns an unreadable envelope.
 
         The section/module/full/bundle slices each return `content_hash` (sha256 of the
@@ -2261,21 +2265,27 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         Never raises: an unknown skill_name/mode/section/module, a missing
         required arg, or a path-traversal attempt returns a JSON error envelope
         listing the valid choices. Read-only and local-only."""
-        return json.dumps(
-            _load_skill_context(
-                skill_name,
-                mode,
-                section=section,
-                module=module,
-                known_hash=known_hash,
-                classification=classification,
-                modules=modules,
-                include_body=include_body,
-                profile=profile,
-            ),
-            ensure_ascii=False,
-            indent=2,
+        options: dict[str, Any] = {
+            "section": section,
+            "module": module,
+            "known_hash": known_hash,
+            "classification": classification,
+            "modules": modules,
+            "include_body": include_body,
+            "catalogues": catalogues,
+        }
+        result = _load_skill_context(skill_name, mode, profile=profile, **options)
+        text = json.dumps(result, ensure_ascii=False, indent=2)
+        # Captured with its args and whether it returned an error envelope: a
+        # bundle carrying a routed skill's body that did not error is entry into
+        # that skill, which conformance reads from this capture. The output is
+        # a summary, not the served slice.
+        maybe_capture(
+            tool="sumo_qa_load_skill_context",
+            args={"skill_name": skill_name, "mode": mode, **options},
+            output={"served_chars": len(text), "error": "error" in result},
         )
+        return text
 
     register_skills_as_prompts(mcp, profile=profile)
     register_skill_resources(mcp, profile=profile)

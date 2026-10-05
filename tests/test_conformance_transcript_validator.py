@@ -20,6 +20,7 @@ from sumo_qa.conformance import (
     ConformanceScenario,
     ScenarioResult,
     ToolCall,
+    ToolRequirement,
     Transcript,
     ViolationKind,
     find_routing_leaks,
@@ -1051,3 +1052,315 @@ def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
     start = time.perf_counter()
     assert find_routing_leaks("[DONE] " * 16_000) == ()
     assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
+
+
+# --------------------------------------------------------------------------- #
+# A bundled handoff enters the routed skill                                    #
+# --------------------------------------------------------------------------- #
+_SECURITY_ENTRY = ConformanceScenario(
+    id="security-entry",
+    source_doc="SCENARIOS.md",
+    source_heading="Security testing",
+    user_prompt="security-test the password reset flow",
+    mode="deterministic",
+    expected_entry_skill="sumo_qa_security_testing",
+)
+
+
+def _bundle_route(**args: object) -> Transcript:
+    return Transcript(
+        scenario_id=_SECURITY_ENTRY.id,
+        tool_calls=(
+            *(ToolCall(t) for t in ROUTER_CHAIN),
+            ToolCall("sumo_qa_load_skill_context", dict(args)),
+        ),
+        output_text="clean",
+    )
+
+
+def test_a_bundle_carrying_the_skill_body_is_entry_into_that_skill() -> None:
+    transcript = _bundle_route(
+        skill_name="sumo-qa-security-testing",
+        mode="bundle",
+        classification="security_change",
+        catalogues="techniques",
+    )
+    assert validate_transcript(_SECURITY_ENTRY, transcript).passed
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"skill_name": "sumo-qa-reviewing-before-merge", "mode": "bundle"},
+        {"skill_name": "sumo-qa-security-testing", "mode": "manifest"},
+        {"skill_name": "sumo-qa-security-testing", "mode": "module", "module": "x"},
+        {"skill_name": "sumo-qa-security-testing", "mode": "bundle", "include_body": False},
+        {"skill_name": "sumo-qa-security-testing", "mode": "bundle", "include_body": "false"},
+    ],
+)
+def test_other_context_loads_are_not_entry_into_the_skill(args) -> None:
+    result = validate_transcript(_SECURITY_ENTRY, _bundle_route(**args))
+    assert any(v.kind is ViolationKind.WRONG_SKILL_ROUTING for v in result.violations)
+
+
+def test_a_router_bundle_does_not_stand_in_for_the_router_tool() -> None:
+    """Only a routed skill is entered through a bundle; the first hop still
+    needs the router's own tool."""
+    routed = ConformanceScenario(
+        id="router-entry",
+        source_doc="SCENARIOS.md",
+        source_heading="Router invocation",
+        user_prompt="qa this",
+        mode="deterministic",
+        expected_entry_skill="using_sumo_qa",
+    )
+    transcript = Transcript(
+        scenario_id=routed.id,
+        tool_calls=(
+            ToolCall(
+                "sumo_qa_load_skill_context", {"skill_name": "using-sumo-qa", "mode": "bundle"}
+            ),
+            ToolCall("sumo_qa_deciding_approach"),
+        ),
+    )
+    assert not validate_transcript(routed, transcript).passed
+
+
+def test_a_bundle_for_another_skill_ahead_of_the_expected_one_is_a_misroute() -> None:
+    transcript = Transcript(
+        scenario_id=_SECURITY_ENTRY.id,
+        tool_calls=(
+            *(ToolCall(t) for t in ROUTER_CHAIN),
+            ToolCall(
+                "sumo_qa_load_skill_context",
+                {"skill_name": "sumo-qa-reviewing-before-merge", "mode": "bundle"},
+            ),
+            ToolCall("sumo_qa_security_testing"),
+        ),
+        output_text="clean",
+    )
+    result = validate_transcript(_SECURITY_ENTRY, transcript)
+    assert [v.kind for v in result.violations] == [ViolationKind.WRONG_SKILL_ROUTING]
+    assert "sumo_qa_reviewing_before_merge" in result.violations[0].detail
+
+
+def test_a_captured_bundle_handoff_satisfies_the_entry_contract(tmp_path, monkeypatch) -> None:
+    """The server captures a load_skill_context call with its args, so a real
+    debug capture of a bundled handoff scores as entry into the routed skill."""
+    import asyncio
+
+    monkeypatch.setenv("SUMO_QA_DEBUG_DIR", str(tmp_path))
+    server = build_mcp_server()
+    bundle = {
+        "skill_name": "sumo-qa-security-testing",
+        "mode": "bundle",
+        "classification": "security_change",
+    }
+
+    async def call() -> None:
+        for tool in ROUTER_CHAIN:
+            await server.call_tool(tool, {})
+        await server.call_tool("sumo_qa_load_skill_context", bundle)
+
+    asyncio.run(call())
+    transcript = transcript_from_debug_dir(tmp_path, scenario_id=_SECURITY_ENTRY.id)
+    captured = transcript.tool_calls[-1]
+    assert captured.tool == "sumo_qa_load_skill_context"
+    assert {k: captured.args[k] for k in bundle} == bundle
+    assert captured.args["include_body"] is True
+    assert captured.error is False
+    assert validate_transcript(_SECURITY_ENTRY, transcript).passed
+
+
+def test_a_bundle_entry_counts_as_the_skill_tool_for_tool_clauses() -> None:
+    entry = {"skill_name": "sumo-qa-security-testing", "mode": "bundle"}
+    forbids = ConformanceScenario(
+        id="no-security",
+        source_doc="SCENARIOS.md",
+        source_heading="Security testing",
+        user_prompt="x",
+        mode="deterministic",
+        forbidden_tool_calls=("sumo_qa_security_testing",),
+    )
+    requires = ConformanceScenario(
+        id="needs-both",
+        source_doc="SCENARIOS.md",
+        source_heading="Security testing",
+        user_prompt="x",
+        mode="deterministic",
+        required_tool_calls=("sumo_qa_security_testing", "sumo_qa_load_skill_context"),
+    )
+    transcript = _bundle_route(**entry)
+    forbidden = validate_transcript(forbids, transcript)
+    assert [v.kind for v in forbidden.violations] == [ViolationKind.FORBIDDEN_TOOL_CALLED]
+    assert validate_transcript(requires, transcript).passed
+
+
+@pytest.mark.parametrize("value", [False, 0, "0", "false", "FALSE", "no", "No", "off", "OFF"])
+def test_a_false_coercing_include_body_is_not_entry(value) -> None:
+    """``include_body`` reads the way the server's bool parameter coerces it."""
+    transcript = _bundle_route(
+        skill_name="sumo-qa-security-testing", mode="bundle", include_body=value
+    )
+    result = validate_transcript(_SECURITY_ENTRY, transcript)
+    assert any(v.kind is ViolationKind.WRONG_SKILL_ROUTING for v in result.violations)
+
+
+@pytest.mark.parametrize("value", [True, 1, "1", "true", "TRUE", "yes", "on", "On"])
+def test_a_true_coercing_include_body_is_entry(value) -> None:
+    transcript = _bundle_route(
+        skill_name="sumo-qa-security-testing", mode="bundle", include_body=value
+    )
+    assert validate_transcript(_SECURITY_ENTRY, transcript).passed
+
+
+@pytest.mark.parametrize("value", [None, "maybe", "", 2])
+def test_an_include_body_the_server_rejects_is_not_entry(value) -> None:
+    """A value the server's bool parameter rejects never ran, so no body was served."""
+    transcript = _bundle_route(
+        skill_name="sumo-qa-security-testing", mode="bundle", include_body=value
+    )
+    assert not validate_transcript(_SECURITY_ENTRY, transcript).passed
+
+
+def _security_bundle(error: bool | None) -> Transcript:
+    return Transcript(
+        scenario_id=_SECURITY_ENTRY.id,
+        tool_calls=(
+            *(ToolCall(t) for t in ROUTER_CHAIN),
+            ToolCall(
+                "sumo_qa_load_skill_context",
+                {"skill_name": "sumo-qa-security-testing", "mode": "bundle"},
+                error=error,
+            ),
+        ),
+        output_text="clean",
+    )
+
+
+@pytest.mark.parametrize(("error", "entered"), [(True, False), (False, True), (None, True)])
+def test_only_a_bundle_not_recorded_as_an_error_is_entry(error, entered) -> None:
+    """A bundle that returned an error envelope (unknown id, oversize) served no
+    body, so it is not entry; a call with no result information is judged on
+    its args."""
+    assert validate_transcript(_SECURITY_ENTRY, _security_bundle(error)).passed is entered
+
+
+def _scenario(scenario_id: str, **clauses: object) -> ConformanceScenario:
+    return ConformanceScenario(
+        id=scenario_id,
+        source_doc="SCENARIOS.md",
+        source_heading="Security testing",
+        user_prompt="x",
+        mode="deterministic",
+        **clauses,  # type: ignore[arg-type]
+    )
+
+
+_SECURITY_CLAUSES = {
+    "expected": _SECURITY_ENTRY,
+    "required": _scenario("required", required_tool_calls=("sumo_qa_security_testing",)),
+    "one_of": _scenario(
+        "one-of",
+        required_one_of=(
+            ToolRequirement("sumo_qa_security_testing"),
+            ToolRequirement("sumo_qa_load_rules"),
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize(("error", "entered"), [(False, True), (None, True), (True, False)])
+def test_every_check_reads_a_bundle_entry_the_same_way(error, entered) -> None:
+    """One bundled security handoff satisfies the entry, required-tool and
+    required_one_of clauses together, or (recorded as an error) none of them."""
+    transcript = _security_bundle(error)
+    passed = {k: validate_transcript(s, transcript).passed for k, s in _SECURITY_CLAUSES.items()}
+    assert passed == dict.fromkeys(_SECURITY_CLAUSES, entered)
+
+
+def test_required_one_of_args_still_match_the_bundle_call_itself() -> None:
+    """The entry name is added to the call's own name, not substituted for it."""
+    scenario = _scenario(
+        "raw-one-of",
+        required_one_of=(ToolRequirement("sumo_qa_load_skill_context", (("mode", "bundle"),)),),
+    )
+    assert validate_transcript(scenario, _security_bundle(None)).passed
+
+
+def test_forbid_sumo_qa_calls_names_the_bundled_skill() -> None:
+    scenario = _scenario("no-sumo-qa", forbid_sumo_qa_calls=True)
+    transcript = Transcript(
+        scenario_id=scenario.id,
+        tool_calls=(
+            ToolCall(
+                "sumo_qa_load_skill_context",
+                {"skill_name": "sumo-qa-security-testing", "mode": "bundle"},
+            ),
+        ),
+    )
+    details = [v.detail for v in validate_transcript(scenario, transcript).violations]
+    assert any("'sumo_qa_security_testing'" in d for d in details)
+    assert any("'sumo_qa_load_skill_context'" in d for d in details)
+
+
+@pytest.mark.parametrize(
+    ("extra", "env"),
+    [
+        ({"classification": "no_such_classification"}, {}),
+        ({}, {"SUMO_QA_SKILL_RESPONSE_TOKEN_CAP": "1"}),
+    ],
+    ids=["unknown-classification", "oversize"],
+)
+def test_a_captured_failing_bundle_is_not_entry(tmp_path, monkeypatch, extra, env) -> None:
+    """A real server capture records the error envelope, so a failing bundle
+    scores as not entered end to end, while the same call succeeding enters."""
+    import asyncio
+    import json
+
+    monkeypatch.setenv("SUMO_QA_DEBUG_DIR", str(tmp_path))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    server = build_mcp_server()
+    bundle = {"skill_name": "sumo-qa-security-testing", "mode": "bundle", **extra}
+
+    async def call() -> None:
+        for tool in ROUTER_CHAIN:
+            await server.call_tool(tool, {})
+        await server.call_tool("sumo_qa_load_skill_context", bundle)
+
+    asyncio.run(call())
+    transcript = transcript_from_debug_dir(tmp_path, scenario_id=_SECURITY_ENTRY.id)
+    captured = transcript.tool_calls[-1]
+    assert captured.tool == "sumo_qa_load_skill_context"
+    assert captured.error is True
+    run_dir = max(tmp_path.glob("*-sumo_qa_load_skill_context*"))
+    output = json.loads((run_dir / "output.json").read_text(encoding="utf-8"))
+    assert output["error"] is True and output["served_chars"] > 0
+    result = validate_transcript(_SECURITY_ENTRY, transcript)
+    assert any(v.kind is ViolationKind.WRONG_SKILL_ROUTING for v in result.violations)
+
+
+def test_only_a_boolean_captured_error_becomes_the_call_error(tmp_path, monkeypatch) -> None:
+    """Another tool's error message string is not result information; a
+    capture without a boolean ``error`` leaves the call's ``error`` unset."""
+    monkeypatch.setenv("SUMO_QA_DEBUG_DIR", str(tmp_path))
+    maybe_capture(tool="sumo_qa_load_rules", args={}, output={"error": "Unknown id"})
+    maybe_capture(tool="sumo_qa_load_skill_context", args={}, output={"served_chars": 3})
+    maybe_capture(tool="sumo_qa_load_skill_context", args={}, output={"error": False})
+    calls = transcript_from_debug_dir(tmp_path, scenario_id="x").tool_calls
+    assert [c.error for c in calls] == [None, None, False]
+
+
+def test_a_truncated_output_json_never_raises_and_leaves_error_unknown(tmp_path) -> None:
+    for name, tool in (("a", "sumo_qa_load_rules"), ("b", "sumo_qa_load_skill_context")):
+        run_dir = tmp_path / f"20260101-00000{name}-{tool}"
+        run_dir.mkdir()
+        (run_dir / "input.json").write_text("{}", encoding="utf-8")
+        (run_dir / "output.json").write_text('{"error": tr', encoding="utf-8")
+    missing = tmp_path / "20260101-000009-sumo_qa_load_skill_context"
+    missing.mkdir()
+    (missing / "input.json").write_text("{}", encoding="utf-8")
+    transcript = transcript_from_debug_dir(tmp_path, scenario_id="partial")
+    assert len(transcript.tool_calls) == 3
+    assert all(call.error is None for call in transcript.tool_calls)

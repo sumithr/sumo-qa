@@ -3,6 +3,7 @@ import re
 
 import pytest
 
+from sumo_qa.knowledge_loaders import sumo_qa_load_techniques as _load_techniques
 from sumo_qa.server import build_mcp_server
 
 # Phase 4 slimmed surface: 4 test-data tools + 6 knowledge loaders = 10 atomic tools.
@@ -342,10 +343,12 @@ def test_bundle_args_are_forwarded_via_server_call_tool() -> None:
                 "classification": "test_change",
                 "modules": "test-only-diff",
                 "include_body": False,
+                "catalogues": "techniques",
             },
         )
     )
     out = json.loads(_tool_text(result))
+    assert out["catalogues"] == {"techniques": _load_techniques()}
     assert out["classification"] == ["test_change"]
     assert [m["id"] for m in out["modules"]] == ["test-only-diff"]
     assert "body" not in out
