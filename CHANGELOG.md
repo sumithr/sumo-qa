@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.76.0](https://github.com/sumithr/sumo-qa/compare/v0.75.1...v0.76.0) (2026-10-05)
+
+
+### Features
+
+* **context:** bundle whole catalogues and enter security-testing through one bundled call ([#829](https://github.com/sumithr/sumo-qa/issues/829)) ([e91f188](https://github.com/sumithr/sumo-qa/commit/e91f1882e05ead81632fbf7fb6375acbfd91ca46))
+
 ## [0.75.1](https://github.com/sumithr/sumo-qa/compare/v0.75.0...v0.75.1) (2026-10-05)
 
 
