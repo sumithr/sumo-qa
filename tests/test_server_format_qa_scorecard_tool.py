@@ -73,8 +73,8 @@ def test_tool_description_names_every_required_ledger_row_field(server):
     for name in required:
         assert f"`{name}`" in desc, name
     for name in ("evidence_status", "residual"):
-        for value in get_args(RiskLedgerRow.model_fields[name].annotation):
-            assert value in desc, (name, value)
+        values = " / ".join(get_args(RiskLedgerRow.model_fields[name].annotation))
+        assert f"`{name}`: {values}" in " ".join(desc.split()), name
 
 
 def test_uncovered_blocker_is_blocked(tool):

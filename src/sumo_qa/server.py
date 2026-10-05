@@ -909,11 +909,12 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         entry: dict,
     ) -> TestDataRegisterOutput | ErrorEnvelope:
         """Add or update an entry in `knowledge/test_data/<domain>/known_good.yaml`,
-        flagging a duplicate (same environment, domain, product/SKU and
-        overlapping scenarios). `entry` is a dict, not a YAML string: `id`,
-        `environment`, `domain`, `product_id`, `sku`, `scenario_tags`,
-        `known_valid_for`, `constraints`, `owner`, `last_validated_at`,
-        `confidence` (low / medium / high; default low), `source`, `notes`.
+        flagging a duplicate (same environment, domain, product/SKU, and both
+        `scenario_tags` and `known_valid_for` overlap). `entry` is a dict, not
+        a YAML string: `id`, `environment`, `domain`, `product_id`, `sku`,
+        `scenario_tags`, `known_valid_for`, `constraints`, `owner`,
+        `last_validated_at`, `confidence` (low / medium / high; default low),
+        `source`, `notes`.
         """
         try:
             output = qa_service.qa_register_known_good_test_data(entry)
