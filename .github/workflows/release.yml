@@ -85,7 +85,7 @@ jobs:
         run: python -m pip install --require-hashes --only-binary ':all:' -r .github/release/requirements.txt
 
       - name: Download packages
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: packages
           path: packages/
@@ -152,7 +152,7 @@ jobs:
       # contributes only sbom.cdx.json. The build job's build_info_sha256
       # output anchors build-info.json, whose digests anchor the packages.
       - name: Download packages
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: packages
           path: dist/
@@ -163,7 +163,7 @@ jobs:
         run: printf '%s  dist/build-info.json\n' "$BUILD_INFO_SHA256" | sha256sum --check --strict
 
       - name: Download SBOM
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: sbom
           path: sbom/
@@ -218,7 +218,7 @@ jobs:
       attestations: read
     steps:
       - name: Download release files
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-files
           path: dist/
@@ -254,7 +254,7 @@ jobs:
       id-token: write
     steps:
       - name: Download release files
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-files
           path: release-files/
@@ -295,7 +295,7 @@ jobs:
       contents: write
     steps:
       - name: Download release files
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-files
           path: dist/
