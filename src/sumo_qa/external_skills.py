@@ -119,6 +119,7 @@ _EXACT_VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
 # holds a space, cmd /c strips the outer quotes and shifts which spans are
 # quoted, so an operator is unsafe even in an argument list2cmdline quoted.
 _CMD_EXE_META_RE = re.compile(r'["%!^&|<>\r\n]')
+_LINE_BREAK_RE = re.compile(r"\r\n|\r|\n")
 # npx paths whose CLI already reported the pinned version this process.
 _VERIFIED_CLI_PATHS: set[str] = set()
 
@@ -770,12 +771,14 @@ def _check_unchanged(folder: Path, path: str, record: Any) -> None:
     if _entry_identity(folder) is None:
         return  # already gone: only the record is dropped
     recorded = record.get("content_digest") if isinstance(record, dict) else None
-    actual = skill_content_digest(folder)
+    entries = _content_entries(folder)
+    actual = _digest_of(entries)
     if actual != recorded:
         raise ExternalSkillProvenanceError(
             f"{path} changed since sumo-qa installed it (content digest {actual}, recorded "
             f"{recorded}); refusing to delete it"
         )
+    _check_executables(path, record, _executable_files(entries))
 
 
 def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list[dict[str, Any]]:
@@ -793,10 +796,10 @@ def lint_skill_file(relpath: str, data: bytes, executable: bool = False) -> list
         message += f": only its first {_LINT_BYTES} bytes were linted"
         findings.append(_finding(rule, severity, message, relpath, None, 1))
     text = data[:_LINT_BYTES].decode("utf-8", errors="replace").replace("\0", " ")
-    # Lines break at \n only, as a shell reads them (a CRLF line's \r dropped):
-    # splitlines() also breaks at \v, \f, \x1c-\x1e, \x85, U+2028 and U+2029,
-    # which would split one shell command into lines the rules read apart.
-    physical = [line.removesuffix("\r") for line in text.split("\n")]
+    # Lines break at \r\n, \n or a bare \r (classic Mac) only: splitlines() also
+    # breaks at \v, \f, \x1c-\x1e, \x85, U+2028 and U+2029, which would split
+    # one shell command into lines the rules read apart.
+    physical = _LINE_BREAK_RE.split(text)
     lines = _logical_lines(physical)
     text, starts = _collapsed(physical)
     long = sorted({start for start, _, unit in lines if len(unit) > _LINT_LIMIT})
@@ -956,7 +959,10 @@ def describe_approval(request: dict[str, Any]) -> str:
     verb = "Install" if action == "install" else "Restore the previous version of"
     trust = request["trust"]
     reasons = f" ({', '.join(map(_shown, trust['reasons']))})" if trust["reasons"] else ""
-    findings = request["findings"]
+    # Executable files first and always listed: nothing else in the prompt
+    # shows an executable bit, and a critical finding never reaches it.
+    findings = sorted(request["findings"], key=lambda f: f["rule"] != _EXECUTABLE_ASSET[0])
+    shown = max(_PROMPT_FINDINGS, sum(f["rule"] == _EXECUTABLE_ASSET[0] for f in findings))
     under = "the project" if scope == "project" else "your home folder"
     lines = [
         f"{verb} external skill '{skill}' for {_shown(request['agent'])} ({scope} scope)?",
@@ -971,13 +977,9 @@ def describe_approval(request: dict[str, Any]) -> str:
             f"- {_shown(f['rule'])} {_shown(f['severity'])} {_shown(f['file'])}"
             + (f":{_shown(f['line'])}" if f["line"] is not None else "")
             + f" {_shown(f['message'])}"
-            for f in findings[:_PROMPT_FINDINGS]
+            for f in findings[:shown]
         ),
-        *(
-            [f"- and {len(findings) - _PROMPT_FINDINGS} more"]
-            if len(findings) > _PROMPT_FINDINGS
-            else []
-        ),
+        *([f"- and {len(findings) - shown} more"] if len(findings) > shown else []),
         "Approve only if you want exactly this payload written.",
     ]
     return "\n".join(lines)
@@ -1204,7 +1206,19 @@ def _install(
                 candidate.path.parent: _entry_identity(candidate.path.parent)
                 for candidate in _iter_installed_skill_candidates(skill, scope, cwd, home)
             }
-            backups = _back_up(before_entries, workdir / "previous")
+            # Backed up: only the folders the CLI writes for this agent (the
+            # canonical .agents copy and the agent's own root, under the CLI's
+            # folder name). Another agent's same-named folder is not ours to copy.
+            roots = {".agents", *(first for first, _, owner in _SKILL_ROOTS if owner == agent)}
+            name = _candidate_skill_names(skill)[0]
+            backups = _back_up(
+                {
+                    entry: identity
+                    for entry, identity in before_entries.items()
+                    if entry.name == name and entry.parent.parent.name in roots
+                },
+                workdir / "previous",
+            )
             try:
                 stdout, stderr = _run_cli_process(command, timeout, cwd)
             except BaseException as exc:
@@ -1212,6 +1226,7 @@ def _install(
                 raise
             after = _folder_identities(skill, scope, cwd, home)
             written = _written_folders(skill, scope, before, after)
+            staged_executables = [f["path"] for f in payload["files"] if f["executable"]]
             try:
                 records = _provenance_records(
                     written, remote_url, requested_ref, resolved_ref, skill, agent, scope, lock_base
@@ -1221,6 +1236,11 @@ def _install(
                     if record["content_digest"] != approved_digest:
                         raise ExternalSkillProvenanceError(
                             f"{record['path']} does not hold the approved payload"
+                        )
+                    if record["executable_files"] != staged_executables:
+                        raise ExternalSkillProvenanceError(
+                            f"{record['path']} does not hold the approved payload's "
+                            "executable files"
                         )
                 _merge_into_lock(lock_base, records, restoring)
             except BaseException as exc:
@@ -1548,8 +1568,23 @@ def build_skills_cli_command(npx: str, args: Sequence[str]) -> list[str]:
 
 
 def skill_content_digest(folder: Path) -> str:
-    """SHA-256 over every path, file content and executable bit under an installed skill."""
+    """SHA-256 over every path and file content under an installed skill."""
     return _digest_of(_content_entries(Path(folder)))
+
+
+def _executable_files(entries: dict[tuple[str, str], str]) -> list[str]:
+    return sorted(relpath for kind, relpath in entries if kind == "executable")
+
+
+def _check_executables(key: str, record: dict[str, Any], actual: list[str]) -> None:
+    """Refuse a folder whose executable files are not the recorded ones. Skipped
+    on Windows, which has no executable bit, and for a record without the field."""
+    if sys.platform == "win32" or "executable_files" not in record:
+        return
+    if record["executable_files"] != actual:
+        raise ExternalSkillProvenanceError(
+            f"the executable files of {key} are {actual}, not {record['executable_files']}"
+        )
 
 
 def _content_entries(
@@ -1559,11 +1594,11 @@ def _content_entries(
     each file's bytes into ``contents`` when given (so a caller reads them once).
 
     ``kind`` is ``file`` (value: SHA-256 of its bytes), ``executable`` (an
-    extra, empty entry for a file with any executable bit) or ``link`` (value:
-    the link target). A symlink inside the folder is pinned by its target and not
-    followed; the bytes it reaches are hashed at their own path. A link
-    leaving the folder, or anything that is not a regular file, cannot be
-    pinned and is refused.
+    extra, empty entry for a file with any executable bit, left out of the
+    digest) or ``link`` (value: the link target). A symlink inside the folder
+    is pinned by its target and not followed; the bytes it reaches are hashed
+    at their own path. A link leaving the folder, or anything that is not a
+    regular file, cannot be pinned and is refused.
     """
     root_real = os.path.realpath(root)
     entries: dict[tuple[str, str], str] = {}
@@ -1614,8 +1649,12 @@ def _read_regular_file(path: Path) -> bytes:
 
 
 def _digest_of(entries: dict[tuple[str, str], str]) -> str:
-    # JSON framing: no name or link target can shift bytes between fields.
-    items = sorted([kind, relpath, value] for (kind, relpath), value in entries.items())
+    # JSON framing: no name or link target can shift bytes between fields. The
+    # executable bits are not hashed (Windows has none), so a digest recorded on
+    # one platform verifies on every other; the record lists them apart.
+    items = sorted(
+        [kind, relpath, value] for (kind, relpath), value in entries.items() if kind != "executable"
+    )
     encoded = json.dumps(items, ensure_ascii=True, separators=(",", ":")).encode()
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
@@ -1856,13 +1895,15 @@ def _provenance_records(
     lock_base: Path,
 ) -> list[dict[str, Any]]:
     installed_at = datetime.now(timezone.utc).isoformat()
+    entries = [_content_entries(location.path.parent) for location in written]
     return [
         {
             "skill": skill,
             "source": remote_url,
             "requested_ref": requested_ref,
             "resolved_ref": resolved_ref,
-            "content_digest": skill_content_digest(location.path.parent),
+            "content_digest": _digest_of(folder_entries),
+            "executable_files": _executable_files(folder_entries),
             "agent": agent,
             "agents": [agent],
             "scope": scope,
@@ -1870,7 +1911,7 @@ def _provenance_records(
             "installed_at": installed_at,
             "installer": skills_cli_identity(),
         }
-        for location in written
+        for location, folder_entries in zip(written, entries, strict=True)
     ]
 
 
@@ -1946,7 +1987,8 @@ def _back_up(
         try:
             into.mkdir(exist_ok=True)
             if entry.is_symlink():
-                os.symlink(os.readlink(entry), copy)
+                # Windows makes a file link unless told the target is a folder.
+                os.symlink(os.readlink(entry), copy, target_is_directory=entry.is_dir())
             elif entry.is_dir():
                 shutil.copytree(entry, copy, symlinks=True)
             else:
@@ -2287,6 +2329,7 @@ def _merge_into_lock(
                 "trust": record["trust"],
                 "installed_at": record["installed_at"],
                 "installer": record["installer"],
+                "executable_files": record["executable_files"],
             }
         else:
             if restoring is not None:
@@ -2346,6 +2389,7 @@ def _verify_provenance(
             f"content digest mismatch for {key}: recorded "
             f"{record.get('content_digest')}, installed {actual}"
         )
+    _check_executables(key, record, _executable_files(entries))
     # The bytes handed over are those of SKILL.md's real file, which may sit
     # behind an in-folder link; the CLI also keeps any case of the name.
     real_relpath = Path(

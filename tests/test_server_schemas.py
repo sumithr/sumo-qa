@@ -412,6 +412,7 @@ _PROVENANCE = {
     "requested_ref": None,
     "resolved_ref": "0123456789abcdef0123456789abcdef01234567",
     "content_digest": "sha256:" + "a" * 64,
+    "executable_files": [],
     "agent": "codex",
     "agents": ["codex"],
     "scope": "project",

@@ -3553,6 +3553,7 @@ _PROVENANCE_KEYS = (
     "requested_ref",
     "resolved_ref",
     "content_digest",
+    "executable_files",
     "agent",
     "agents",
     "scope",
@@ -4495,24 +4496,95 @@ def test_claude_config_dir_adds_no_folder_outside_a_global_claude_code_install(
 
 
 # ---------------------------------------------------------------------------
-# The content digest pins the executable bit (#520)
+# The content digest is platform independent; executable files are recorded apart (#520)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Windows has no executable bit")
-def test_the_content_digest_pins_the_executable_bit(monkeypatch, tmp_path) -> None:
-    for name, mode in (("plain", 0o644), ("executable", 0o755)):
-        (tmp_path / name).mkdir()
-        (tmp_path / name / "run.sh").write_bytes(b"echo hi\n")
-        (tmp_path / name / "run.sh").chmod(mode)
+def test_the_content_digest_hashes_bytes_and_paths_only(tmp_path) -> None:
+    """The value 1efecec7's _digest_of(_content_entries(...)) gives this payload,
+    so a lock recorded on any platform, or by that release, verifies."""
+    (tmp_path / "SKILL.md").write_bytes(b"# Skill\n")
+    (tmp_path / "run.sh").write_bytes(b"echo hi\n")
+    (tmp_path / "run.sh").chmod(0o755)
 
-    assert ext.skill_content_digest(tmp_path / "plain") != ext.skill_content_digest(
-        tmp_path / "executable"
+    assert ext.skill_content_digest(tmp_path) == (
+        "sha256:55167563fcd3f35cbfdc020557768475a6a147e845ad15ed0e6bad885a668672"
     )
-    monkeypatch.setattr(ext.sys, "platform", "win32")  # no executable bit there
-    assert ext.skill_content_digest(tmp_path / "plain") == ext.skill_content_digest(
-        tmp_path / "executable"
+
+
+def _with_script(toolchain: FakeToolchain, mode) -> None:
+    """The CLI also writes run.sh, with the mode ``mode(base)`` returns."""
+    real_write = toolchain._write
+
+    def write_with_script(command, base):
+        skill_dir, folder = real_write(command, base)
+        (skill_dir / "run.sh").write_bytes(b"echo hi\n")
+        (skill_dir / "run.sh").chmod(mode(base))
+        return skill_dir, folder
+
+    toolchain._write = write_with_script
+
+
+@pytest.mark.skipif(os.name == "nt", reason="executable bits are POSIX")
+def test_an_executable_bit_set_after_the_preview_is_shown_in_the_install_prompt(
+    toolchain,
+) -> None:
+    mode = {"run.sh": 0o644}
+    _with_script(toolchain, lambda base: mode["run.sh"])
+    real_write = toolchain._write
+
+    def write_many(command, base):
+        skill_dir, folder = real_write(command, base)
+        for i in range(ext._PROMPT_FINDINGS + 1):  # more high findings than the prompt lists
+            (skill_dir / f"f{i}.md").write_bytes(b"sudo make install\n")
+        return skill_dir, folder
+
+    toolchain._write = write_many
+    preview = _preview(toolchain)
+    mode["run.sh"] = 0o755
+    approver = _Approver(False)
+
+    with pytest.raises(ext.ExternalSkillDeclinedError):
+        _install(toolchain, approve=approver, approved_digest=preview["content_digest"])
+
+    assert "SQA-EXT-010" not in [f["rule"] for f in preview["findings"]]
+    assert "- SQA-EXT-010 high run.sh ships an executable file" in ext.describe_approval(
+        approver.requests[0]
     )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="executable bits are POSIX")
+def test_the_cli_writing_other_executable_files_than_the_stage_is_rolled_back(toolchain) -> None:
+    _with_script(toolchain, lambda base: 0o644 if base.name == "stage" else 0o755)
+
+    with pytest.raises(ext.ExternalSkillRolledBackError, match="executable files"):
+        _install(toolchain, approved_digest=_preview(toolchain)["content_digest"])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="executable bits are POSIX")
+@pytest.mark.parametrize("record", ["as_written", "without_the_field"])
+def test_execution_checks_the_recorded_executable_files(toolchain, record) -> None:
+    _with_script(toolchain, lambda base: 0o644)
+    _install(toolchain, approved_digest=_preview(toolchain)["content_digest"])
+    assert _lock(toolchain.cwd)["skills"][".agents/skills/find-skills"]["executable_files"] == []
+    (_skill_md(toolchain).parent / "run.sh").chmod(0o755)
+    if record == "without_the_field":  # written by an earlier release
+        lock = _lock(toolchain.cwd)
+        del lock["skills"][".agents/skills/find-skills"]["executable_files"]
+        _write_lock(toolchain.cwd, lock["skills"], lock.get("history"))
+
+    if record == "as_written":
+        with pytest.raises(ext.ExternalSkillProvenanceError, match="executable files"):
+            _execute(toolchain)
+    else:
+        assert _execute(toolchain)["provenance"]["status"] == "verified"
+
+
+def test_windows_skips_the_executable_files_check(monkeypatch) -> None:
+    """Windows has no executable bit: a record made elsewhere still verifies."""
+    monkeypatch.setattr(ext.sys, "platform", "win32")
+
+    ext._check_executables(".agents/skills/x", {"executable_files": ["run.sh"]}, [])
 
 
 # ---------------------------------------------------------------------------
@@ -4550,7 +4622,7 @@ def test_a_file_where_a_skill_folder_could_be_is_kept_through_an_install(toolcha
     stray.parent.mkdir(parents=True)
     stray.write_bytes(b"not a folder\n")
 
-    _install(toolchain)
+    _install(toolchain, agent="claude-code")  # backs up its own .claude folder
 
     assert stray.read_bytes() == b"not a folder\n"
 
@@ -4579,3 +4651,44 @@ def test_a_continued_last_line_with_no_newline_is_still_linted() -> None:
     findings = ext.lint_skill_file("SKILL.md", b"intro\nsudo make install |")
 
     assert ("SQA-EXT-007", 2) in [(f["rule"], f["line"]) for f in findings]
+
+
+def test_a_bare_carriage_return_breaks_a_line() -> None:
+    """A classic-Mac file: each \\r ends a line, so a command rule never reads
+    across lines (the findings 1efecec7 gave this file)."""
+    findings = ext.lint_skill_file(
+        "README.md", b"cat notes.txt\rsome text\rsee ~/.ssh/config docs\r"
+    )
+
+    assert [(f["rule"], f["line"]) for f in findings] == [("SQA-EXT-014", 3)]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes are POSIX only")
+def test_another_agents_same_named_folder_is_not_backed_up(toolchain) -> None:
+    other = toolchain.cwd / ".codex" / "skills" / "find-skills"
+    other.mkdir(parents=True)
+    os.mkfifo(other / "pipe")  # copying it would fail
+
+    _install(toolchain, agent="claude-code")
+
+    assert (other / "pipe").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_backed_up_folder_link_is_kept_a_folder_link(monkeypatch, tmp_path) -> None:
+    (tmp_path / "canonical").mkdir()
+    link = tmp_path / "alias"
+    link.symlink_to("canonical", target_is_directory=True)  # relative
+    made = []
+    real_symlink = os.symlink
+
+    def symlink(src, dst, target_is_directory=False):
+        made.append(target_is_directory)  # Windows needs it for a folder link
+        real_symlink(src, dst, target_is_directory)
+
+    monkeypatch.setattr(ext.os, "symlink", symlink)
+
+    backups = ext._back_up({link: ext._entry_identity(link)}, tmp_path / "previous")
+
+    assert made == [True]
+    assert os.readlink(backups[link]) == "canonical"

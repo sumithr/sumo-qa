@@ -342,6 +342,9 @@ class ExternalSkillProvenanceRecord(_StrictBase):
     content_digest: str = Field(
         description="sha256:<hex> over every file path and content in the installed folder."
     )
+    executable_files: list[str] = Field(
+        description="Sorted POSIX paths of the folder's files with an executable bit."
+    )
     agent: str = Field(description="Agent flavour the skill was installed for.")
     agents: list[str] = Field(
         description="Every agent installed into this folder; more than one marks it shared."
@@ -371,6 +374,7 @@ class ExternalSkillProvenanceCheck(_StrictBase):
     requested_ref: str | None = None
     resolved_ref: str | None = None
     content_digest: str | None = None
+    executable_files: list[str] | None = None
     agent: str | None = None
     agents: list[str] | None = None
     scope: Literal["project", "global"] | None = None
