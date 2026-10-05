@@ -256,7 +256,7 @@ def test_review_feedback_description_keeps_its_confirmation_and_rejection_rules(
     # The host enforces the confirmation gate, so the description is where it
     # learns the rule; trimming for the tools/list budget must not drop it.
     desc = build_mcp_server()._tool_manager._tools["sumo_qa_capture_review_feedback"].description
-    assert "explicit confirmation" in desc
+    assert "Every write needs the user's explicit confirmation" in desc
     assert "nothing is auto-captured" in desc
     assert "rejected" in desc
     # Without this, haiku passed `scope` only at the top level and every first

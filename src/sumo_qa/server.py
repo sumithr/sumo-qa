@@ -981,7 +981,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         'project' (default) or 'global', else an error. `entry` needs its own
         `scope` too.
 
-        A capture needs the user's explicit confirmation; nothing is auto-captured.
+        Every write needs the user's explicit confirmation; nothing is auto-captured.
         Raw diffs, secrets, code and pasted issue/PR bodies are rejected: only
         the user's own summary is stored.
         """
