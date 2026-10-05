@@ -34,3 +34,7 @@ updates:
       timezone: Europe/London
     open-pull-requests-limit: 5
     labels: ["deps", "ci"]
+    # pydantic pins pydantic-core to one exact version, so a pydantic-core
+    # bump on its own can never install. It moves when pydantic does.
+    ignore:
+      - dependency-name: pydantic-core
