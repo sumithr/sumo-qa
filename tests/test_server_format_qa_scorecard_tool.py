@@ -11,6 +11,7 @@ surfacing, the JSON-able snapshot, and the error envelope.
 from __future__ import annotations
 
 import json
+from typing import get_args
 
 import pytest
 
@@ -71,6 +72,9 @@ def test_tool_description_names_every_required_ledger_row_field(server):
     assert required
     for name in required:
         assert f"`{name}`" in desc, name
+    for name in ("evidence_status", "residual"):
+        for value in get_args(RiskLedgerRow.model_fields[name].annotation):
+            assert value in desc, (name, value)
 
 
 def test_uncovered_blocker_is_blocked(tool):

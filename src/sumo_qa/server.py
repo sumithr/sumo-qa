@@ -806,8 +806,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
     ) -> TestDataRequirementsOutput | ErrorEnvelope:
         """Explain the test data a scenario needs ("what data do I need to test X"):
         entity characteristics, resource state, preconditions, dependencies, edge
-        cases, and what not to use. Any domain; `environment` and `domain` are
-        optional.
+        cases, and what not to use.
         """
         try:
             output = qa_service.qa_explain_test_data_requirements(question, environment, domain)
@@ -889,8 +888,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         entry: dict | None = None,
     ) -> TestDataValidateOutput | ErrorEnvelope:
         """Validate a test data entry (`entry_id` from the catalogue, or a full
-        `entry` dict) without touching downstream systems: validity, confidence,
-        freshness and the reason.
+        `entry` dict) without touching downstream systems.
         """
         try:
             output = qa_service.qa_validate_test_data(entry_id, entry)
@@ -911,9 +909,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         entry: dict,
     ) -> TestDataRegisterOutput | ErrorEnvelope:
         """Add or update an entry in `knowledge/test_data/<domain>/known_good.yaml`,
-        flagging duplicates. `entry` is a dict, not a YAML string: `id`,
-        `environment`, `domain`, `scenario_tags`, `known_valid_for`, `constraints`,
-        `owner`, `last_validated_at`, `confidence`, `source`, `notes`.
+        flagging a duplicate (same environment, domain, product/SKU and
+        overlapping scenarios). `entry` is a dict, not a YAML string: `id`,
+        `environment`, `domain`, `product_id`, `sku`, `scenario_tags`,
+        `known_valid_for`, `constraints`, `owner`, `last_validated_at`,
+        `confidence` (low / medium / high; default low), `source`, `notes`.
         """
         try:
             output = qa_service.qa_register_known_good_test_data(entry)
@@ -971,9 +971,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         entry_id: str | None = None,
         scope: str = "project",
     ) -> dict[str, Any]:
-        """Manage the user-confirmed memory of recurring review lessons ("we always
-        miss timezone boundaries in billing"). Lessons are advisory, cited apart
-        from the catalogues, and never override classifications or change rules.
+        """Manage the user-confirmed memory of recurring review lessons: advisory
+        hints that never override the catalogues.
 
         `action`: 'list' (default); 'capture' (`entry`: `scope`, `trigger_signal`,
         `recommended_probe`, `source_note`, optional `last_reviewed`); 'update'
@@ -1127,8 +1126,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         write_to: str | None = None,
     ) -> RepoMapScanOutput | ErrorEnvelope:
         """Scan the repository at `root` and return a compact summary of its QA
-        shape: node counts by type, test-to-source edges by confidence, commands
-        and warnings by kind. `write_to` also writes the full repo-map JSON.
+        shape (node, test-edge, command and warning counts). `write_to` also
+        writes the full repo-map JSON.
         """
         from sumo_qa.repo_map_scanner import scan_repo as _scan_repo
 
@@ -1176,11 +1175,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         artifact_path: str | None = ".sumo-qa/repo-map.json",
         write_overlay: bool = False,
     ) -> DiffImpactOutput | ErrorEnvelope:
-        """Map changed files onto the repo-map: the tests likely to exercise them,
-        changed sources with no mapped test (the risk surface), one-hop affected
-        nodes, unmapped files and map staleness. Pass `changed_files`
+        """Map changed files onto the repo-map: likely tests, the risk surface
+        (changed sources with no mapped test), affected nodes and map
+        staleness. Pass `changed_files`
         (repo-relative) or `base_ref` (diffed from its merge-base with HEAD). The
-        map comes from `artifact_path`, else a live scan saved there.
+        map comes from `artifact_path`, else a live scan saved there if nothing is
+        (`artifact_path=None` saves nothing). `write_overlay` writes
+        `.sumo-qa/diff-impact.json`. `probable_mapping_gap` means a naming gap,
+        not zero coverage.
         """
         from sumo_qa.repo_map_impact import analyze_diff_impact, changed_files_from_git
         from sumo_qa.repo_map_models import RepoMapWarning
@@ -1303,8 +1305,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
     ) -> RepoMapQueryOutput | ErrorEnvelope:
         """Search the repo-map for components, tests, CI checks, configs or commands
         matching `query` (case-insensitive over ids, paths, names, types and
-        tags); returns a bounded, ranked list, never the whole map. `types`
-        narrows by node type or "command".
+        tags); returns a ranked list capped at `limit` (`total_matches` counts
+        all), never the whole map. `types` narrows by node type or "command".
         """
         from sumo_qa.repo_map_models import RepoMapWarning
         from sumo_qa.repo_map_query import query_repo_map as _query_repo_map
@@ -1379,8 +1381,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         names the risks. Row: `risk_id`, `risk`, `source_anchor`, `test` (test id
         or 'planned: ...'), `evidence_status` (planned / passing / failing / stale
         / accepted_residual), `residual` (open / accepted / mitigated / blocker),
-        optional `repo_map_node_id`. Returns the table, a summary and the
-        uncovered-blocker count.
+        optional `repo_map_node_id`.
         """
         from sumo_qa.ledger_format import compact_summary, format_ledger_markdown
         from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION
@@ -1415,8 +1416,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         brief; no repo or network access. `bundle` (all optional):
         `issue_summary`, `pr_summary`, `head_sha`, `changed_files` ({path,
         change_kind}), `test_evidence` / `ci_status` ({result, freshness,
-        source}), `user_constraints`. Only a fresh pass supports safety.
-        `local_head_sha` flags a bundle that diverges from the live head.
+        source}), `user_constraints`. `freshness`: fresh / stale / unknown /
+        absent; only a fresh pass supports safety. `local_head_sha` flags a
+        bundle that diverges from the live head.
         """
         from sumo_qa.context_bundle_format import (
             compact_summary as _bundle_summary,
@@ -1462,11 +1464,12 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         ready, ready_with_accepted_residuals, blocked or insufficient_evidence.
         Infers no risk; an uncovered blocker or stale evidence refuses ready.
         Optional inputs: `ledger_rows` (rows of `risk_id`, `risk`,
-        `source_anchor`, `test`, `evidence_status`, `residual`, as
-        `sumo_qa_format_risk_ledger` takes), `context_bundle` (as
-        `sumo_qa_format_context_bundle` takes), `coverage` / `mutation` (absent
-        means not measured), `scope`, and `local_head_sha`, without which a
-        bundle naming a `head_sha` cannot support ready.
+        `source_anchor`, `test`, `evidence_status`: planned / passing / failing /
+        stale / accepted_residual, `residual`: open / accepted / mitigated /
+        blocker), `context_bundle` (as `sumo_qa_format_context_bundle` takes),
+        `coverage` / `mutation` (absent means not measured), `scope`, and
+        `local_head_sha`, without which a bundle naming a `head_sha` cannot
+        support ready.
         """
         from sumo_qa.scorecard_format import (
             compact_summary,
@@ -1714,9 +1717,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         write_to: str | None = ".sumo-qa/coverage.json",
     ) -> RecordCoverageOutput | ErrorEnvelope:
         """Validate a host-collected coverage summary and save it as
-        `.sumo-qa/coverage.json` (or `write_to`, inside `root`) for the QA report.
-        `coverage`: `line_percent` (0-100; omit for not measured), `freshness`,
-        `detail`, `source_tool`, `generated_at`. Reported, never gated.
+        `.sumo-qa/coverage.json` for the QA report; a relative `write_to` stays
+        inside `root`. `coverage`: `line_percent` (0-100; omit for not measured),
+        `freshness` (fresh / stale / unknown / absent), `detail`, `source_tool`,
+        `generated_at`. Reported, never gated.
         """
         from sumo_qa.coverage_models import COVERAGE_SCHEMA_VERSION, load_coverage_artifact
 
@@ -1757,9 +1761,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         write_to: str | None = ".sumo-qa/mutation.json",
     ) -> RecordMutationOutput | ErrorEnvelope:
         """Validate a host-collected mutation summary and save it as
-        `.sumo-qa/mutation.json` (or `write_to`, inside `root`) for the QA report.
-        `mutation`: `survivors`, `killed` (omit for not measured), `freshness`,
-        `detail`, `source_tool`, `generated_at`. Reported, never gated.
+        `.sumo-qa/mutation.json` for the QA report; a relative `write_to` stays
+        inside `root`. `mutation`: `survivors`, `killed` (>= 0; omit for not
+        measured), `freshness` (fresh / stale / unknown / absent), `detail`,
+        `source_tool`, `generated_at`. Reported, never gated.
         """
         from sumo_qa.coverage_models import COVERAGE_SCHEMA_VERSION, load_mutation_artifact
 
@@ -2014,11 +2019,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         and module ids); "section" / "module" (pass `section` / `module`); "full"
         (the whole body, or an `oversize` pointer to the slices); "bundle" (one
         call: the body unless `include_body=false`, comma-separated `modules`, the
-        entries, standards and rules for comma-separated `classification` ids, and
-        whole `catalogues`: techniques, principles, classifications, approaches).
-        Slices carry `content_hash`; passing it as `known_hash` returns
-        `changed=false` without the body when unchanged. Bad input returns an
-        error envelope listing the valid choices.
+        entries, standards and rules for comma-separated exact `classification`
+        ids, and whole `catalogues`: techniques, principles, classifications,
+        approaches). Slices carry `content_hash`; passing it as `known_hash`
+        returns `changed=false` without the body when unchanged. Bad input returns
+        an error envelope listing the valid choices.
         """
         options: dict[str, Any] = {
             "section": section,
