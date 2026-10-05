@@ -977,12 +977,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
 
         `action`: 'list' (default); 'capture' (`entry`: `scope`, `trigger_signal`,
         `recommended_probe`, `source_note`, optional `last_reviewed`); 'update'
-        (`entry_id` + `entry`); 'delete' (`entry_id`). `scope`: 'project'
-        (default) or 'global'; any other value is an error.
+        (`entry_id` + `entry`); 'delete' (`entry_id`). `scope` picks the store:
+        'project' (default) or 'global', else an error. `entry` needs its own
+        `scope` too.
 
-        A capture needs the user's explicit confirmation; nothing is auto-captured
-        from a review, prompt or trace. Raw diffs, secrets, code and pasted
-        issue/PR bodies are rejected: only the user's own summary is stored.
+        A capture needs the user's explicit confirmation; nothing is auto-captured.
+        Raw diffs, secrets, code and pasted issue/PR bodies are rejected: only
+        the user's own summary is stored.
         """
         try:
             # Pass `scope` through UNCHANGED — never coerce an unrecognised value

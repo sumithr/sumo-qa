@@ -259,6 +259,9 @@ def test_review_feedback_description_keeps_its_confirmation_and_rejection_rules(
     assert "explicit confirmation" in desc
     assert "nothing is auto-captured" in desc
     assert "rejected" in desc
+    # Without this, haiku passed `scope` only at the top level and every first
+    # capture failed validation.
+    assert "`entry` needs its own `scope` too" in " ".join(desc.split())
 
 
 def test_tool_descriptions_avoid_directive_language() -> None:
