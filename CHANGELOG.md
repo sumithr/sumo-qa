@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.76.2](https://github.com/sumithr/sumo-qa/compare/v0.76.1...v0.76.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump proxy-addr from 2.0.7 to 2.0.8 ([#856](https://github.com/sumithr/sumo-qa/issues/856)) ([6b6c38a](https://github.com/sumithr/sumo-qa/commit/6b6c38adbb1b2174ff1563b33362dfe02c992c06))
+* **deps-dev:** bump sharp from 0.35.4 to 0.35.5 ([#860](https://github.com/sumithr/sumo-qa/issues/860)) ([55ab0dc](https://github.com/sumithr/sumo-qa/commit/55ab0dccce04c28c76da256aefb812f9d88c761c))
+
 ## [0.76.1](https://github.com/sumithr/sumo-qa/compare/v0.76.0...v0.76.1) (2026-10-07)
 
 
