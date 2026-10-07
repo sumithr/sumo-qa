@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.76.1](https://github.com/sumithr/sumo-qa/compare/v0.76.0...v0.76.1) (2026-10-07)
+
+
+### Performance Improvements
+
+* **server:** fit the core tools/list in the 6,000-token budget ([#854](https://github.com/sumithr/sumo-qa/issues/854)) ([be1faa2](https://github.com/sumithr/sumo-qa/commit/be1faa295e3e15afa41b36498ed2d9a37d943894))
+
 ## [0.76.0](https://github.com/sumithr/sumo-qa/compare/v0.75.1...v0.76.0) (2026-10-05)
 
 
