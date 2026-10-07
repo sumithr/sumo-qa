@@ -252,6 +252,18 @@ def test_tool_descriptions_advertise_natural_language_triggers() -> None:
     assert "find me test data" in find_data.lower()
 
 
+def test_review_feedback_description_keeps_its_confirmation_and_rejection_rules() -> None:
+    # The host enforces the confirmation gate, so the description is where it
+    # learns the rule; trimming for the tools/list budget must not drop it.
+    desc = build_mcp_server()._tool_manager._tools["sumo_qa_capture_review_feedback"].description
+    assert "Every write needs the user's explicit confirmation" in desc
+    assert "nothing is auto-captured" in desc
+    assert "rejected" in desc
+    # Without this, haiku passed `scope` only at the top level and every first
+    # capture failed validation.
+    assert "`entry` needs its own `scope` too" in " ".join(desc.split())
+
+
 def test_tool_descriptions_avoid_directive_language() -> None:
     """Tool descriptions must NOT contain instructions aimed at the model.
 

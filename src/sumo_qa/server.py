@@ -804,20 +804,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         environment: str = "",
         domain: str = "",
     ) -> TestDataRequirementsOutput | ErrorEnvelope:
-        """Explain what test data shape and characteristics are needed for a scenario.
-
-        Returns: required entity characteristics, resource-state conditions,
-        scenario preconditions, downstream dependencies, edge cases, and
-        explicit "what NOT to use" guidance. Domain-neutral by design — works
-        for any domain (auth, billing, retail, infrastructure, ML, etc.).
-        Optional `environment` (e.g. "integration") and `domain` are folded
-        into the analysis.
-
-        Common natural-language phrasings that map to this tool:
-        "what data do I need to test X", "what test data should I look for to
-        cover X", "what records / accounts / fixtures do I need for X",
-        "what's the minimum data setup for X", "what edge-case data should I
-        test".
+        """Explain the test data a scenario needs ("what data do I need to test X"):
+        entity characteristics, resource state, preconditions, dependencies, edge
+        cases, and what not to use.
         """
         try:
             output = qa_service.qa_explain_test_data_requirements(question, environment, domain)
@@ -859,21 +848,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         limit: int = 5,
         offset: int = 0,
     ) -> TestDataFindOutput | ErrorEnvelope:
-        """Search the local known-good test data catalogue for entries that match a scenario.
-
-        Returns: ranked matches with confidence, freshness, and suitability
-        reasons. Reads the local YAML catalogue under `knowledge/test_data/`
-        only; no external lookups. Optional `scenario_tags` and `known_valid_for`
-        narrow the search.
-
-        Pagination: pass `offset` to skip the first N matches, and read
-        `total_count`, `has_more`, and `next_offset` on the response to walk
-        pages. When `has_more` is false, `next_offset` is null.
-
-        Common natural-language phrasings that map to this tool:
-        "find me test data for X", "do we have a known-good record for X",
-        "give me an account / fixture / record that does X", "is there a
-        fixture for X", "what test data is available for X".
+        """Search the local known-good test data catalogue ("find me test data for
+        X") for ranked matches with confidence, freshness and suitability.
+        `scenario_tags` and `known_valid_for` narrow it; page with `offset` and the
+        response's `next_offset`.
         """
         try:
             output = qa_service.qa_find_test_data(
@@ -909,15 +887,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         entry_id: str | None = None,
         entry: dict | None = None,
     ) -> TestDataValidateOutput | ErrorEnvelope:
-        """Validate a test data entry without provisioning or mutating downstream systems.
-
-        Returns: validation result with confidence level, freshness status, and
-        an explained reason. Accepts either `entry_id` (looked up in the
-        catalogue) or `entry` (a full record dict).
-
-        Common natural-language phrasings that map to this tool:
-        "is this test data still valid", "validate this record", "is entry X
-        still good", "check if X is fresh".
+        """Validate a test data entry (`entry_id` from the catalogue, or a full
+        `entry` dict) without touching downstream systems.
         """
         try:
             output = qa_service.qa_validate_test_data(entry_id, entry)
@@ -937,31 +908,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
     def sumo_qa_register_known_good_test_data(
         entry: dict,
     ) -> TestDataRegisterOutput | ErrorEnvelope:
-        """Add or update a known-good test data entry in the local YAML catalogue.
-
-        Detects duplicates by environment + domain + product/SKU + scenario
-        overlap. Writes to `knowledge/test_data/<domain>/known_good.yaml`.
-
-        Arg shape — pass `entry` as a literal dict, NOT a YAML string. Example:
-
-            sumo_qa_register_known_good_test_data(entry={
-                "id": "billing-overdue-invoice-001",
-                "environment": "staging",
-                "domain": "billing",
-                "scenario_tags": ["overdue_invoice", "dunning_eligible"],
-                "known_valid_for": ["dunning workflow testing"],
-                "constraints": ["Reset overdue flag after test."],
-                "owner": "billing-platform",
-                "last_validated_at": "2026-05-16T09:00:00Z",
-                "confidence": "high",
-                "source": "qa-curated",
-                "notes": "Overdue invoice usable for dunning-flow testing.",
-            })
-
-        Common natural-language phrasings that map to this tool:
-        "save this as known-good test data", "register this fixture so the team
-        can reuse it", "promote this record to known-good", "update the
-        validated timestamp on entry X", "add this record to the catalogue".
+        """Add or update an entry in `knowledge/test_data/<domain>/known_good.yaml`,
+        flagging a duplicate (same environment, domain, product/SKU, and both
+        `scenario_tags` and `known_valid_for` overlap). `entry` is a dict, not
+        a YAML string: `id`, `environment`, `domain`, `product_id`, `sku`,
+        `scenario_tags`, `known_valid_for`, `constraints`, `owner`,
+        `last_validated_at`, `confidence` (low / medium / high; default low),
+        `source`, `notes`.
         """
         try:
             output = qa_service.qa_register_known_good_test_data(entry)
@@ -1019,42 +972,18 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         entry_id: str | None = None,
         scope: str = "project",
     ) -> dict[str, Any]:
-        """Manage an EXPLICIT, user-confirmed review-feedback memory of recurring QA findings.
+        """Manage the user-confirmed memory of recurring review lessons: advisory
+        hints that never override the catalogues.
 
-        Promotes a recurring review lesson (e.g. "we always miss timezone
-        boundaries in billing") into a local, inspectable, reversible memory that
-        future planning/review skills consult as an ADVISORY hint — NOT automatic
-        learning. `action` selects the operation:
+        `action`: 'list' (default); 'capture' (`entry`: `scope`, `trigger_signal`,
+        `recommended_probe`, `source_note`, optional `last_reviewed`); 'update'
+        (`entry_id` + `entry`); 'delete' (`entry_id`). `scope` picks the store:
+        'project' (default) or 'global', else an error. `entry` needs its own
+        `scope` too.
 
-        - `'capture'` — add a new lesson (or replace one with the same `id`).
-          Requires `entry` with `scope`, `trigger_signal`, `recommended_probe`,
-          `source_note`, and optional `last_reviewed` (ISO-8601; defaults to now).
-        - `'update'` — replace the fields of an existing lesson; needs `entry_id`
-          plus `entry`.
-        - `'delete'` — remove a lesson by `entry_id`.
-        - `'list'` (default) — return stored lessons, advisory-flagged. The
-          `scope` default is the literal `'project'`, so it lists the current
-          repo; pass `scope='global'` for the cross-repo set. An unrecognised
-          `scope` returns an error envelope (it is never coerced to project).
-
-        NEVER persist without explicit user confirmation, and NEVER auto-capture
-        from a review/prompt/trace. That confirmation gate is the HOST/skill's
-        responsibility, not enforced by a tool parameter — the deliberate
-        writer-local data-ownership model shared with the risk-ledger and AC
-        tools; the `sumo-qa-feedback` CLI correspondingly exposes only list/delete,
-        so a capture can never be a fire-and-forget flag. Sensitive input — a raw
-        diff hunk, a secret, a code snippet, or a pasted full issue/PR body — is
-        REJECTED; only the user's own summary is stored, and a rejected entry is
-        never echoed to the debug-capture sink either. Storage reuses the #92 user-writable pack
-        location (`project` = <cwd>/.sumo-qa, `global` = the user data dir) under
-        a `feedback/` subdir, so it is NOT a second hidden tree. Memory-derived
-        probes are ADVISORY: cite them SEPARATELY from bundled ISTQB/rules
-        content; they never override canonical classifications or change-rules.
-
-        Common natural-language phrasings that map to this tool:
-        "remember that we always miss X in Y", "save this review lesson", "promote
-        this recurring finding to team memory", "what review lessons have we
-        saved?", "forget the timezone-billing lesson".
+        Every write needs the user's explicit confirmation; nothing is auto-captured.
+        Raw diffs, secrets, code and pasted issue/PR bodies are rejected: only
+        the user's own summary is stored.
         """
         try:
             # Pass `scope` through UNCHANGED — never coerce an unrecognised value
@@ -1198,22 +1127,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         generator_version: str | None = None,
         write_to: str | None = None,
     ) -> RepoMapScanOutput | ErrorEnvelope:
-        """Walk a repository and return a compact summary of its QA-relevant
-        shape: per-type node counts, likely_tests edge counts by confidence,
-        command counts by kind, warning counts by kind. Optionally writes the
-        full schema-validated ``.sumo-qa/repo-map.json`` artifact to disk via
-        ``write_to``.
-
-        Common natural-language phrasings that map to this tool:
-        "map this repo", "scan the repo and tell me what's here", "give me a
-        QA-shaped inventory of this project", "what tests exercise what
-        sources in this repo", "generate the repo-map artifact for X".
-
-        ``root`` is the repository to scan (absolute or relative to the MCP
-        server's working directory). ``generator_version`` defaults to the
-        installed sumo-qa version. ``write_to`` is optional — when set, the
-        full artifact is written to that JSON path, deterministic on the
-        same repo state except for ``project.generated_at``.
+        """Scan the repository at `root` and return a compact summary of its QA
+        shape (node, test-edge, command and warning counts). `write_to` also
+        writes the full repo-map JSON.
         """
         from sumo_qa.repo_map_scanner import scan_repo as _scan_repo
 
@@ -1261,28 +1177,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         artifact_path: str | None = ".sumo-qa/repo-map.json",
         write_overlay: bool = False,
     ) -> DiffImpactOutput | ErrorEnvelope:
-        """Map a set of changed files onto the repo-map to report which tests
-        likely exercise them, which changed sources have no mapped test (the
-        risk surface), one-hop affected nodes, unmapped files, and whether the
-        map is stale relative to HEAD.
-
-        Common natural-language phrasings that map to this tool:
-        "what does this diff affect", "which tests cover my changes", "what's
-        the risk surface of this branch", "what should I re-test after these
-        edits", "analyse the impact of the changes against main".
-
-        ``root`` is the repository. Supply ``changed_files`` (repo-relative
-        paths) OR ``base_ref`` (any git ref; changed files are the diff against
-        the merge-base of ``base_ref`` and HEAD, so changes that landed on the
-        base after the branch diverged don't leak in). The repo-map is read
-        from ``artifact_path`` when present and falls back to a live scan
-        otherwise; an artifact for a different project root is ignored. On the
-        first run of an unmapped repo the live scan is persisted to
-        ``artifact_path`` (reported as ``persisted_map_path``) unless
-        ``artifact_path`` is ``None``. ``write_overlay`` writes
-        ``.sumo-qa/diff-impact.json`` under ``root``. When test files exist but
-        the map has no likely_tests edges, ``probable_mapping_gap`` flags the
-        risk surface as a missed-convention gap rather than true zero coverage.
+        """Map changed files onto the repo-map: likely tests, the risk surface
+        (changed sources with no mapped test), affected nodes and map
+        staleness. Pass `changed_files`
+        (repo-relative) or `base_ref` (diffed from its merge-base with HEAD). The
+        map comes from `artifact_path`, else a live scan saved there if nothing is
+        (`artifact_path=None` saves nothing). `write_overlay` writes
+        `.sumo-qa/diff-impact.json`. `probable_mapping_gap` means a naming gap,
+        not zero coverage.
         """
         from sumo_qa.repo_map_impact import analyze_diff_impact, changed_files_from_git
         from sumo_qa.repo_map_models import RepoMapWarning
@@ -1403,24 +1305,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         types: list[str] | None = None,
         artifact_path: str | None = ".sumo-qa/repo-map.json",
     ) -> RepoMapQueryOutput | ErrorEnvelope:
-        """Search the repo-map for the components, tests, CI checks, configs, or
-        commands that match a query, returning a bounded, ranked list with
-        enough metadata (id, path, type, tags, match reason) to open the files
-        directly — never the full artifact.
-
-        Common natural-language phrasings that map to this tool:
-        "find the repo-map node for X", "which tests are mapped to the billing
-        module", "list the CI workflows in the map", "what commands does the
-        repo-map know about", "search the map for files tagged mcp".
-
-        ``root`` is the repository. ``query`` matches case-insensitively across
-        node id, path, file name, type, category, and tags, and across command
-        names and kinds; results rank exact identity above substring hits.
-        ``limit`` caps the returned matches (``total_matches`` still reports the
-        full count). ``types`` restricts the search to given node types and/or
-        the literal ``"command"``. The repo-map is read from ``artifact_path``
-        when present and falls back to a live scan otherwise; an artifact for a
-        different project root is ignored.
+        """Search the repo-map for components, tests, CI checks, configs or commands
+        matching `query` (case-insensitive over ids, paths, names, types and
+        tags); returns a ranked list capped at `limit` (`total_matches` counts
+        all), never the whole map. `types` narrows by node type or "command".
         """
         from sumo_qa.repo_map_models import RepoMapWarning
         from sumo_qa.repo_map_query import query_repo_map as _query_repo_map
@@ -1491,23 +1379,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         rows: list[dict[str, Any]],
         max_rows: int = 25,
     ) -> FormatRiskLedgerOutput | ErrorEnvelope:
-        """Validate and render a risk-to-test traceability ledger as a markdown
-        appendix (issue #144). FILE/FORMAT PLUMBING ONLY — the host LLM identifies
-        the risks; this tool never infers them.
-
-        Each row is a dict with: ``risk_id`` (stable within this response),
-        ``risk`` (the statement), ``source_anchor`` (file:line or domain term),
-        ``test`` (a test id OR a 'planned: …' check), ``evidence_status`` (one of
-        planned / passing / failing / stale / accepted_residual), ``residual``
-        (one of open / accepted / mitigated / blocker), and an optional
-        ``repo_map_node_id`` linking to a ``.sumo-qa/repo-map.json`` node.
-
-        Returns the rendered markdown table (the structured appendix the
-        markdown-first verdict carries), a one-line compact summary, the row
-        count, and the count of uncovered blockers (rows that are not passing,
-        not accepted, and marked residual=blocker — the signal the review
-        workflow uses to refuse safe-to-merge). The table is bounded by
-        ``max_rows`` so a large ledger stays inside the host token budget.
+        """Validate and render a risk-to-test ledger as a markdown table; the host
+        names the risks. Row: `risk_id`, `risk`, `source_anchor`, `test` (test id
+        or 'planned: ...'), `evidence_status` (planned / passing / failing / stale
+        / accepted_residual), `residual` (open / accepted / mitigated / blocker),
+        optional `repo_map_node_id`.
         """
         from sumo_qa.ledger_format import compact_summary, format_ledger_markdown
         from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION
@@ -1538,28 +1414,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         local_head_sha: str | None = None,
         max_files: int = 40,
     ) -> FormatContextBundleOutput | ErrorEnvelope:
-        """Validate and render a host-neutral issue/PR CONTEXT BUNDLE as a
-        compact markdown brief for QA review/planning (issue #149). FILE/FORMAT
-        PLUMBING ONLY — the host gathers the facts; this tool never inspects a
-        repo, makes a network call, or assumes GitHub. A partial/empty bundle is
-        first-class: when little is supplied, the consuming skill falls back to
-        direct repo inspection.
-
-        Common natural-language phrasings that map to this tool:
-        "build the review context bundle", "format this PR/issue context for
-        review", "render the context bundle with its freshness", "summarise the
-        diff/CI/test facts I gathered".
-
-        ``bundle`` is a dict with optional ``issue_summary``, ``pr_summary``,
-        ``head_sha``, ``changed_files`` (each ``{path, change_kind}``),
-        ``test_evidence`` / ``ci_status`` (each ``{result, freshness, source}``,
-        plus optional ``captured_at`` / ``detail``), and ``user_constraints``.
-        ``freshness`` is one of fresh/stale/unknown/absent; only a FRESH PASS is
-        safety-supporting — a stale, unknown, or absent fact is rendered with an
-        explicit "do not claim safety from it" warning. Supply ``local_head_sha``
-        (the host's live local head) to detect a bundle-vs-local-state conflict;
-        when the shas differ the brief calls out the divergence instead of
-        trusting either side. ``max_files`` bounds the changed-file list.
+        """Render a host-gathered issue/PR context bundle as a compact markdown
+        brief; no repo or network access. `bundle` (all optional):
+        `issue_summary`, `pr_summary`, `head_sha`, `changed_files` ({path,
+        change_kind}), `test_evidence` / `ci_status` ({result, freshness,
+        source}), `user_constraints`. `freshness`: fresh / stale / unknown /
+        absent; only a fresh pass supports safety. `local_head_sha` flags a
+        bundle that diverges from the live head.
         """
         from sumo_qa.context_bundle_format import (
             compact_summary as _bundle_summary,
@@ -1601,39 +1462,16 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         local_head_sha: str | None = None,
         max_reasons: int = 25,
     ) -> FormatQaScorecardOutput | ErrorEnvelope:
-        """Compose a QA READINESS SCORECARD from already-produced evidence and
-        DERIVE a readiness recommendation (issue #151). EVIDENCE SUMMARY, NOT a
-        predictive quality score — it infers no risk, invents no numeric score,
-        and the host can never assert "ready": the verdict is computed.
-
-        Common natural-language phrasings that map to this tool:
-        "is this ready to merge/release", "give me a readiness scorecard",
-        "summarise QA readiness", "release review summary".
-
-        Inputs are all optional and reuse the existing artifacts — nothing is
-        re-defined here:
-        * ``ledger_rows`` — the #144 risk-to-test rows (same shape as
-          ``sumo_qa_format_risk_ledger``); supplies risk coverage + blockers.
-        * ``context_bundle`` — the #149 bundle (same shape as
-          ``sumo_qa_format_context_bundle``); supplies test/CI evidence freshness.
-        * ``coverage`` / ``mutation`` — optional ``{..., freshness}`` signals;
-          absent ⇒ reported as "not measured", never assumed passing, and never
-          allowed to outweigh an uncovered high-impact risk.
-        * ``scope`` — optional label (a PR title, a release name).
-        * ``local_head_sha``: the host's live local head. Flags a stale bundle
-          when it differs from the bundle's ``head_sha``. When the bundle names
-          a ``head_sha`` and this is omitted, the bundle is UNVERIFIABLE and its
-          fresh-passing facts cannot support ``ready`` (a distinct reason, not
-          "stale"). A bundle with no ``head_sha`` keeps the partial contract.
-
-        Returns the four-state recommendation (ready / ready_with_accepted_
-        residuals / blocked / insufficient_evidence), ``is_ready`` (true only for
-        the two ready states), the uncovered-blocker / residual counts, the
-        stale-evidence and not-measured dimension lists, the rendered markdown,
-        a one-line ``compact_summary`` to drop inline in short answers, and a
-        JSON-able ``serialized`` snapshot a downstream report (#157) can render.
-        Readiness is refused whenever a risk is an uncovered blocker or evidence
-        is stale — that guarantee is structural, not advisory.
+        """Compute QA readiness ("is this ready to merge") from existing evidence:
+        ready, ready_with_accepted_residuals, blocked or insufficient_evidence.
+        Infers no risk; an uncovered blocker or stale evidence refuses ready.
+        Optional inputs: `ledger_rows` (rows of `risk_id`, `risk`,
+        `source_anchor`, `test`, `evidence_status`: planned / passing / failing /
+        stale / accepted_residual, `residual`: open / accepted / mitigated /
+        blocker), `context_bundle` (as `sumo_qa_format_context_bundle` takes),
+        `coverage` / `mutation` (absent means not measured), `scope`, and
+        `local_head_sha`, without which a bundle naming a `head_sha` cannot
+        support ready.
         """
         from sumo_qa.scorecard_format import (
             compact_summary,
@@ -1788,33 +1626,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         risk_ledger_rows: list[dict[str, Any]] | None = None,
         context_bundle: dict[str, Any] | None = None,
     ) -> GenerateQAReportOutput | ErrorEnvelope:
-        """Compose the persisted ``.sumo-qa`` artifacts (repo map, diff
-        impact, risk ledger, context bundle) into the local QA report and
-        return a compact readiness summary. The
-        rendered HTML body never rides back to the host — pass ``write_to`` to
-        persist the self-contained static page and open it from disk.
-
-        Common natural-language phrasings that map to this tool:
-        "generate the QA report", "build the QA dashboard for this repo",
-        "give me the local QA readiness report", "render qa-report.html".
-
-        ``root`` is the repository to report on (absolute or relative to the
-        MCP server's working directory). Every artifact is OPTIONAL: a missing,
-        invalid, or stale source renders an explicit honest state. The readiness
-        verdict (ready / ready_with_accepted_residuals / blocked /
-        insufficient_evidence) is derived by the QaScorecard readiness engine
-        from the risk ledger + context bundle — missing data is never reported
-        as passing evidence.
-
-        ``risk_ledger_rows`` / ``context_bundle`` are inline overrides for the
-        chat flow where the ledger/bundle was built in-conversation and never
-        persisted (the same shapes ``sumo_qa_format_risk_ledger`` /
-        ``sumo_qa_format_context_bundle`` accept). They take precedence over
-        any on-disk file and are validated BEFORE anything is written.
-
-        ``write_to`` is optional — when set, the page is written there
-        (relative paths land under the target repo; the conventional value is
-        ``.sumo-qa/qa-report.html``). Without it the tool writes nothing.
+        """Compose the `.sumo-qa` artifacts under `root` into the local QA report and
+        return a compact readiness summary. A missing or stale artifact is shown
+        as such, never as passing. `risk_ledger_rows` / `context_bundle` override
+        the files; `write_to` (conventionally `.sumo-qa/qa-report.html`) writes
+        the page, otherwise nothing is written.
         """
         from sumo_qa.context_bundle_validation import load_context_bundle as _load_bundle
         from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION as _LEDGER_SCHEMA_VERSION
@@ -1902,24 +1718,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         coverage: dict[str, Any],
         write_to: str | None = ".sumo-qa/coverage.json",
     ) -> RecordCoverageOutput | ErrorEnvelope:
-        """Validate a host-collected coverage summary and persist it as the
-        ``.sumo-qa/coverage.json`` artifact the QA report loads (issue #147
-        follow-up). FILE/FORMAT PLUMBING ONLY — the host skill runs the coverage
-        tool and the LLM reads its output (any format); this tool runs nothing
-        and infers nothing.
-
-        Common natural-language phrasings that map to this tool:
-        "record the coverage result", "save coverage into the QA report",
-        "persist the coverage summary".
-
-        ``coverage`` is a dict with optional ``line_percent`` (0–100),
-        ``freshness`` (fresh/stale/unknown/absent), ``detail`` (e.g. uncovered
-        changed files), plus ``source_tool`` and ``generated_at`` provenance.
-        Omit ``line_percent`` for a not-measured signal. Validation fails BEFORE
-        any write. Coverage is REPORTED, never gated — it cannot flip a verdict.
-
-        ``write_to`` defaults to the conventional ``.sumo-qa/coverage.json``
-        under the target repo; a relative path is confined to ``root``.
+        """Validate a host-collected coverage summary and save it as
+        `.sumo-qa/coverage.json` for the QA report; a relative `write_to` stays
+        inside `root`. `coverage`: `line_percent` (0-100; omit for not measured),
+        `freshness` (fresh / stale / unknown / absent), `detail`, `source_tool`,
+        `generated_at`. Reported, never gated.
         """
         from sumo_qa.coverage_models import COVERAGE_SCHEMA_VERSION, load_coverage_artifact
 
@@ -1959,24 +1762,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         mutation: dict[str, Any],
         write_to: str | None = ".sumo-qa/mutation.json",
     ) -> RecordMutationOutput | ErrorEnvelope:
-        """Validate a host-collected mutation summary and persist it as the
-        ``.sumo-qa/mutation.json`` artifact the QA report loads (issue #147
-        follow-up). FILE/FORMAT PLUMBING ONLY — the host skill runs the mutation
-        tool and the LLM reads its output (any format); this tool runs nothing
-        and infers nothing.
-
-        Common natural-language phrasings that map to this tool:
-        "record the mutation result", "save the survivors into the QA report",
-        "persist the mutation summary".
-
-        ``mutation`` is a dict with optional ``survivors`` (>= 0), ``killed``
-        (>= 0), ``freshness`` (fresh/stale/unknown/absent), ``detail`` (e.g.
-        where survivors live), plus ``source_tool`` and ``generated_at``
-        provenance. Omit the counts for a not-measured signal. Validation fails
-        BEFORE any write. Mutation evidence is REPORTED, never gated.
-
-        ``write_to`` defaults to the conventional ``.sumo-qa/mutation.json``
-        under the target repo; a relative path is confined to ``root``.
+        """Validate a host-collected mutation summary and save it as
+        `.sumo-qa/mutation.json` for the QA report; a relative `write_to` stays
+        inside `root`. `mutation`: `survivors`, `killed` (>= 0; omit for not
+        measured), `freshness` (fresh / stale / unknown / absent), `detail`,
+        `source_tool`, `generated_at`. Reported, never gated.
         """
         from sumo_qa.coverage_models import COVERAGE_SCHEMA_VERSION, load_mutation_artifact
 
@@ -2227,44 +2017,16 @@ def build_mcp_server(service: QAShiftLeftService | None = None, profile: str | N
         include_body: bool = True,
         catalogues: str | None = None,
     ) -> str:
-        """Load just one slice of a skill's context as a JSON string, instead of
-        the whole SKILL.md body.
-
-        `mode`:
-          - "manifest" — routing summary + section list + module list;
-          - "section"  — one section's text (pass `section`, an id from the
-            manifest);
-          - "module"   — one module's text (pass `module`, an id from the
-            manifest);
-          - "full"     — the entire SKILL.md body, byte-for-byte identical to the
-            existing zero-argument skill tool for `skill_name`; a body over the
-            host's per-response token cap is returned as an `oversize` pointer
-            to the manifest/section/module slices instead of failing;
-          - "bundle": a routed skill's working context in ONE call: the
-            body (omit with `include_body=false` when you already hold it),
-            the `modules` named (comma-separated ids, matched exactly), and
-            for `classification` (comma-separated ids, kept in request order)
-            its catalogue entries, looked up by exact id (unlike
-            `load_catalogue_entry`, which also matches case-insensitively and
-            by heading), plus the standards and rules, which equal
-            `sumo_qa_load_standards` / `sumo_qa_load_rules` called with the
-            same argument and are returned exactly as those loaders return
-            them, plus the whole `catalogues` named (comma-separated:
-            techniques, principles, classifications, approaches), each
-            exactly as its `sumo_qa_load_<name>` loader returns it. Any id
-            or name that matches nothing returns an error envelope; an
-            exception from a loader returns an unreadable envelope.
-
-        The section/module/full/bundle slices each return `content_hash` (sha256 of the
-        returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this
-        slice changed since hash X?": a match returns `changed=false` with the
-        body omitted (saving the re-send), a mismatch returns `changed=true` with
-        the body. This is derived per call — there is NO hidden session cache, so
-        it is safe across hosts regardless of MCP session identity.
-
-        Never raises: an unknown skill_name/mode/section/module, a missing
-        required arg, or a path-traversal attempt returns a JSON error envelope
-        listing the valid choices. Read-only and local-only."""
+        """Load one slice of a skill as a JSON string. `mode`: "manifest" (section
+        and module ids); "section" / "module" (pass `section` / `module`); "full"
+        (the whole body, or an `oversize` pointer to the slices); "bundle" (one
+        call: the body unless `include_body=false`, comma-separated `modules`, the
+        entries, standards and rules for comma-separated exact `classification`
+        ids, and whole `catalogues`: techniques, principles, classifications,
+        approaches). Slices carry `content_hash`; passing it as `known_hash`
+        returns `changed=false` without the body when unchanged. Bad input returns
+        an error envelope listing the valid choices.
+        """
         options: dict[str, Any] = {
             "section": section,
             "module": module,

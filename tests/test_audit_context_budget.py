@@ -153,6 +153,14 @@ def test_tools_list_is_measured_per_profile_with_its_registry_tool_count(shipped
     assert lists["core"]["tokens"] < lists["full"]["tokens"]
 
 
+def test_core_tools_list_stays_within_the_6000_token_target(shipped_rows):
+    # The core target is fixed here, not only in pyproject.toml, so raising the
+    # shipped budget past it fails the suite; the shipped-budgets test then holds
+    # the measurement to that budget.
+    core = next(r for r in shipped_rows if r["area"] == "tools/list" and r["profile"] == "core")
+    assert core["budget"] <= 6000
+
+
 def test_core_budget_fails_one_token_below_its_measurement(shipped_rows, tmp_path):
     # boundary value analysis: a budget equal to the measured core cost passes,
     # one token less fails, and only the core row is named.
