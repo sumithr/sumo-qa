@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.76.3](https://github.com/sumithr/sumo-qa/compare/v0.76.2...v0.76.3) (2026-10-22)
+
+
+### Bug Fixes
+
+* **deps-dev:** override basic-ftp to ^6.2.1 for GHSA-c475-qrg2-pj4r ([#863](https://github.com/sumithr/sumo-qa/issues/863)) ([9b35139](https://github.com/sumithr/sumo-qa/commit/9b351396c94f901c2b212cd7cd1146ed18c89c54))
+
 ## [0.76.2](https://github.com/sumithr/sumo-qa/compare/v0.76.1...v0.76.2) (2026-10-22)
 
 
