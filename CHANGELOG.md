@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.76.2](https://github.com/sumithr/sumo-qa/compare/v0.76.1...v0.76.2) (2026-10-22)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump proxy-addr from 2.0.7 to 2.0.8 ([#856](https://github.com/sumithr/sumo-qa/issues/856)) ([6b6c38a](https://github.com/sumithr/sumo-qa/commit/6b6c38adbb1b2174ff1563b33362dfe02c992c06))
+* **deps-dev:** bump ruff from 0.16.10 to 0.17.1 ([#872](https://github.com/sumithr/sumo-qa/issues/872)) ([08d1e0e](https://github.com/sumithr/sumo-qa/commit/08d1e0e8ea147beba95b62ca63b8a2746853db16))
+* **deps-dev:** bump sharp from 0.35.4 to 0.35.5 ([#860](https://github.com/sumithr/sumo-qa/issues/860)) ([55ab0dc](https://github.com/sumithr/sumo-qa/commit/55ab0dccce04c28c76da256aefb812f9d88c761c))
+* **deps:** bump actions/download-artifact from 8.0.1 to 8.0.2 ([#864](https://github.com/sumithr/sumo-qa/issues/864)) ([62c07b3](https://github.com/sumithr/sumo-qa/commit/62c07b381f0ac33186bdbbd6eae3799026db28a2))
+* **deps:** bump actions/setup-node from 7.0.0 to 7.1.0 ([#866](https://github.com/sumithr/sumo-qa/issues/866)) ([9f03edf](https://github.com/sumithr/sumo-qa/commit/9f03edf856d0d2614706af5b05454014dd15be36))
+* **deps:** bump actions/upload-artifact from 7.0.1 to 7.0.2 ([#865](https://github.com/sumithr/sumo-qa/issues/865)) ([3140561](https://github.com/sumithr/sumo-qa/commit/3140561f77e4178c059831cc14bcc16cff47bcb9))
+* **deps:** bump opentelemetry-api from 1.45.0 to 1.45.1 in /.github/release ([#869](https://github.com/sumithr/sumo-qa/issues/869)) ([ed64833](https://github.com/sumithr/sumo-qa/commit/ed64833f3e010625dff093fca129d1c3bfe7029f))
+* **deps:** bump pycparser from 3.0 to 3.11 in /.github/release ([#870](https://github.com/sumithr/sumo-qa/issues/870)) ([0e76b2a](https://github.com/sumithr/sumo-qa/commit/0e76b2acce4086b019e58bfc039c1929ecbdf9a5))
+* **deps:** bump pydantic from 2.13.5 to 2.14.1 in /.github/release ([#874](https://github.com/sumithr/sumo-qa/issues/874)) ([d50f807](https://github.com/sumithr/sumo-qa/commit/d50f80779cb2beb833c3799d92532481f48d7f1b))
+* **deps:** bump rpds-py from 2026.6.3 to 2026.9.1 in /.github/release ([#871](https://github.com/sumithr/sumo-qa/issues/871)) ([def2155](https://github.com/sumithr/sumo-qa/commit/def2155a69c99206cbda814ec6361f678b7eabc3))
+* **deps:** bump truststore from 0.10.4 to 0.10.5 in /.github/release ([#873](https://github.com/sumithr/sumo-qa/issues/873)) ([84e4c73](https://github.com/sumithr/sumo-qa/commit/84e4c736e3173d7ca62dfc0bfc32517a6b53c3b9))
+
 ## [0.76.1](https://github.com/sumithr/sumo-qa/compare/v0.76.0...v0.76.1) (2026-10-07)
 
 
