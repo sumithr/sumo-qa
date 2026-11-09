@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.76.4](https://github.com/sumithr/sumo-qa/compare/v0.76.3...v0.76.4) (2026-11-09)
+
+
+### Bug Fixes
+
+* **deps:** bump pypa/gh-action-pypi-publish from 1.14.2 to 1.14.3 ([#877](https://github.com/sumithr/sumo-qa/issues/877)) ([bd3c58d](https://github.com/sumithr/sumo-qa/commit/bd3c58ddf4a73a5473afe0a16a4d25d08dfc4775))
+
 ## [0.76.3](https://github.com/sumithr/sumo-qa/compare/v0.76.2...v0.76.3) (2026-10-22)
 
 
