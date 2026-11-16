@@ -4,4 +4,4 @@
 # regenerate the lock with the command in requirements.txt's header.
 build==1.6.1
 hatchling==1.32.4
-cyclonedx-bom==7.5.0
+cyclonedx-bom==8.0.1
